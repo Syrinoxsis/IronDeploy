@@ -197,6 +197,13 @@ def _register_service(action: str) -> None:
         "password": password,
         "description": SERVICE_DESCRIPTION,
         "delayedstart": False,
+        # pythonservice.exe does not reliably load pywin32.pth from a virtual
+        # environment and can fail before importing the service class with
+        # "No module named 'servicemanager'".  Host the service with the
+        # virtual environment's regular interpreter instead; normal Python
+        # startup processes the .pth file before this script imports pywin32.
+        "exeName": sys.executable,
+        "exeArgs": f'"{Path(__file__).resolve()}"',
     }
 
     if action == "install-from-stdin":
@@ -217,6 +224,12 @@ def _register_service(action: str) -> None:
 
 
 def main() -> None:
+    if len(sys.argv) == 1:
+        servicemanager.Initialize()
+        servicemanager.PrepareToHostSingle(IronAPIService)
+        servicemanager.StartServiceCtrlDispatcher()
+        return
+
     if len(sys.argv) != 2:
         raise SystemExit(
             "This helper is managed by 4. Install-IronAPIService.ps1."
