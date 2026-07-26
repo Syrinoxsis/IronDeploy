@@ -55,17 +55,37 @@ Install dependencies from `Api`:
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-Start the application from the IronDeploy root. Listener settings come from
-`.env` and can be edited by the main setup master:
+Start the application in the foreground from the repository root. Listener
+settings come from `.env` and can be edited by SetupWeb:
 
 ```powershell
-.\Start-IronAPI.ps1
+& ".\3. Start-IronAPI.ps1"
 ```
 
-The root script forwards to `.\Tools\Start-IronAPI.ps1`, which reads `.env`,
-verifies the virtual environment, creates the `Data`, `ODJ\pending`, and `Logs`
-folders, and runs uvicorn. Use `-BindHost`, `-Port`, or `-AccessLog` to override
-`.env` for a single run.
+The root script forwards to `Core\Tools\Start-IronAPI.ps1`, which reads `.env`,
+verifies the virtual environment, creates the `Data`, `ODJ\pending`, and
+`Logs` folders, and runs uvicorn. Use `-BindHost`, `-Port`, or `-AccessLog` to
+override `.env` for a single run.
+
+After verifying the foreground start, stop it with `Ctrl+C` and optionally
+install IronAPI as an automatically started Windows Service:
+
+```powershell
+& ".\4. Install-IronAPIService.ps1"
+```
+
+The installer recommends a dedicated `DOMAIN\user` identity, securely requests
+its password, grants **Log on as a service**, and configures restart recovery.
+It never selects `LocalSystem` by default: that high-privilege identity is
+available only after an explicit warning and typed confirmation. At the end,
+the installer asks whether to start the service.
+
+The selected identity must be able to read the application, virtual
+environment, and base Python installation and modify `Core\Data`, `Core\ODJ`,
+and `Core\Logs`. LDAP credentials in Windows Credential Manager are
+identity-specific, so `IronDeploy-LDAP` must be created in that service
+account's profile. Service output is appended to
+`Core\Logs\IronAPI-service.log`.
 
 ## API
 
