@@ -7,7 +7,6 @@ os.environ.setdefault("IRONAPI_NAME_START", "1")
 os.environ.setdefault("IRONAPI_ALLOWED_CLIENT_NETWORKS", "192.0.2.0/24")
 os.environ.setdefault("IRONAPI_LDAP_SERVER", "dc01.example.test")
 os.environ.setdefault("IRONAPI_LDAP_BASE_DN", "DC=example,DC=test")
-os.environ.setdefault("IRONAPI_LDAP_CREDENTIAL_TARGET", "IronDeploy-LDAP")
 os.environ.setdefault("IRONAPI_LDAP_USE_SSL", "false")
 os.environ.setdefault("IRONAPI_LDAP_CONNECT_TIMEOUT", "5")
 os.environ.setdefault("IRONAPI_ODJ_DOMAIN", "example.test")
@@ -188,7 +187,7 @@ class DeploymentTimeoutTests(unittest.TestCase):
 
             with patch(
                 "app.deployments.get_settings",
-                return_value=SimpleNamespace(deployment_timeout_minutes=45),
+                return_value=self.odj_settings(deployment_timeout_minutes=45),
             ):
                 self.assertEqual(expire_stale_deployments(session, now), 1)
 

@@ -9,6 +9,7 @@ Prompts for a DOMAIN\user service identity and securely reads its password.
 LocalSystem is available only as an explicit, warned alternative. The script
 grants SeServiceLogonRight to a domain identity, registers the pywin32 service,
 configures restart-on-failure actions, and asks whether to start it now.
+LDAP searches and djoin.exe will run as the selected service identity.
 
 The password is sent to the Python registration helper over redirected stdin.
 It is never included in process arguments or written to disk.
@@ -221,8 +222,8 @@ function Read-ServiceIdentity {
             Write-Host "WARNING: LocalSystem has full local-machine control." `
                 -ForegroundColor Red
             Write-Host (
-                "It also cannot use credentials saved in another user's " +
-                "Windows Credential Manager profile."
+                "LDAP searches and djoin.exe will then run as the machine's " +
+                "LocalSystem identity, which normally lacks the required AD rights."
             ) -ForegroundColor Yellow
             Write-Host (
                 "Prefer a dedicated DOMAIN\svc_irondeploy-style account " +

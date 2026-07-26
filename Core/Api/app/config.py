@@ -83,7 +83,6 @@ class Settings(BaseModel):
 
     ldap_server: str | None
     ldap_base_dn: str | None
-    ldap_credential_target: str
     ldap_use_ssl: bool
     ldap_connect_timeout: int = Field(ge=1, le=60)
 
@@ -92,7 +91,7 @@ class Settings(BaseModel):
     odj_blob_dir: Path
     odj_djoin_path: Path
     odj_provision_timeout: int = Field(ge=1, le=300)
-    odj_blob_max_age_minutes: int = Field(default=120, ge=5, le=1440)
+    odj_blob_max_age_minutes: int = Field(default=5, ge=5, le=1440)
 
     @property
     def ldap_enabled(self) -> bool:
@@ -101,7 +100,7 @@ class Settings(BaseModel):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings(
+    settings = Settings(
         database_url=_expand_irondeploy_root(
             _get_required_env("IRONAPI_DATABASE_URL")
         ),
@@ -120,7 +119,6 @@ def get_settings() -> Settings:
         ),
         ldap_server=_get_optional_env("IRONAPI_LDAP_SERVER"),
         ldap_base_dn=_get_optional_env("IRONAPI_LDAP_BASE_DN"),
-        ldap_credential_target=_get_required_env("IRONAPI_LDAP_CREDENTIAL_TARGET"),
         ldap_use_ssl=_get_bool("IRONAPI_LDAP_USE_SSL"),
         ldap_connect_timeout=_get_int("IRONAPI_LDAP_CONNECT_TIMEOUT"),
         odj_domain=_get_required_env("IRONAPI_ODJ_DOMAIN"),
@@ -131,6 +129,7 @@ def get_settings() -> Settings:
         odj_djoin_path=Path(_get_required_env("IRONAPI_ODJ_DJOIN_PATH")),
         odj_provision_timeout=_get_int("IRONAPI_ODJ_PROVISION_TIMEOUT"),
         odj_blob_max_age_minutes=_get_int_or_default(
-            "IRONAPI_ODJ_BLOB_MAX_AGE_MINUTES", 120
+            "IRONAPI_ODJ_BLOB_MAX_AGE_MINUTES", 5
         ),
     )
+    return settings

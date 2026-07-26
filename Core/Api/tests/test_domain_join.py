@@ -36,7 +36,6 @@ class DomainJoinTests(unittest.TestCase):
             allowed_client_networks=(IPv4Network("192.0.2.0/24"),),
             ldap_server=None,
             ldap_base_dn=None,
-            ldap_credential_target="IronDeploy-LDAP",
             ldap_use_ssl=False,
             ldap_connect_timeout=5,
             odj_domain="example.test",

@@ -268,190 +268,9 @@ function Get-MaskedDatabaseUrl {
     return $DatabaseUrl
 }
 
-function Initialize-CredentialManagerType {
-    if ("IronDeploy.CredentialManager" -as [type]) {
-        return
-    }
-
-    Add-Type -TypeDefinition @'
-using System;
-using System.ComponentModel;
-using System.Runtime.InteropServices;
-using System.Text;
-
-namespace IronDeploy
-{
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    internal struct NativeCredential
-    {
-        public UInt32 Flags;
-        public UInt32 Type;
-        public string TargetName;
-        public string Comment;
-        public System.Runtime.InteropServices.ComTypes.FILETIME LastWritten;
-        public UInt32 CredentialBlobSize;
-        public IntPtr CredentialBlob;
-        public UInt32 Persist;
-        public UInt32 AttributeCount;
-        public IntPtr Attributes;
-        public string TargetAlias;
-        public string UserName;
-    }
-
-    public static class CredentialManager
-    {
-        private const UInt32 GenericCredential = 1;
-        private const UInt32 LocalMachinePersistence = 2;
-        private const int ErrorNotFound = 1168;
-
-        [DllImport("advapi32.dll", EntryPoint = "CredWriteW",
-            CharSet = CharSet.Unicode, SetLastError = true)]
-        private static extern bool CredWrite(
-            ref NativeCredential credential,
-            UInt32 flags);
-
-        [DllImport("advapi32.dll", EntryPoint = "CredReadW",
-            CharSet = CharSet.Unicode, SetLastError = true)]
-        private static extern bool CredRead(
-            string target,
-            UInt32 type,
-            UInt32 flags,
-            out IntPtr credential);
-
-        [DllImport("advapi32.dll", SetLastError = false)]
-        private static extern void CredFree(IntPtr buffer);
-
-        public static string ReadUserName(string target)
-        {
-            IntPtr pointer;
-            if (!CredRead(target, GenericCredential, 0, out pointer))
-            {
-                int error = Marshal.GetLastWin32Error();
-                if (error == ErrorNotFound)
-                    return null;
-                throw new Win32Exception(error);
-            }
-
-            try
-            {
-                NativeCredential credential =
-                    (NativeCredential)Marshal.PtrToStructure(
-                        pointer,
-                        typeof(NativeCredential));
-                return credential.UserName;
-            }
-            finally
-            {
-                CredFree(pointer);
-            }
-        }
-
-        public static void WriteGeneric(
-            string target,
-            string userName,
-            string password)
-        {
-            byte[] secret = Encoding.Unicode.GetBytes(password);
-            if (secret.Length > 2560)
-                throw new ArgumentException("Credential secret is too long.");
-
-            IntPtr secretPointer = IntPtr.Zero;
-            try
-            {
-                secretPointer = Marshal.AllocCoTaskMem(secret.Length);
-                Marshal.Copy(secret, 0, secretPointer, secret.Length);
-
-                NativeCredential credential = new NativeCredential();
-                credential.Type = GenericCredential;
-                credential.TargetName = target;
-                credential.UserName = userName;
-                credential.CredentialBlob = secretPointer;
-                credential.CredentialBlobSize = (UInt32)secret.Length;
-                credential.Persist = LocalMachinePersistence;
-
-                if (!CredWrite(ref credential, 0))
-                    throw new Win32Exception(Marshal.GetLastWin32Error());
-            }
-            finally
-            {
-                Array.Clear(secret, 0, secret.Length);
-                if (secretPointer != IntPtr.Zero)
-                {
-                    for (int index = 0; index < secret.Length; index++)
-                        Marshal.WriteByte(secretPointer, index, 0);
-                    Marshal.FreeCoTaskMem(secretPointer);
-                }
-            }
-        }
-    }
-}
-'@
-}
-
-function Get-CredentialUserName {
-    param([string]$Target)
-
-    try {
-        Initialize-CredentialManagerType
-        return [IronDeploy.CredentialManager]::ReadUserName($Target)
-    } catch {
-        Write-Host (
-            "Unable to read Windows Credential Manager: " +
-            $_.Exception.Message
-        ) -ForegroundColor Yellow
-        return $null
-    }
-}
-
-function Set-LdapCredential {
-    $settings = Read-EnvSettings
-    $target = Get-Setting $settings "IRONAPI_LDAP_CREDENTIAL_TARGET" "IronDeploy-LDAP"
-
-    Write-Heading "LDAP credential"
-    Write-Host "Credential target: $target"
-    $existingUserName = Get-CredentialUserName $target
-    if (![string]::IsNullOrEmpty($existingUserName)) {
-        Write-Host "Existing username: $existingUserName"
-    }
-
-    $credential = Get-Credential -Message (
-        "Enter the LDAP domain credential for target '$target'"
-    )
-    if ($null -eq $credential) {
-        Write-Host "Credential update cancelled." -ForegroundColor Yellow
-        return
-    }
-
-    $networkCredential = $credential.GetNetworkCredential()
-    if ([string]::IsNullOrEmpty($networkCredential.Password)) {
-        Write-Host "Credential password cannot be empty." -ForegroundColor Red
-        return
-    }
-    try {
-        Initialize-CredentialManagerType
-        [IronDeploy.CredentialManager]::WriteGeneric(
-            $target,
-            $credential.UserName,
-            $networkCredential.Password
-        )
-        Write-Host "Credential '$target' saved." -ForegroundColor Green
-    } finally {
-        $networkCredential.Password = ""
-        $networkCredential = $null
-        $credential = $null
-    }
-}
-
 function Show-CurrentConfiguration {
     $settings = Read-EnvSettings
-    $credentialTarget = Get-Setting `
-        $settings `
-        "IRONAPI_LDAP_CREDENTIAL_TARGET" `
-        "IronDeploy-LDAP"
-    $credentialUser = Get-CredentialUserName $credentialTarget
-    if ([string]::IsNullOrEmpty($credentialUser)) {
-        $credentialUser = "<not found>"
-    }
+    $identityName = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 
     Write-Heading "Current IronAPI configuration"
     Write-Host (
@@ -474,7 +293,7 @@ function Show-CurrentConfiguration {
         "LDAP base DN : " +
         (Get-Setting $settings "IRONAPI_LDAP_BASE_DN" "<disabled>")
     )
-    Write-Host "Credential   : $credentialTarget ($credentialUser)"
+    Write-Host "Run-as user  : $identityName"
     Write-Host (
         "ODJ domain   : " +
         (Get-Setting $settings "IRONAPI_ODJ_DOMAIN" "<missing>")
@@ -496,7 +315,7 @@ function Show-CurrentConfiguration {
     )
     Write-Host (
         "Blob max age : " +
-        (Get-Setting $settings "IRONAPI_ODJ_BLOB_MAX_AGE_MINUTES" "120") +
+        (Get-Setting $settings "IRONAPI_ODJ_BLOB_MAX_AGE_MINUTES" "5") +
         " minutes"
     )
 }
@@ -629,26 +448,6 @@ function Configure-Ldap {
         return
     }
 
-    $target = Read-ConfiguredValue `
-        -Label "Windows Credential Manager target" `
-        -HelpText (
-            "Name of the Generic Credential entry, not the username. " +
-            "Example: IronDeploy-LDAP."
-        ) `
-        -CurrentValue (
-            Get-Setting `
-                $settings `
-                "IRONAPI_LDAP_CREDENTIAL_TARGET" `
-                "IronDeploy-LDAP"
-        ) `
-        -Validator {
-            param($value)
-            if ($value.Length -gt 256) {
-                return "Credential target is too long."
-            }
-            return $null
-        }
-
     $useSslCurrent = (
         Get-Setting $settings "IRONAPI_LDAP_USE_SSL" "false"
     ) -match "^(?i:true|1|yes|y|on)$"
@@ -678,25 +477,9 @@ function Configure-Ldap {
     Save-EnvUpdates ([ordered]@{
         IRONAPI_LDAP_SERVER = $server
         IRONAPI_LDAP_BASE_DN = $baseDn
-        IRONAPI_LDAP_CREDENTIAL_TARGET = $target
         IRONAPI_LDAP_USE_SSL = $useSsl.ToString().ToLowerInvariant()
         IRONAPI_LDAP_CONNECT_TIMEOUT = $timeout
     })
-
-    if (![string]::IsNullOrEmpty($server)) {
-        $replaceCredential = Read-BooleanValue `
-            -Label "Set or replace the LDAP credential now" `
-            -HelpText (
-                "Stores the LDAP username and password in Windows Credential " +
-                "Manager under the target configured above."
-            ) `
-            -CurrentValue (
-                [string]::IsNullOrEmpty((Get-CredentialUserName $target))
-            )
-        if ($replaceCredential) {
-            Set-LdapCredential
-        }
-    }
 }
 
 function Configure-Odj {
@@ -809,11 +592,11 @@ function Configure-Odj {
         -Label "Pending blob maximum age in minutes" `
         -HelpText (
             "Past this age a pending blob is re-provisioned instead of reused " +
-            "and purged as an orphan. Keep it above the deployment timeout. " +
-            "Example: 120."
+            "and purged as an orphan. This is the short provision-to-download " +
+            "window, not the total deployment timeout. Example: 5."
         ) `
         -CurrentValue (
-            Get-Setting $settings "IRONAPI_ODJ_BLOB_MAX_AGE_MINUTES" "120"
+            Get-Setting $settings "IRONAPI_ODJ_BLOB_MAX_AGE_MINUTES" "5"
         ) `
         -Validator {
             param($value)
@@ -999,6 +782,23 @@ function Test-IronApiConfiguration {
         Write-ValidationFailure "IRONAPI_NAME_START must be non-negative"
     }
 
+    $blobMaxAge = 0
+    $blobMaxAgeValid = [int]::TryParse(
+        (Get-Setting $settings "IRONAPI_ODJ_BLOB_MAX_AGE_MINUTES" "5"),
+        [ref]$blobMaxAge
+    )
+    if (
+        $blobMaxAgeValid -and
+        $blobMaxAge -ge 5 -and
+        $blobMaxAge -le 1440
+    ) {
+        Write-ValidationPass "ODJ blob lifetime is valid"
+    } else {
+        Write-ValidationFailure (
+            "IRONAPI_ODJ_BLOB_MAX_AGE_MINUTES must be from 5 to 1440"
+        )
+    }
+
     $blobDirectorySetting = Get-Setting `
         $settings `
         "IRONAPI_ODJ_BLOB_DIR" `
@@ -1073,37 +873,40 @@ function Test-IronApiConfiguration {
             )
         }
 
-        $target = Get-Setting `
-            $settings `
-            "IRONAPI_LDAP_CREDENTIAL_TARGET" `
-            "IronDeploy-LDAP"
-        $credentialUser = Get-CredentialUserName $target
-        if ([string]::IsNullOrEmpty($credentialUser)) {
-            Write-ValidationFailure (
-                "Windows credential '$target' was not found for the current user"
-            )
-        } else {
-            Write-ValidationPass "LDAP credential exists for $credentialUser"
-        }
+        Write-ValidationPass (
+            "LDAP will authenticate as the IronAPI process identity"
+        )
     }
 
     $identityName = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-    if (
-        ![string]::IsNullOrEmpty($env:COMPUTERNAME) -and
-        $identityName.StartsWith(
-            "$($env:COMPUTERNAME)\",
-            [System.StringComparison]::OrdinalIgnoreCase
-        )
-    ) {
+    $localIdentityPrefixes = @(
+        "$($env:COMPUTERNAME)\",
+        "NT AUTHORITY\",
+        "BUILTIN\"
+    )
+    $isLocalIdentity = $false
+    foreach ($prefix in $localIdentityPrefixes) {
+        if (
+            ![string]::IsNullOrEmpty($prefix) -and
+            $identityName.StartsWith(
+                $prefix,
+                [System.StringComparison]::OrdinalIgnoreCase
+            )
+        ) {
+            $isLocalIdentity = $true
+            break
+        }
+    }
+    if ($isLocalIdentity) {
         Write-ValidationWarning (
             "Current identity '$identityName' is local. Run the IronAPI service " +
-            "as a domain account with create-computer rights in the configured OU."
+            "as a domain account with AD read and create/reuse-computer rights."
         )
     } else {
         Write-ValidationPass "Current identity appears to be a domain identity"
         Write-ValidationWarning (
-            "The script cannot safely test OU create rights without creating " +
-            "an AD computer object."
+            "The script cannot safely test AD read/create/reuse rights without " +
+            "performing domain operations."
         )
     }
 
@@ -1158,10 +961,9 @@ function Show-Menu {
     Write-Host "3. Computer naming"
     Write-Host "4. LDAP"
     Write-Host "5. Offline Domain Join"
-    Write-Host "6. LDAP credential"
-    Write-Host "7. Validate configuration"
-    Write-Host "8. Restart IronAPI service"
-    Write-Host "9. Run full setup"
+    Write-Host "6. Validate configuration"
+    Write-Host "7. Restart IronAPI service"
+    Write-Host "8. Run full setup"
     Write-Host "0. Exit"
 }
 
@@ -1194,10 +996,9 @@ while ($true) {
         "3" { Configure-Naming }
         "4" { Configure-Ldap }
         "5" { Configure-Odj }
-        "6" { Set-LdapCredential }
-        "7" { Test-IronApiConfiguration | Out-Null }
-        "8" { Restart-IronApiService }
-        "9" { Invoke-FullSetup }
+        "6" { Test-IronApiConfiguration | Out-Null }
+        "7" { Restart-IronApiService }
+        "8" { Invoke-FullSetup }
         "0" { return }
         default {
             Write-Host "Unknown option." -ForegroundColor Yellow

@@ -139,8 +139,8 @@ def purge_stale_domain_join_blobs(
 
     A blob is only needed between provisioning and the WinPE download that
     follows it within seconds, so anything older than the configured maximum age
-    is an orphan holding a computer-account secret. Deleting one that belongs to
-    a still-running deployment is harmless: acknowledge answers already_deleted.
+    is treated as an expired computer-account secret. A client that does not
+    download within this window must provision again.
     """
     global _last_purge_at
 
