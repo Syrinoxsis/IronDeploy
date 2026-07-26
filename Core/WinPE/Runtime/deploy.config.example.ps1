@@ -8,7 +8,6 @@ $ApiServerCertificateType = "self_signed"
 $ApiServerCertificateBase64 = ""
 $ImagesPath = "Z:\Images"
 $DriversPath = "Z:\Drivers"
-$PostInstallPath = "Z:\PostInstall"
 $ProgramsPath = "Z:\Programs"
 $ImageIndex = 4
 $SetupLocalAdminName = "localadmin"

@@ -6,29 +6,30 @@ for_cmd.txt
 show_cmd_5sec.cmd
 
 # IronDeploy runtime configuration, state, and generated artifacts
-/IronDeploy/Api/.env
-/IronDeploy/Api/.venv/
-/IronDeploy/Api/data/
-/IronDeploy/SetupWeb/.venv/
-/IronDeploy/WinPE/Runtime/deploy.config.ps1
-/IronDeploy/Share/Images/*.wim
-/IronDeploy/Share/Images/*.esd
-/IronDeploy/Share/Images/.irondeploy-images.json
-/IronDeploy/Share/Drivers/*
-!/IronDeploy/Share/Drivers/DRIVERS AND DRIVERS FOLDERS HERE.txt
-/IronDeploy/Share/Programs/*
-!/IronDeploy/Share/Programs/EXE_AND_MSI_PROGRAMS_HERE.txt
-/IronDeploy/Share/Unattend/unattend-win11-template.xml
-/IronDeploy/Data/*
-/IronDeploy/ODJ/pending/*
-/IronDeploy/Logs/*
-/IronDeploy/.work/*
-/IronDeploy/dist/*
-!/IronDeploy/Data/.gitkeep
-!/IronDeploy/ODJ/pending/.gitkeep
-!/IronDeploy/Logs/.gitkeep
-!/IronDeploy/.work/.gitkeep
-!/IronDeploy/dist/.gitkeep
+/Core/Api/.env
+/Core/Api/.venv/
+/Core/Api/data/
+/Core/SetupWeb/.venv/
+/Core/WinPE/Runtime/deploy.config.ps1
+/Core/Share/Images/*.wim
+/Core/Share/Images/*.esd
+/Core/Share/Images/.irondeploy-images.json
+/Core/Share/Drivers/*
+!/Core/Share/Drivers/DRIVERS AND DRIVERS FOLDERS HERE.txt
+/Core/Share/Programs/*
+!/Core/Share/Programs/EXE_AND_MSI_PROGRAMS_HERE.txt
+/Core/Share/Unattend/unattend-win11-template.xml
+/Core/ServerTemplates/Unattend/unattend-win11-template.xml
+/Core/Data/*
+/Core/ODJ/pending/*
+/Core/Logs/*
+/Core/.work/*
+/Core/dist/*
+!/Core/Data/.gitkeep
+!/Core/ODJ/pending/.gitkeep
+!/Core/Logs/.gitkeep
+!/Core/.work/.gitkeep
+!/Core/dist/.gitkeep
 
 # Python environments and caches
 .venv/

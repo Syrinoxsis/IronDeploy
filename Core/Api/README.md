@@ -35,19 +35,17 @@ value; `-` clears an optional value.
 
 The configurator writes `.env` atomically, stores ignored backups under
 `..\Logs\ConfigBackups`, creates the ODJ directory, and can validate paths, LDAP
-TCP connectivity, and the required Windows Credential Manager entry. It never
-runs `djoin /provision`.
+TCP connectivity, and the current run-as identity. It never runs
+`djoin /provision`.
 
 ```powershell
 .\Setup-IronAPI.ps1 -InitialSetup
 .\Setup-IronAPI.ps1 -Validate
 ```
 
-LDAP passwords are written as Generic Credentials in Windows Credential
-Manager and never stored in `.env`. Run credential setup as the same Windows
-identity that runs IronAPI because Credential Manager entries are
-identity-specific. ODJ provisioning also runs as the IronAPI process identity;
-that identity must have create-computer rights in the configured OU.
+LDAP searches and ODJ provisioning both run as the IronAPI process identity;
+no separate domain password is configured or stored. That identity needs AD
+read permission and the delegated rights to create and reuse computer accounts.
 
 Install dependencies from `Api`:
 
@@ -55,17 +53,35 @@ Install dependencies from `Api`:
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-Start the application from the IronDeploy root. Listener settings come from
-`.env` and can be edited by the main setup master:
+Start the application in the foreground from the repository root. Listener
+settings come from `.env` and can be edited by SetupWeb:
 
 ```powershell
-.\Start-IronAPI.ps1
+& ".\3. Start-IronAPI.ps1"
 ```
 
-The root script forwards to `.\Tools\Start-IronAPI.ps1`, which reads `.env`,
-verifies the virtual environment, creates the `Data`, `ODJ\pending`, and `Logs`
-folders, and runs uvicorn. Use `-BindHost`, `-Port`, or `-AccessLog` to override
-`.env` for a single run.
+The root script forwards to `Core\Tools\Start-IronAPI.ps1`, which reads `.env`,
+verifies the virtual environment, creates the `Data`, `ODJ\pending`, and
+`Logs` folders, and runs uvicorn. Use `-BindHost`, `-Port`, or `-AccessLog` to
+override `.env` for a single run.
+
+After verifying the foreground start, stop it with `Ctrl+C` and optionally
+install IronAPI as an automatically started Windows Service:
+
+```powershell
+& ".\4. Install-IronAPIService.ps1"
+```
+
+The installer recommends a dedicated `DOMAIN\user` identity, securely requests
+its password, grants **Log on as a service**, and configures restart recovery.
+It never selects `LocalSystem` by default: that high-privilege identity is
+available only after an explicit warning and typed confirmation. At the end,
+the installer asks whether to start the service.
+
+The selected identity must be able to read the application, virtual
+environment, and base Python installation and modify `Core\Data`, `Core\ODJ`,
+and `Core\Logs`. It also performs LDAP searches and `djoin.exe` domain
+operations. Service output is appended to `Core\Logs\IronAPI-service.log`.
 
 ## API
 
@@ -139,7 +155,9 @@ deadline from 30–240 minutes.
 The read-only SMB username and password stay server-side in `Api\.env`. They
 are returned only after `/begin` binds the bearer to a deployment. The final
 `unattend.xml` is generated for that deployment and returned through the same
-authenticated API instead of being read directly by WinPE.
+authenticated API instead of being read directly by WinPE. SetupComplete and
+`postinstall.ps1` are likewise served from `ServerTemplates\PostInstall`
+through deployment-owned endpoints; they are not exposed by SMB.
 For HTTPS reverse-proxy mode, SetupWeb lets the operator either keep the
 backward-compatible certificate-validation bypass or enable validation with an
 uploaded X.509 certificate. Self-signed mode trusts the uploaded server
@@ -163,15 +181,17 @@ typical Windows image defaults from a browser:
 
 The page writes the same files SetupWeb creates —
 `WinPE\Runtime\deploy.config.ps1` (post-install account policy) and
-`Share\Unattend\unattend-win11-template.xml` (time zone plus the `localadmin`
-account name and plain-text password). Only the affected lines/elements are
-changed, and each file is backed up under `Logs\ConfigBackups` before it is
-replaced. SMB credentials are unaffected because they live in `Api\.env`.
+`ServerTemplates\Unattend\unattend-win11-template.xml` (time zone plus the
+`localadmin` account name and plain-text password). Only the affected
+lines/elements are changed, and each file is backed up under
+`Logs\ConfigBackups` before it is replaced. SMB credentials are unaffected
+because they live in `Api\.env`.
 
-The local administrator password is stored in plain text inside the unattend
-template (`<Password><Value>`); it is not set anywhere else. WinPE only
-substitutes the computer name into the template and never touches the password.
-Leaving a password field blank keeps the currently saved value.
+The local administrator password is stored in plain text inside the server-only
+unattend template (`<Password><Value>`); it is not set anywhere else. The file
+is outside the SMB share. IronAPI substitutes the computer name and returns the
+final unattend only to the deployment that owns the Bearer. Leaving a password
+field blank keeps the currently saved value.
 
 The built-in Administrator password is written to the unattend
 `<AdministratorPassword>` element (created on demand, so an empty field never
@@ -244,11 +264,13 @@ The argument and SHA-256 map is stored in
 arguments, and hashes from the authenticated API catalog; the deployment GUI
 lists every available program as a checkbox under **Post-install software**.
 The final manifest fixes the selected image/index, selected programs, and
-post-install account flags. Selected program bytes are copied from SMB to
-`C:\IronDeploy\Programs` together with a `programs.json` manifest during the
-`postinstall_copy` stage, and `postinstall.ps1` installs them during Windows
-SetupComplete — `.msi` files through `msiexec.exe /i` and `.exe` files
-directly, each with its stored arguments. WinPE verifies SHA-256 after copying,
+post-install account flags. SetupComplete and the generic post-install script
+are downloaded through the same authenticated HTTP(S) API. Selected program
+bytes are copied from SMB to `C:\IronDeploy\Programs` together with a
+`programs.json` manifest during the `postinstall_copy` stage, and
+`postinstall.ps1` installs them during Windows SetupComplete — `.msi` files
+through `msiexec.exe /i` and `.exe` files directly, each with its stored
+arguments. WinPE verifies SHA-256 after copying,
 and postinstall verifies it again immediately before execution. Exit codes 0
 and 3010 are treated as success. A hash failure is reported as status `failed`
 with reason `hash_mismatch`, displayed as **SHA-256 mismatch**, and the
@@ -305,10 +327,10 @@ When LDAP is configured, it searches computer objects by `cn` and
 The configured start value, default `pc00001`, is returned only after a
 successful LDAP search finds no matching computers.
 
-LDAP credentials are read from the Windows Credential Manager generic
-credential named `IronDeploy-LDAP`. Its username is used as the LDAP user and its secret
-as the LDAP password. The target name can be changed with
-`IRONAPI_LDAP_CREDENTIAL_TARGET`.
+LDAP binds through Windows ADSI without an explicit username or password, so
+the search uses the Windows identity running IronAPI. In service mode this is
+the configured service account; in foreground mode it is the account that
+started `3. Start-IronAPI.ps1`.
 
 LDAP is also used before ODJ provisioning to determine whether the exact
 computer account already exists. The configured base DN must include every OU
@@ -468,17 +490,32 @@ account password and requires the IronAPI process identity to have the
 appropriate rights on that existing object. If LDAP cannot reliably determine
 whether the account exists, provisioning stops without running `djoin.exe`.
 
-`djoin.exe` runs as the IronAPI process identity. That identity must have
-permission to create computer accounts in the configured OU. The domain, OU,
-blob directory, executable path, and timeout can be changed with the
+LDAP search and `djoin.exe` use the same IronAPI process identity. It needs AD
+read permission and the delegated rights to create computer accounts in the
+configured OU and reuse existing managed accounts. The domain, OU, blob
+directory, executable path, and timeout can be changed with the
 `IRONAPI_ODJ_*` settings shown in `.env.example`.
 
 The endpoints are restricted to the IP address that registered the deployment.
 WinPE downloads the blob to its RAM drive and verifies that it is non-empty.
 WinPE then creates a temporary offlineServicing unattend file containing the
 blob and applies it with `dism /Image:C:\ /Apply-Unattend`. After DISM
-succeeds, WinPE acknowledges the blob and IronAPI deletes it. Without an
-acknowledgement, the server keeps the blob for diagnostics or retry.
+succeeds, WinPE acknowledges the blob and IronAPI deletes it.
+
+A blob is a computer-account secret, so it is never kept indefinitely when the
+acknowledgement does not arrive. IronAPI also deletes it when the deployment
+fails, when it times out, and when it completes without having acknowledged.
+Anything still left in `ODJ\pending` past `IRONAPI_ODJ_BLOB_MAX_AGE_MINUTES` is
+purged as an orphan, which covers clients that stopped reporting entirely.
+This is a short provision-to-download window, independent of the total
+deployment timeout. The default is five minutes.
+Within that window a retry reuses the existing blob instead of re-running
+`djoin.exe`; past it, IronAPI re-provisions, because every provision resets the
+computer account password and an expired blob may no longer be valid.
+
+On the client side the blob and the temporary unattend that embeds it are
+registered as secret artifacts and deleted from the WinPE RAM drive on every
+exit path, including failures between download and application.
 
 ### WinPE deployment stages
 

@@ -3,7 +3,13 @@ from ipaddress import IPv4Network
 from unittest.mock import MagicMock, patch
 
 from app.config import Settings
-from app.ldap_names import DirectoryLookupError, computer_exists
+from app.ldap_names import (
+    DirectoryLookupError,
+    _adsi_connection,
+    _escape_filter_value,
+    computer_exists,
+    suggest_computer_name,
+)
 
 
 def make_settings(**overrides) -> Settings:
@@ -16,7 +22,6 @@ def make_settings(**overrides) -> Settings:
         "allowed_client_networks": (IPv4Network("192.0.2.0/24"),),
         "ldap_server": "dc01.example.test",
         "ldap_base_dn": "DC=example,DC=test",
-        "ldap_credential_target": "IronDeploy-LDAP",
         "ldap_use_ssl": False,
         "ldap_connect_timeout": 5,
         "odj_domain": "example.test",
@@ -36,37 +41,27 @@ class ComputerExistsTests(unittest.TestCase):
         self.settings = make_settings()
 
     def test_exact_sam_account_name_is_found(self) -> None:
-        connection = MagicMock()
-        connection.__enter__.return_value = connection
-        connection.search.return_value = True
-        connection.entries = [object()]
-
         with patch(
-            "app.ldap_names._create_connection",
-            return_value=connection,
-        ):
+            "app.ldap_names._run_adsi_search",
+            return_value=[{"distinguishedName": ["CN=pc00042"]}],
+        ) as search:
             exists = computer_exists(self.settings, "pc00042")
 
         self.assertTrue(exists)
-        connection.search.assert_called_once_with(
-            search_base="DC=example,DC=test",
-            search_filter=(
+        search.assert_called_once_with(
+            self.settings,
+            (
                 "(&(objectCategory=computer)"
                 "(sAMAccountName=pc00042$))"
             ),
-            attributes=["distinguishedName"],
+            ("distinguishedName",),
             size_limit=1,
         )
 
     def test_missing_account_returns_false(self) -> None:
-        connection = MagicMock()
-        connection.__enter__.return_value = connection
-        connection.search.return_value = True
-        connection.entries = []
-
         with patch(
-            "app.ldap_names._create_connection",
-            return_value=connection,
+            "app.ldap_names._run_adsi_search",
+            return_value=[],
         ):
             exists = computer_exists(self.settings, "pc00042")
 
@@ -83,20 +78,65 @@ class ComputerExistsTests(unittest.TestCase):
             )
 
     def test_search_failure_is_wrapped(self) -> None:
-        connection = MagicMock()
-        connection.__enter__.return_value = connection
-        connection.search.return_value = False
-        connection.result = {"description": "unavailable"}
-
         with patch(
-            "app.ldap_names._create_connection",
-            return_value=connection,
+            "app.ldap_names._run_adsi_search",
+            side_effect=RuntimeError("unavailable"),
         ):
             with self.assertRaisesRegex(
                 DirectoryLookupError,
                 "LDAP computer lookup failed",
             ):
                 computer_exists(self.settings, "pc00042")
+
+    def test_name_suggestion_uses_adsi_rows(self) -> None:
+        with patch(
+            "app.ldap_names._run_adsi_search",
+            return_value=[
+                {"cn": ["pc00008"], "sAMAccountName": ["pc00008$"]},
+                {"cn": ["unrelated"], "sAMAccountName": []},
+            ],
+        ) as search:
+            suggestion = suggest_computer_name(self.settings)
+
+        self.assertEqual(suggestion.last_domain_name, "pc00008")
+        self.assertEqual(suggestion.suggested_name, "pc00009")
+        search.assert_called_once_with(
+            self.settings,
+            (
+                "(&(objectCategory=computer)"
+                "(|(cn=pc*)(sAMAccountName=pc*)))"
+            ),
+            ("cn", "sAMAccountName"),
+        )
+
+    def test_filter_values_are_escaped(self) -> None:
+        self.assertEqual(
+            _escape_filter_value("pc(*)\\"),
+            r"pc\28\2a\29\5c",
+        )
+
+    def test_adsi_connection_uses_current_windows_identity(self) -> None:
+        connection = MagicMock()
+        flag_property = MagicMock()
+        connection.Properties.return_value = flag_property
+
+        with (
+            patch(
+                "app.ldap_names.win32com.client.Dispatch",
+                return_value=connection,
+            ),
+            patch("app.ldap_names.pythoncom.CoInitialize") as initialize,
+            patch("app.ldap_names.pythoncom.CoUninitialize") as uninitialize,
+        ):
+            with _adsi_connection(self.settings) as opened:
+                self.assertIs(opened, connection)
+
+        initialize.assert_called_once_with()
+        connection.Properties.assert_called_once_with("ADSI Flag")
+        self.assertEqual(flag_property.Value, 1)
+        connection.Open.assert_called_once_with("Active Directory Provider")
+        connection.Close.assert_called_once_with()
+        uninitialize.assert_called_once_with()
 
 
 if __name__ == "__main__":

@@ -13,7 +13,10 @@ from app.image_config import (
 
 DEPLOY_EXAMPLE = IRONDEPLOY_ROOT / "WinPE" / "Runtime" / "deploy.config.example.ps1"
 UNATTEND_EXAMPLE = (
-    IRONDEPLOY_ROOT / "Share" / "Unattend" / "unattend-win11-template.example.xml"
+    IRONDEPLOY_ROOT
+    / "ServerTemplates"
+    / "Unattend"
+    / "unattend-win11-template.example.xml"
 )
 
 
@@ -22,7 +25,7 @@ class ImageConfigTests(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
         winpe_dir = self.tmp / "WinPE" / "Runtime"
-        unattend_dir = self.tmp / "Share" / "Unattend"
+        unattend_dir = self.tmp / "ServerTemplates" / "Unattend"
         winpe_dir.mkdir(parents=True)
         unattend_dir.mkdir(parents=True)
         self.paths = ImagePaths(
@@ -229,6 +232,22 @@ class ImageConfigTests(unittest.TestCase):
             "$SetupLocalAdminName = 'freshadmin'",
             self.paths.winpe_config.read_text(encoding="utf-8-sig"),
         )
+
+    def test_legacy_unattend_is_moved_out_of_the_smb_share(self) -> None:
+        legacy = (
+            self.tmp
+            / "Share"
+            / "Unattend"
+            / "unattend-win11-template.xml"
+        )
+        legacy.parent.mkdir(parents=True)
+        self.paths.unattend.unlink()
+        shutil.copy2(UNATTEND_EXAMPLE, legacy)
+
+        load_image_config(self.paths)
+
+        self.assertFalse(legacy.exists())
+        self.assertTrue(self.paths.unattend.is_file())
 
 
 if __name__ == "__main__":

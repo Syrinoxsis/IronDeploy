@@ -1530,6 +1530,9 @@ try {
     try { Send-DeploymentError -Message $errorMessage } catch {}
     $Sync.Queue.Enqueue([pscustomobject]@{ Kind = "done"; Success = $false; Error = $errorMessage })
 } finally {
+    # Catches exceptions that never went through Fail, so no domain secret
+    # survives on the ramdisk while the operator reads the failure screen.
+    try { Clear-IronSecretArtifacts } catch {}
     $Sync.Finished = $true
 }
 '@

@@ -16,10 +16,13 @@ from app.auth import (
     set_deployment_token_phase,
     set_user_permissions,
 )
+from app.config import IRONDEPLOY_ROOT
 from app.deployments import Base, Deployment, DeploymentBeginRequest
 from app.main import (
     deploy_begin,
     deploy_enter_postinstall,
+    deployment_postinstall_script,
+    deployment_setup_complete,
     deployment_smb_credentials,
     deployment_unattend,
 )
@@ -135,7 +138,7 @@ class DeploymentAuthorizationTests(unittest.TestCase):
     def test_unattend_is_generated_only_for_owned_deployment(self) -> None:
         with tempfile.TemporaryDirectory() as temporary, Session(self.engine) as session:
             root = Path(temporary)
-            template_dir = root / "Share" / "Unattend"
+            template_dir = root / "Unattend"
             template_dir.mkdir(parents=True)
             (template_dir / "unattend-win11-template.xml").write_text(
                 "<unattend><ComputerName>COMPUTER_NAME</ComputerName>"
@@ -147,7 +150,7 @@ class DeploymentAuthorizationTests(unittest.TestCase):
             session.commit()
             token = self.create_bound_token(session, deployment)
 
-            with patch("app.main.IRONDEPLOY_ROOT", root):
+            with patch("app.main.SERVER_TEMPLATES_ROOT", root):
                 response = deployment_unattend(
                     deployment.id,
                     self.request(token.id),
@@ -158,6 +161,67 @@ class DeploymentAuthorizationTests(unittest.TestCase):
             self.assertIn("<ComputerName>pc00042</ComputerName>", content)
             self.assertNotIn("COMPUTER_NAME", content)
             self.assertEqual(response.headers["cache-control"], "no-store")
+
+    def test_postinstall_files_require_owner_and_winpe_phase(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary, Session(self.engine) as session:
+            root = Path(temporary)
+            template_dir = root / "PostInstall"
+            template_dir.mkdir(parents=True)
+            setup_complete = template_dir / "SetupComplete.cmd"
+            postinstall = template_dir / "postinstall.ps1"
+            setup_complete.write_text("@echo off", encoding="utf-8")
+            postinstall.write_text("Write-Host ready", encoding="utf-8")
+
+            first = self.deployment("pc00042")
+            second = self.deployment("pc00043")
+            second.mac_address = "AA:BB:CC:DD:EE:00"
+            session.add_all((first, second))
+            session.commit()
+            token = self.create_bound_token(session, first)
+            request = self.request(token.id)
+
+            with patch("app.main.SERVER_TEMPLATES_ROOT", root):
+                setup_response = deployment_setup_complete(
+                    first.id,
+                    request,
+                    session,
+                )
+                script_response = deployment_postinstall_script(
+                    first.id,
+                    request,
+                    session,
+                )
+                self.assertEqual(Path(setup_response.path), setup_complete)
+                self.assertEqual(Path(script_response.path), postinstall)
+                self.assertEqual(
+                    setup_response.headers["cache-control"],
+                    "no-store",
+                )
+
+                with self.assertRaises(HTTPException) as wrong_owner:
+                    deployment_postinstall_script(
+                        second.id,
+                        request,
+                        session,
+                    )
+                self.assertEqual(wrong_owner.exception.status_code, 403)
+
+                set_deployment_token_phase(session, token, "postinstall")
+                with self.assertRaises(HTTPException) as wrong_phase:
+                    deployment_setup_complete(first.id, request, session)
+                self.assertEqual(wrong_phase.exception.status_code, 409)
+
+    def test_winpe_downloads_postinstall_files_from_the_api(self) -> None:
+        engine = (
+            IRONDEPLOY_ROOT
+            / "WinPE"
+            / "Runtime"
+            / "IronDeploy.Engine.ps1"
+        ).read_text(encoding="utf-8-sig")
+
+        self.assertIn('"$PostInstallBaseUrl/setup-complete"', engine)
+        self.assertIn('"$PostInstallBaseUrl/script"', engine)
+        self.assertNotIn("Join-Path $PostInstallPath", engine)
 
 
 if __name__ == "__main__":

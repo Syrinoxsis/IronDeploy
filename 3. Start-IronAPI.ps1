@@ -9,7 +9,8 @@ Convenience launcher that forwards to
 Core\Tools\Start-IronAPI.ps1, which holds the actual startup logic: it
 reads Api\.env, resolves the bind address, access mode, and port, creates the
 Data, ODJ\pending, and Logs folders, and runs uvicorn from the Api virtual
-environment.
+environment. LDAP searches and djoin.exe run as the Windows account that
+starts this script; use a domain account with the required AD rights.
 
 .PARAMETER BindHost
 Overrides IRONAPI_BIND_HOST. Ignored when IRONAPI_ACCESS_MODE is https_proxy,

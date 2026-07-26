@@ -496,8 +496,8 @@
             <p class="summary">Настраивает API-часть глубже, чем старый master.</p>
             <ul>
               <li>Database URL, computer naming, LDAP и ODJ.</li>
-              <li>Сохраняет LDAP credential в Windows Credential Manager.</li>
-              <li>Проверяет TCP LDAP, credential, пути и identity.</li>
+              <li>LDAP и djoin используют run-as identity процесса IronAPI.</li>
+              <li>Проверяет TCP LDAP, пути и identity.</li>
               <li>Может перезапустить уже существующую службу IronAPI.</li>
             </ul>
             <dl class="meta"><dt>Параметры</dt><dd>-Validate, -InitialSetup, -ServiceName</dd><dt>Не делает</dt><dd>Не устанавливает службу и не запускает API в foreground</dd></dl>
@@ -598,7 +598,7 @@
           <div class="card-head">
             <div>
               <h3>Post-install</h3>
-              <a class="script-link" href="../Share/PostInstall/postinstall.ps1">Share\PostInstall\postinstall.ps1</a>
+              <a class="script-link" href="../ServerTemplates/PostInstall/postinstall.ps1">ServerTemplates\PostInstall\postinstall.ps1</a>
             </div>
             <span class="badge automatic">автоматический</span>
           </div>
@@ -610,7 +610,7 @@
             <li>Читает deployment.json и уведомляет IronAPI о завершении.</li>
             <li>Повторяет уведомление до 12 раз и сохраняет error marker при неудаче.</li>
           </ul>
-          <dl class="meta"><dt>Запускается через</dt><dd>Share\PostInstall\SetupComplete.cmd</dd><dt>Работает на</dt><dd>Целевом развёрнутом компьютере</dd></dl>
+          <dl class="meta"><dt>Запускается через</dt><dd>ServerTemplates\PostInstall\SetupComplete.cmd, загруженный через IronAPI</dd><dt>Работает на</dt><dd>Целевом развёрнутом компьютере</dd></dl>
         </article>
       </section>
 
@@ -659,7 +659,7 @@
             <h3>Setup-IronAPI</h3>
             <ul>
               <li>Api\.env</li>
-              <li>LDAP credential</li>
+              <li>LDAP/ODJ run-as identity</li>
               <li>API validation</li>
               <li>service restart</li>
             </ul>
@@ -672,7 +672,7 @@
         <div class="recommendations">
           <ol>
             <li><strong>SetupWeb</strong> логично сделать единственным UI для конфигурации.</li>
-            <li><strong>Setup-IronAPI.ps1</strong> пока нужен для Windows Credential Manager, углублённой проверки и перезапуска службы.</li>
+            <li><strong>Setup-IronAPI.ps1</strong> пока нужен для углублённой проверки identity и перезапуска службы.</li>
             <li><strong>ConfigureMaster.ps1</strong> полезен для SMB, ACL, directory layout и orchestration, но его конфигурационные формы уже дублируют SetupWeb.</li>
             <li><strong>Build-IronDeployWinPE.ps1</strong> должен оставаться единственной публичной точкой сборки.</li>
             <li>Поведение <strong>Target Iso</strong> следует синхронизировать с документацией и build-info.</li>
