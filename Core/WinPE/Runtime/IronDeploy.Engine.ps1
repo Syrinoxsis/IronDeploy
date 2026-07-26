@@ -194,6 +194,7 @@ $script:DeploymentCatalog = $null
 $script:DeploymentAccessToken = ""
 $script:IronApiRequestSamples = $null
 $script:IronNetworkDiagnostics = $null
+$script:IronSecretArtifacts = @()
 
 # --- API reporting -----------------------------------------------------------
 
@@ -1423,6 +1424,36 @@ function Send-DeploymentError {
     }
 }
 
+# --- Secret artifacts --------------------------------------------------------
+
+# Files holding domain secrets (ODJ blobs and the unattend that embeds one) live
+# on the WinPE ramdisk. Registering them here guarantees they are shredded on
+# every exit path, not only on the ones that happen to remember.
+function Register-IronSecretArtifact {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return
+    }
+    if ($script:IronSecretArtifacts -notcontains $Path) {
+        $script:IronSecretArtifacts += $Path
+    }
+}
+
+function Clear-IronSecretArtifacts {
+    foreach ($ArtifactPath in @($script:IronSecretArtifacts)) {
+        try {
+            Remove-Item -LiteralPath $ArtifactPath -Force -ErrorAction SilentlyContinue
+        } catch {
+            # Cleanup is best effort: never mask the failure that triggered it.
+        }
+    }
+    $script:IronSecretArtifacts = @()
+}
+
 # Terminal failure. Reports the error to IronAPI (best effort) and throws so
 # the active front-end can present a failure screen. Unlike the old console
 # flow, the engine never prompts or exits the process here.
@@ -1432,6 +1463,7 @@ function Fail {
         [string]$msg
     )
 
+    Clear-IronSecretArtifacts
     Send-DeploymentError -Message $msg
     $script:CurrentDeploymentStage = $null
     Write-IronLog "ERROR: $msg" -Level error
@@ -2056,6 +2088,8 @@ function Invoke-IronDeployment {
 
     $script:DeploymentErrorReported = $false
     $script:IronNetworkDiagnostics = $null
+    # Shred anything a previous attempt left behind on the ramdisk.
+    Clear-IronSecretArtifacts
     try {
         Start-IronApiTimingCollection
     } catch {
@@ -2311,6 +2345,10 @@ function Invoke-IronDeployment {
         $ODJBlob = Join-Path $ODJDirectory "$ComputerName.txt"
         New-Item -ItemType Directory -Force $ODJDirectory | Out-Null
 
+        # Registered before the download so a partial transfer is shredded too.
+        # From here until the blob is applied, every Fail cleans it up.
+        Register-IronSecretArtifact -Path $ODJBlob
+
         try {
             Invoke-IronApiWebRequest `
                 -Uri "$DomainJoinBaseUrl/blob" `
@@ -2319,10 +2357,6 @@ function Invoke-IronDeployment {
                 -TimeoutSec 30 `
                 -UseBasicParsing
         } catch {
-            Remove-Item `
-                -LiteralPath $ODJBlob `
-                -Force `
-                -ErrorAction SilentlyContinue
             Fail "Failed to download Offline Domain Join blob: $($_.Exception.Message)"
         }
 
@@ -2457,34 +2491,20 @@ function Invoke-IronDeployment {
         Start-DeploymentStage "domain_join"
 
         $ODJUnattend = Join-Path $ODJDirectory "odj-unattend.xml"
+        Register-IronSecretArtifact -Path $ODJUnattend
 
         try {
             New-OfflineDomainJoinUnattend `
                 -BlobPath $ODJBlob `
                 -OutputPath $ODJUnattend
         } catch {
-            Remove-Item `
-                -LiteralPath $ODJUnattend `
-                -Force `
-                -ErrorAction SilentlyContinue
-            Remove-Item `
-                -LiteralPath $ODJBlob `
-                -Force `
-                -ErrorAction SilentlyContinue
             Fail "Failed to create Offline Domain Join unattend: $($_.Exception.Message)"
         }
 
         dism /Image:C:\ /Apply-Unattend:$ODJUnattend
         $ODJApplyExitCode = $LASTEXITCODE
 
-        Remove-Item `
-            -LiteralPath $ODJUnattend `
-            -Force `
-            -ErrorAction SilentlyContinue
-        Remove-Item `
-            -LiteralPath $ODJBlob `
-            -Force `
-            -ErrorAction SilentlyContinue
+        Clear-IronSecretArtifacts
 
         if ($ODJApplyExitCode -ne 0) {
             Fail "Offline Domain Join failed: DISM Apply-Unattend exited with code $ODJApplyExitCode"

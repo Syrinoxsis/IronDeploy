@@ -74,6 +74,7 @@ from app.deployments import (
     DomainJoinProvisionResponse,
     WinPEStageCode,
     as_utc,
+    discard_domain_join_blob,
     expire_stale_deployments,
     find_known_computer_names,
     to_computer_list_item,
@@ -1626,6 +1627,13 @@ def deploy_error(
             stage_record.error_message = payload.message
 
     token = require_deployment_token(request, session, "winpe", "postinstall")
+
+    # A failed deployment will never acknowledge, so its blob would otherwise
+    # sit in the pending directory forever. Deleting it is irreversible, so do
+    # it only once the request is known to be accepted.
+    if deployment.domain_join:
+        discard_domain_join_blob(deployment.computer_name)
+
     session.commit()
     session.refresh(deployment)
     revoke_deployment_token(session, token)
@@ -1947,6 +1955,12 @@ def deploy_complete(
     token.last_seen_at = completed_at
     token.revoked_at = completed_at
     token.expires_at = completed_at + DEPLOYMENT_COMPLETION_RECEIPT_TTL
+
+    # WinPE normally acknowledges right after applying the blob; this covers the
+    # case where that call was lost but the deployment still reached Windows.
+    if deployment.domain_join:
+        discard_domain_join_blob(deployment.computer_name)
+
     session.commit()
 
     session.refresh(deployment)

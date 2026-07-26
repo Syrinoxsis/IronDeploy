@@ -85,3 +85,9 @@ runs as the IronAPI process identity, which needs the delegated rights required
 to create and reuse computer objects. WinPE does not execute the target
 Windows `djoin.exe`; it applies the downloaded ODJ blob to the offline Windows
 image through a temporary offlineServicing unattend file and DISM.
+
+A blob is deleted as soon as it is no longer needed: on acknowledgement, and
+also when the deployment fails, times out, or completes without having
+acknowledged. Whatever survives all of that is purged from `ODJ\pending` once it
+passes `IRONAPI_ODJ_BLOB_MAX_AGE_MINUTES`. On the WinPE side the blob and the
+unattend that embeds it are shredded from the ramdisk on every exit path.

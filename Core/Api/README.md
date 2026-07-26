@@ -497,8 +497,20 @@ The endpoints are restricted to the IP address that registered the deployment.
 WinPE downloads the blob to its RAM drive and verifies that it is non-empty.
 WinPE then creates a temporary offlineServicing unattend file containing the
 blob and applies it with `dism /Image:C:\ /Apply-Unattend`. After DISM
-succeeds, WinPE acknowledges the blob and IronAPI deletes it. Without an
-acknowledgement, the server keeps the blob for diagnostics or retry.
+succeeds, WinPE acknowledges the blob and IronAPI deletes it.
+
+A blob is a computer-account secret, so it is never kept indefinitely when the
+acknowledgement does not arrive. IronAPI also deletes it when the deployment
+fails, when it times out, and when it completes without having acknowledged.
+Anything still left in `ODJ\pending` past `IRONAPI_ODJ_BLOB_MAX_AGE_MINUTES` is
+purged as an orphan, which covers clients that stopped reporting entirely.
+Within that window a retry reuses the existing blob instead of re-running
+`djoin.exe`; past it, IronAPI re-provisions, because every provision resets the
+computer account password and an expired blob may no longer be valid.
+
+On the client side the blob and the temporary unattend that embeds it are
+registered as secret artifacts and shredded from the WinPE RAM drive on every
+exit path, including failures between download and application.
 
 ### WinPE deployment stages
 

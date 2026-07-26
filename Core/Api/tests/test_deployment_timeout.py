@@ -72,9 +72,25 @@ class DeploymentTimeoutTests(unittest.TestCase):
     def setUp(self) -> None:
         self.engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(self.engine)
+        self.temporary_directory = tempfile.TemporaryDirectory()
+        self.odj_blob_dir = Path(self.temporary_directory.name) / "pending"
+        self.odj_blob_dir.mkdir()
 
     def tearDown(self) -> None:
         self.engine.dispose()
+        self.temporary_directory.cleanup()
+
+    def odj_settings(self, deployment_timeout_minutes: int = 90) -> SimpleNamespace:
+        return SimpleNamespace(
+            deployment_timeout_minutes=deployment_timeout_minutes,
+            odj_blob_dir=self.odj_blob_dir,
+            odj_blob_max_age_minutes=120,
+        )
+
+    def write_blob(self, computer_name: str = "pc00042") -> Path:
+        blob_path = self.odj_blob_dir / f"{computer_name}.txt"
+        blob_path.write_bytes(b"odj-blob")
+        return blob_path
 
     def deployment_request(
         self,
@@ -509,6 +525,71 @@ class DeploymentTimeoutTests(unittest.TestCase):
             )
             self.assertEqual(stage.status, STAGE_FAILED)
             self.assertEqual(stage.error_message, "ODJ unattend failed")
+
+    def test_error_endpoint_deletes_the_domain_join_blob(self) -> None:
+        blob_path = self.write_blob()
+
+        with Session(self.engine) as session:
+            deployment = self.deployment(datetime.now(timezone.utc))
+            deployment.domain_join = True
+            session.add(deployment)
+            session.commit()
+            request = self.deployment_request(session, deployment.id)
+
+            with patch(
+                "app.deployments.get_settings",
+                return_value=self.odj_settings(),
+            ):
+                response = deploy_error(
+                    deployment.id,
+                    DeploymentErrorRequest(message="DISM Apply-Image failed"),
+                    request,
+                    session,
+                )
+
+            self.assertEqual(response.status, DEPLOYMENT_FAILED)
+            self.assertFalse(blob_path.exists())
+
+    def test_timed_out_deployment_deletes_the_domain_join_blob(self) -> None:
+        now = datetime(2026, 7, 3, 10, 0, tzinfo=timezone.utc)
+        blob_path = self.write_blob()
+
+        with Session(self.engine) as session:
+            deployment = self.deployment(now - DEFAULT_DEPLOYMENT_TIMEOUT)
+            deployment.domain_join = True
+            session.add(deployment)
+            session.commit()
+
+            with patch(
+                "app.deployments.get_settings",
+                return_value=self.odj_settings(),
+            ):
+                self.assertEqual(expire_stale_deployments(session, now), 1)
+
+            session.refresh(deployment)
+            self.assertEqual(deployment.status, DEPLOYMENT_FAILED)
+            self.assertFalse(blob_path.exists())
+
+    def test_completion_deletes_an_unacknowledged_domain_join_blob(self) -> None:
+        blob_path = self.write_blob()
+
+        with Session(self.engine) as session:
+            deployment = self.deployment(datetime.now(timezone.utc))
+            deployment.domain_join = True
+            session.add(deployment)
+            session.commit()
+            request = self.deployment_request(
+                session, deployment.id, phase="postinstall"
+            )
+
+            with patch(
+                "app.deployments.get_settings",
+                return_value=self.odj_settings(),
+            ):
+                response = deploy_complete(deployment.id, request, session)
+
+            self.assertEqual(response.status, DEPLOYMENT_COMPLETED)
+            self.assertFalse(blob_path.exists())
 
 
 class DeploymentSchemaUpgradeTests(unittest.TestCase):

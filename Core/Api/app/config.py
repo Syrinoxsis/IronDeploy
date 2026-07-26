@@ -92,6 +92,7 @@ class Settings(BaseModel):
     odj_blob_dir: Path
     odj_djoin_path: Path
     odj_provision_timeout: int = Field(ge=1, le=300)
+    odj_blob_max_age_minutes: int = Field(default=120, ge=5, le=1440)
 
     @property
     def ldap_enabled(self) -> bool:
@@ -129,4 +130,7 @@ def get_settings() -> Settings:
         ),
         odj_djoin_path=Path(_get_required_env("IRONAPI_ODJ_DJOIN_PATH")),
         odj_provision_timeout=_get_int("IRONAPI_ODJ_PROVISION_TIMEOUT"),
+        odj_blob_max_age_minutes=_get_int_or_default(
+            "IRONAPI_ODJ_BLOB_MAX_AGE_MINUTES", 120
+        ),
     )

@@ -179,6 +179,26 @@ else {
     Write-Failure "ODJ ACL exposes provisioning blobs to a broad/read-only account."
 }
 
+# IronAPI purges these on its own; anything left is a sign the API has not run
+# since the deployment that abandoned it.
+$odjPendingPath = Join-Path $IronDeployRoot "ODJ\pending"
+$staleBlobBoundary = (Get-Date).AddHours(-24)
+$staleBlobs = @(
+    Get-ChildItem -LiteralPath $odjPendingPath -Filter "*.txt" -File `
+        -ErrorAction SilentlyContinue |
+        Where-Object { $_.LastWriteTime -lt $staleBlobBoundary }
+)
+if ($staleBlobs.Count -eq 0) {
+    Write-Pass "No abandoned ODJ blobs older than 24 hours"
+}
+else {
+    Write-WarningResult (
+        "{0} ODJ blob(s) older than 24 hours are still in {1}." -f `
+            $staleBlobs.Count,
+            $odjPendingPath
+    )
+}
+
 Test-PowerShellSyntax
 
 Write-Host ""

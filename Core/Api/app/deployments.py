@@ -1,3 +1,4 @@
+import logging
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Literal
@@ -25,6 +26,8 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
 from app.config import get_settings
 
+
+logger = logging.getLogger("uvicorn.error")
 
 DEPLOYMENT_BEGIN = "begin"
 DEPLOYMENT_COMPLETED = "completed"
@@ -682,6 +685,9 @@ def expire_stale_deployments(
         # Imported lazily to avoid the auth/Base import cycle at module load.
         from app.auth import DeploymentToken
 
+        if deployment.domain_join:
+            discard_domain_join_blob(deployment.computer_name)
+
         failed_at = as_utc(deployment.started_at) + deployment_timeout
         deployment.status = DEPLOYMENT_FAILED
         deployment.completed_at = failed_at
@@ -710,7 +716,38 @@ def expire_stale_deployments(
     if stale_deployments:
         session.commit()
 
+    # Housekeeping hook: this runs on nearly every deployment request, which is
+    # the only scheduler IronAPI has. It catches blobs whose deployment row was
+    # already closed, or was never closed at all.
+    purge_orphaned_domain_join_blobs()
+
     return len(stale_deployments)
+
+
+def discard_domain_join_blob(computer_name: str) -> None:
+    """Best-effort deletion of a computer-account secret we no longer need.
+
+    Never raises: blob cleanup must not block a deployment from being closed.
+    """
+    from app.domain_join import DomainJoinError, delete_domain_join_blob
+
+    try:
+        delete_domain_join_blob(get_settings(), computer_name)
+    except DomainJoinError as exc:
+        logger.error(
+            "Failed to delete the ODJ blob of %s: %s",
+            computer_name,
+            exc,
+        )
+
+
+def purge_orphaned_domain_join_blobs() -> None:
+    from app.domain_join import purge_stale_domain_join_blobs
+
+    try:
+        purge_stale_domain_join_blobs(get_settings(), throttle=True)
+    except Exception as exc:  # noqa: BLE001 - housekeeping must never break a request
+        logger.error("ODJ blob purge failed: %s", exc)
 
 
 def to_deployment_response(deployment: Deployment) -> DeploymentResponse:

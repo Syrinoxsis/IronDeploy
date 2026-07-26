@@ -1,5 +1,7 @@
+import os
 import subprocess
 import tempfile
+import time
 import unittest
 from ipaddress import IPv4Network
 from pathlib import Path
@@ -11,7 +13,13 @@ from app.domain_join import (
     delete_domain_join_blob,
     get_domain_join_blob,
     provision_domain_join_blob,
+    purge_stale_domain_join_blobs,
 )
+
+
+def age_file(path: Path, minutes: float) -> None:
+    old = time.time() - minutes * 60
+    os.utime(path, (old, old))
 
 
 class DomainJoinTests(unittest.TestCase):
@@ -38,6 +46,7 @@ class DomainJoinTests(unittest.TestCase):
             odj_blob_dir=self.root / "ODJ",
             odj_djoin_path=self.djoin_path,
             odj_provision_timeout=60,
+            odj_blob_max_age_minutes=120,
         )
 
     def tearDown(self) -> None:
@@ -159,6 +168,69 @@ class DomainJoinTests(unittest.TestCase):
 
         with self.assertRaisesRegex(DomainJoinError, "djoin.exe not found"):
             provision_domain_join_blob(self.settings, "pc00042")
+
+    def test_expired_blob_is_reprovisioned_instead_of_reused(self) -> None:
+        commands: list[list[str]] = []
+
+        def fake_run(command: list[str], **_kwargs) -> subprocess.CompletedProcess:
+            commands.append(command)
+            Path(command[-1]).write_bytes(b"fresh-blob")
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        self.settings.odj_blob_dir.mkdir(parents=True)
+        blob_path = self.settings.odj_blob_dir / "pc00042.txt"
+        blob_path.write_bytes(b"expired-blob")
+        age_file(blob_path, self.settings.odj_blob_max_age_minutes + 1)
+
+        with patch("app.domain_join.subprocess.run", side_effect=fake_run):
+            provision_domain_join_blob(self.settings, "pc00042")
+
+        self.assertEqual(len(commands), 1)
+        self.assertEqual(blob_path.read_bytes(), b"fresh-blob")
+
+    def test_purge_removes_only_expired_blobs(self) -> None:
+        self.settings.odj_blob_dir.mkdir(parents=True)
+        fresh = self.settings.odj_blob_dir / "pc00001.txt"
+        expired = self.settings.odj_blob_dir / "pc00002.txt"
+        unrelated = self.settings.odj_blob_dir / "notes.md"
+        for path in (fresh, expired, unrelated):
+            path.write_bytes(b"odj-blob")
+        age_file(fresh, self.settings.odj_blob_max_age_minutes - 1)
+        age_file(expired, self.settings.odj_blob_max_age_minutes + 1)
+        age_file(unrelated, self.settings.odj_blob_max_age_minutes + 1)
+
+        self.assertEqual(purge_stale_domain_join_blobs(self.settings), 1)
+        self.assertTrue(fresh.exists())
+        self.assertFalse(expired.exists())
+        self.assertTrue(unrelated.exists())
+
+    def test_purge_tolerates_a_missing_blob_directory(self) -> None:
+        self.assertFalse(self.settings.odj_blob_dir.exists())
+        self.assertEqual(purge_stale_domain_join_blobs(self.settings), 0)
+
+    def test_throttled_purge_runs_once_per_interval(self) -> None:
+        self.settings.odj_blob_dir.mkdir(parents=True)
+
+        def make_expired(name: str) -> Path:
+            path = self.settings.odj_blob_dir / name
+            path.write_bytes(b"odj-blob")
+            age_file(path, self.settings.odj_blob_max_age_minutes + 1)
+            return path
+
+        first = make_expired("pc00001.txt")
+        with patch("app.domain_join._last_purge_at", None):
+            self.assertEqual(
+                purge_stale_domain_join_blobs(self.settings, throttle=True),
+                1,
+            )
+            second = make_expired("pc00002.txt")
+            self.assertEqual(
+                purge_stale_domain_join_blobs(self.settings, throttle=True),
+                0,
+            )
+
+        self.assertFalse(first.exists())
+        self.assertTrue(second.exists())
 
 
 if __name__ == "__main__":

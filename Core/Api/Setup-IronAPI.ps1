@@ -494,6 +494,11 @@ function Show-CurrentConfiguration {
         "djoin.exe    : " +
         (Get-Setting $settings "IRONAPI_ODJ_DJOIN_PATH" "<missing>")
     )
+    Write-Host (
+        "Blob max age : " +
+        (Get-Setting $settings "IRONAPI_ODJ_BLOB_MAX_AGE_MINUTES" "120") +
+        " minutes"
+    )
 }
 
 function Configure-Database {
@@ -800,12 +805,32 @@ function Configure-Odj {
             return $null
         }
 
+    $blobMaxAge = Read-ConfiguredValue `
+        -Label "Pending blob maximum age in minutes" `
+        -HelpText (
+            "Past this age a pending blob is re-provisioned instead of reused " +
+            "and purged as an orphan. Keep it above the deployment timeout. " +
+            "Example: 120."
+        ) `
+        -CurrentValue (
+            Get-Setting $settings "IRONAPI_ODJ_BLOB_MAX_AGE_MINUTES" "120"
+        ) `
+        -Validator {
+            param($value)
+            $number = 0
+            if (![int]::TryParse($value, [ref]$number) -or $number -lt 5 -or $number -gt 1440) {
+                return "Enter an integer from 5 to 1440."
+            }
+            return $null
+        }
+
     Save-EnvUpdates ([ordered]@{
         IRONAPI_ODJ_DOMAIN = $domain.ToLowerInvariant()
         IRONAPI_ODJ_MACHINE_OU = $machineOu
         IRONAPI_ODJ_BLOB_DIR = $blobDirectory
         IRONAPI_ODJ_DJOIN_PATH = $djoinPath
         IRONAPI_ODJ_PROVISION_TIMEOUT = $timeout
+        IRONAPI_ODJ_BLOB_MAX_AGE_MINUTES = $blobMaxAge
     })
 
     try {
