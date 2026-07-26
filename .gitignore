@@ -19,6 +19,7 @@ show_cmd_5sec.cmd
 /Core/Share/Programs/*
 !/Core/Share/Programs/EXE_AND_MSI_PROGRAMS_HERE.txt
 /Core/Share/Unattend/unattend-win11-template.xml
+/Core/ServerTemplates/Unattend/unattend-win11-template.xml
 /Core/Data/*
 /Core/ODJ/pending/*
 /Core/Logs/*

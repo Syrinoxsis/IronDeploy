@@ -61,10 +61,9 @@ const ruTranslations = {
   "Domain controller host or IP, no ldap:// prefix. Empty disables LDAP with empty Base DN.": "Имя или IP контроллера домена без префикса ldap://. Пустое значение вместе с пустым Base DN отключает LDAP.",
   "LDAP base DN": "Базовый DN LDAP",
   "Search root. Example: DC=example,DC=test. Empty disables LDAP with empty server.": "Корень поиска. Пример: DC=example,DC=test. Пустое значение вместе с пустым сервером отключает LDAP.",
-  "Credential target": "Имя учётных данных",
-  "Windows Credential Manager generic credential name. Example: IronDeploy-LDAP.": "Имя общих учётных данных в Диспетчере учётных данных Windows. Пример: IronDeploy-LDAP.",
   "LDAPS": "LDAPS",
   "true uses TCP 636 with trusted LDAP TLS; false uses TCP 389.": "true использует TCP 636 и доверенный LDAP TLS; false использует TCP 389.",
+  "LDAP searches use the Windows identity running IronAPI; no separate domain credential is stored.": "LDAP-поиск использует учётную запись Windows, от которой запущен IronAPI; отдельные доменные учётные данные не сохраняются.",
   "ODJ domain": "Домен ODJ",
   "AD DNS domain passed to API-server djoin.exe. Example: example.test.": "DNS-домен AD, передаваемый djoin.exe на API-сервере. Пример: example.test.",
   "ODJ machine OU": "OU компьютеров ODJ",
@@ -80,6 +79,8 @@ const ruTranslations = {
   "Connection timeout in seconds, 1-60. Example: 5.": "Тайм-аут подключения в секундах, от 1 до 60. Пример: 5.",
   "ODJ timeout": "Тайм-аут ODJ",
   "djoin /provision timeout in seconds, 1-300. Example: 60.": "Тайм-аут djoin /provision в секундах, от 1 до 300. Пример: 60.",
+  "ODJ blob lifetime": "Срок хранения ODJ blob",
+  "Short provision-to-download lifetime in minutes, 5-1440. Default 5. It is independent of the total deployment timeout.": "Короткий срок от создания до скачивания ODJ blob в минутах, 5–1440. По умолчанию 5. Не зависит от общего тайм-аута развёртывания.",
   "ODJ blob directory": "Каталог blob-файлов ODJ",
   "Protected local API-server directory, not SMB. Example: {IRONDEPLOY_ROOT}\\\\ODJ\\\\pending.": "Защищённый локальный каталог API-сервера, не SMB. Пример: {IRONDEPLOY_ROOT}\\\\ODJ\\\\pending.",
   "API server djoin.exe path": "Путь к djoin.exe на API-сервере",
@@ -87,7 +88,7 @@ const ruTranslations = {
   "WinPE Deploy Config": "Конфигурация развёртывания WinPE",
   ". Rebuild ISO separately when needed.": ". При необходимости ISO пересобирается отдельно.",
   "SMB deployment share": "SMB-ресурс развёртывания",
-  "Network source for Windows images, drivers, and post-install files. Credentials remain server-side and are released only to an authorized deployment.": "Сетевой источник образов Windows, драйверов и post-install файлов. Учётные данные остаются на сервере и выдаются только авторизованному развёртыванию.",
+  "Network source for Windows images, drivers, and optional installers. Credentials remain server-side and are released only to an authorized deployment.": "Сетевой источник образов Windows, драйверов и дополнительных установщиков. Учётные данные остаются на сервере и выдаются только авторизованному развёртыванию.",
   "IronAPI connection": "Подключение к IronAPI",
   "Endpoint used by WinPE during deployment and by Windows during post-install.": "Адрес, используемый WinPE при развёртывании и Windows во время post-install.",
   "Certificate trust": "Доверие сертификату",
@@ -499,7 +500,6 @@ document.querySelectorAll("[data-winpe='ShareDrive']").forEach((input) => {
     const drive = input.value || "Z:";
     document.querySelector("[data-winpe='ImagesPath']").value = `${drive}\\Images`;
     document.querySelector("[data-winpe='DriversPath']").value = `${drive}\\Drivers`;
-    document.querySelector("[data-winpe='PostInstallPath']").value = `${drive}\\PostInstall`;
   });
 });
 

@@ -5,9 +5,11 @@ SetupWeb:
 
 * ``WinPE/Runtime/deploy.config.ps1`` — the post-install account policy
   (``$SetupLocalAdminName``, ``$EnableBuiltInAdministrator``,
-  ``$EnableSetupLocalAdmin``) consumed by ``Share/PostInstall/postinstall.ps1``.
-* ``Share/Unattend/unattend-win11-template.xml`` — the Windows ``<TimeZone>``
-  and the ``localadmin`` local account (its name and plain-text password).
+  ``$EnableSetupLocalAdmin``) consumed by
+  ``ServerTemplates/PostInstall/postinstall.ps1``.
+* ``ServerTemplates/Unattend/unattend-win11-template.xml`` — the Windows
+  ``<TimeZone>`` and the ``localadmin`` local account (its name and plain-text
+  password).
 
 Writes are line/element targeted so unrelated values (for example the SMB
 password inside ``deploy.config.ps1``) are preserved, and every changed file is
@@ -130,9 +132,12 @@ class ImagePaths:
             / "WinPE"
             / "Runtime"
             / "deploy.config.example.ps1",
-            unattend=root / "Share" / "Unattend" / "unattend-win11-template.xml",
+            unattend=root
+            / "ServerTemplates"
+            / "Unattend"
+            / "unattend-win11-template.xml",
             unattend_example=root
-            / "Share"
+            / "ServerTemplates"
             / "Unattend"
             / "unattend-win11-template.example.xml",
             backup_dir=root / "Logs" / "ConfigBackups",
@@ -453,8 +458,24 @@ def _save_winpe_config(
 # ---------------------------------------------------------------------------
 
 
+def _migrate_legacy_unattend(paths: ImagePaths) -> None:
+    root = paths.unattend.parents[2]
+    legacy = root / "Share" / "Unattend" / "unattend-win11-template.xml"
+    if not legacy.is_file():
+        return
+    if paths.unattend.is_file():
+        raise ImageConfigError(
+            "Both legacy SMB-exposed and server-only unattend templates exist. "
+            "Remove the legacy Share\\Unattend copy after verifying which "
+            "configuration is current."
+        )
+    paths.unattend.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(legacy, paths.unattend)
+
+
 def load_image_config(paths: ImagePaths | None = None) -> dict[str, Any]:
     paths = paths or ImagePaths.default()
+    _migrate_legacy_unattend(paths)
     winpe = _read_ps_config(paths.winpe_config_example)
     winpe.update(_read_ps_config(paths.winpe_config))
     unattend = _read_unattend(paths)
@@ -497,6 +518,7 @@ def save_image_config(
     if not isinstance(payload, dict):
         raise ImageConfigError("Invalid payload.")
     paths = paths or ImagePaths.default()
+    _migrate_legacy_unattend(paths)
 
     admin_name = str(payload.get("localAdminName", "")).strip()
     if not _ADMIN_NAME_PATTERN.match(admin_name):

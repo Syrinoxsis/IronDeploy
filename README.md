@@ -101,7 +101,9 @@ existing SetupWeb environment without running pip.
 This starts IronAPI in the foreground through
 `Core\Tools\Start-IronAPI.ps1`. The launcher accepts `-BindHost`, `-Port`, and
 `-AccessLog`; when they are omitted, listener settings come from
-`Core\Api\.env`.
+`Core\Api\.env`. LDAP searches and `djoin.exe` run as the Windows account that
+starts the script, so use a domain account with AD read permission and the
+delegated rights to create and reuse computer accounts.
 
 For example:
 
@@ -129,12 +131,12 @@ service.
 about its full local-machine privileges and requires the operator to type
 `LocalSystem` to confirm; pressing Enter never selects it.
 
-Windows Credential Manager entries are identity-specific. When LDAP is used,
-the `IronDeploy-LDAP` credential must exist in the selected service account's
-profile. That account also needs read/execute access to the IronDeploy files
-and the base Python installation, plus modify access to `Core\Data`,
-`Core\ODJ`, and `Core\Logs`. Service output is appended to
-`Core\Logs\IronAPI-service.log`.
+LDAP searches and `djoin.exe` both run as the selected service identity; no
+separate domain credential is stored. Give that identity AD read permission
+and the delegated rights to create and reuse computer accounts. It also needs
+read/execute access to the IronDeploy files and the base Python installation,
+plus modify access to `Core\Data`, `Core\ODJ`, and `Core\Logs`. Service output
+is appended to `Core\Logs\IronAPI-service.log`.
 
 The numbered files are the normal operator entrypoints. Step 2 can be rerun
 when configuration must be changed. Step 3 remains available for foreground
@@ -185,7 +187,9 @@ IronDeploy\
    ├─ Share\               root published as the IronDeploy SMB share
    │  ├─ Images\           Windows installation WIMs
    │  ├─ Drivers\          extracted INF driver packages
-   │  ├─ Unattend\         Windows answer-file templates
+   │  └─ Programs\         optional post-install installers
+   ├─ ServerTemplates\     server-only files delivered through IronAPI
+   │  ├─ Unattend\         Windows answer-file template (working copy ignored)
    │  └─ PostInstall\      SetupComplete and post-install reporting
    ├─ Tools\               internal and advanced operator entrypoints
    ├─ Docs\                architecture and recovery procedures
@@ -198,8 +202,8 @@ IronDeploy\
 
 All scripts derive the IronDeploy root from their own location. The directory
 can be moved to another drive while IronAPI and build operations are stopped.
-Windows Credential Manager entries, service identities, SMB configuration, and
-ACLs remain machine-specific and must be validated after a move.
+Service identities, SMB configuration, and ACLs remain machine-specific and
+must be validated after a move.
 
 ## Configuration
 
@@ -208,7 +212,7 @@ ACLs remain machine-specific and must be validated after a move.
 - `Core\WinPE\Runtime\deploy.config.ps1` contains only non-secret WinPE
   settings: the API URL, optional trusted public certificate, mapped drive,
   and paths.
-- `Core\Share\Unattend\unattend-win11-template.xml` controls Windows locale,
+- `Core\ServerTemplates\Unattend\unattend-win11-template.xml` controls Windows locale,
   time zone, and the local recovery account.
 
 Typical per-image defaults — the local administrator name and password, the
@@ -255,13 +259,13 @@ Core\Logs
 ## Data flow
 
 WinPE receives image/program/driver catalogs, selected indexes, installer
-arguments, hashes, and the final deployment manifest from IronAPI. Heavy
-Windows images, drivers, unattend, SetupComplete/postinstall scripts, and
-installer bytes stay on the SMB `Share`. WinPE and postinstall verify installer
-SHA-256 before execution. ODJ never travels through SMB: IronAPI creates the
-blob locally in `Core\ODJ\pending`, WinPE downloads it over HTTP(S), applies it
-to the offline Windows image with DISM, acknowledges success, and IronAPI
-deletes it.
+arguments, hashes, the final deployment manifest, unattend, and
+SetupComplete/postinstall scripts from IronAPI. Heavy Windows images, drivers,
+and installer bytes stay on the SMB `Share`. WinPE and postinstall verify
+installer SHA-256 before execution. ODJ never travels through SMB: IronAPI
+creates the blob locally in `Core\ODJ\pending`, WinPE downloads it over
+HTTP(S), applies it to the offline Windows image with DISM, acknowledges
+success, and IronAPI deletes it.
 
 The network monitor identifies the route to SMB instead of choosing the first
 active adapter. Ping and received-byte counters use that adapter; existing API

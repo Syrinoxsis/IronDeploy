@@ -2,10 +2,12 @@
 
 ## Boundaries
 
-`Api`, `WinPE`, and `Share` are independent runtime boundaries:
+`Api`, `WinPE`, `ServerTemplates`, and `Share` are independent runtime boundaries:
 
 - `Api` owns HTTP, LDAP lookups, deployment state, and ODJ provisioning.
 - `WinPE\Runtime` owns destructive disk deployment and offline Windows setup.
+- `ServerTemplates` contains server-only templates returned by authorized API
+  endpoints.
 - `Share` is read-only deployment payload exposed over SMB.
 
 Inside `WinPE\Runtime` the destructive logic is isolated from its user
@@ -36,10 +38,24 @@ per-deployment unattend file returned by IronAPI after authorization.
 
 Deployment control data travels through the authenticated HTTP(S) API: image
 readiness/indexes, program arguments/hashes, the final selection manifest, SMB
-credentials, unattend content, and post-install account flags. SMB contains the
-heavy WIM/ESD, driver, script, and installer bytes. HTTP remains supported;
-HTTPS can use certificate-validation bypass, a pinned self-signed certificate,
-or a trusted CA certificate.
+credentials, unattend content, post-install scripts, and post-install account
+flags. SMB contains the heavy WIM/ESD, driver, and installer bytes. HTTP
+remains supported; HTTPS can use certificate-validation bypass, a pinned
+self-signed certificate, or a trusted CA certificate.
+
+The authenticated deployment API carries:
+
+- authorization policy, login/authorization requests, and the deployment
+  Bearer lifecycle;
+- name suggestions, catalogs, the final manifest, stages, errors, and network
+  diagnostics;
+- SMB path/username/password for the active WinPE phase;
+- the per-deployment unattend, SetupComplete, and post-install script;
+- ODJ provisioning control, the ODJ blob, and its acknowledgement;
+- the transition to post-install and the final completion report.
+
+The scheme is exactly the configured `ApiBaseUrl`: direct mode is plain HTTP;
+transport encryption exists only when HTTPS is configured.
 
 WinPE reads its authorization policy from IronAPI. Account/password, hashed
 PIN, and credential-free modes all create the same kind of bearer record;
@@ -80,14 +96,17 @@ WinPE ──POST──► IronAPI ──djoin.exe──► Active Directory
   └──── HTTP ── ODJ\pending
 ```
 
-The LDAP Credential Manager entry is used for directory searches. `djoin.exe`
-runs as the IronAPI process identity, which needs the delegated rights required
-to create and reuse computer objects. WinPE does not execute the target
-Windows `djoin.exe`; it applies the downloaded ODJ blob to the offline Windows
-image through a temporary offlineServicing unattend file and DISM.
+LDAP searches and `djoin.exe` both run as the IronAPI process identity, with no
+separate domain credential. That identity needs AD read permission and the
+delegated rights required to create and reuse computer objects. WinPE does not
+execute the target Windows `djoin.exe`; it applies the downloaded ODJ blob to
+the offline Windows image through a temporary offlineServicing unattend file
+and DISM.
 
 A blob is deleted as soon as it is no longer needed: on acknowledgement, and
 also when the deployment fails, times out, or completes without having
 acknowledged. Whatever survives all of that is purged from `ODJ\pending` once it
 passes `IRONAPI_ODJ_BLOB_MAX_AGE_MINUTES`. On the WinPE side the blob and the
-unattend that embeds it are shredded from the ramdisk on every exit path.
+unattend that embeds it are deleted from the ramdisk on every exit path. The
+blob lifetime is a short provision-to-download window, independent of the
+total deployment timeout.

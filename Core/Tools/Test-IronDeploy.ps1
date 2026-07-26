@@ -92,13 +92,27 @@ Write-Host "Root: $IronDeployRoot"
     @("WinPE\Runtime\startnet.cmd", "Leaf"),
     @("Share\Images", "Container"),
     @("Share\Drivers", "Container"),
-    @("Share\Unattend", "Container"),
-    @("Share\PostInstall", "Container"),
+    @("ServerTemplates\Unattend\unattend-win11-template.xml", "Leaf"),
+    @("ServerTemplates\PostInstall\SetupComplete.cmd", "Leaf"),
+    @("ServerTemplates\PostInstall\postinstall.ps1", "Leaf"),
     @("Data", "Container"),
     @("ODJ\pending", "Container"),
     @("Logs", "Container")
 ) | ForEach-Object {
     Test-RequiredPath -RelativePath $_[0] -PathType $_[1]
+}
+
+$legacyUnattend = Join-Path `
+    $IronDeployRoot `
+    "Share\Unattend\unattend-win11-template.xml"
+if (Test-Path -LiteralPath $legacyUnattend -PathType Leaf) {
+    Write-Failure (
+        "Sensitive unattend template is still exposed through the SMB share: " +
+        $legacyUnattend
+    )
+}
+else {
+    Write-Pass "No sensitive unattend template is exposed through SMB"
 }
 
 $images = @(

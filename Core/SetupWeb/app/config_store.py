@@ -35,7 +35,6 @@ API_NAMES = (
     "IRONAPI_NAME_START",
     "IRONAPI_LDAP_SERVER",
     "IRONAPI_LDAP_BASE_DN",
-    "IRONAPI_LDAP_CREDENTIAL_TARGET",
     "IRONAPI_LDAP_USE_SSL",
     "IRONAPI_LDAP_CONNECT_TIMEOUT",
     "IRONAPI_ODJ_DOMAIN",
@@ -43,6 +42,7 @@ API_NAMES = (
     "IRONAPI_ODJ_BLOB_DIR",
     "IRONAPI_ODJ_DJOIN_PATH",
     "IRONAPI_ODJ_PROVISION_TIMEOUT",
+    "IRONAPI_ODJ_BLOB_MAX_AGE_MINUTES",
 )
 
 WINPE_NAMES = (
@@ -55,7 +55,6 @@ WINPE_NAMES = (
     "ApiServerCertificateType",
     "ImagesPath",
     "DriversPath",
-    "PostInstallPath",
     "ImageIndex",
     "SetupLocalAdminName",
     "EnableBuiltInAdministrator",
@@ -165,9 +164,12 @@ class IronDeployPaths:
             / "WinPE"
             / "Runtime"
             / "deploy.config.example.ps1",
-            unattend=root / "Share" / "Unattend" / "unattend-win11-template.xml",
+            unattend=root
+            / "ServerTemplates"
+            / "Unattend"
+            / "unattend-win11-template.xml",
             unattend_example=root
-            / "Share"
+            / "ServerTemplates"
             / "Unattend"
             / "unattend-win11-template.example.xml",
             backup_dir=root / "Logs" / "ConfigBackups",
@@ -310,6 +312,19 @@ def atomic_write(path: Path, content: str) -> None:
 
 def ensure_config_files(paths: IronDeployPaths) -> dict[str, bool]:
     created = {"apiEnv": False, "winpeConfig": False}
+    legacy_unattend = (
+        paths.root / "Share" / "Unattend" / "unattend-win11-template.xml"
+    )
+    if legacy_unattend.is_file():
+        if paths.unattend.is_file():
+            raise RuntimeError(
+                "Both legacy SMB-exposed and server-only unattend templates "
+                "exist. Remove the legacy Share\\Unattend copy after verifying "
+                "which configuration is current."
+            )
+        paths.unattend.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(legacy_unattend, paths.unattend)
+
     if not paths.api_env.is_file():
         if not paths.api_env_example.is_file():
             raise FileNotFoundError(f"Missing template: {paths.api_env_example}")
@@ -513,7 +528,6 @@ def save_winpe_config(paths: IronDeployPaths, values: dict[str, str]) -> str | N
         f"$ApiServerCertificateBase64 = {ps_literal(values['ApiServerCertificateBase64'])}",
         f"$ImagesPath = {ps_literal(values['ImagesPath'])}",
         f"$DriversPath = {ps_literal(values['DriversPath'])}",
-        f"$PostInstallPath = {ps_literal(values['PostInstallPath'])}",
         f"$ImageIndex = {values['ImageIndex']}",
         f"$SetupLocalAdminName = {ps_literal(values['SetupLocalAdminName'])}",
         f"$EnableBuiltInAdministrator = ${values['EnableBuiltInAdministrator']}",
@@ -616,6 +630,16 @@ def normalize_api(values: dict[str, Any]) -> dict[str, str]:
     if odj_timeout < 1 or odj_timeout > 300:
         raise ValueError("IRONAPI_ODJ_PROVISION_TIMEOUT must be from 1 to 300.")
     result["IRONAPI_ODJ_PROVISION_TIMEOUT"] = str(odj_timeout)
+
+    blob_max_age = parse_int(
+        result["IRONAPI_ODJ_BLOB_MAX_AGE_MINUTES"],
+        "IRONAPI_ODJ_BLOB_MAX_AGE_MINUTES",
+    )
+    if blob_max_age < 5 or blob_max_age > 1440:
+        raise ValueError(
+            "IRONAPI_ODJ_BLOB_MAX_AGE_MINUTES must be from 5 to 1440."
+        )
+    result["IRONAPI_ODJ_BLOB_MAX_AGE_MINUTES"] = str(blob_max_age)
 
     prefix = result["IRONAPI_NAME_PREFIX"]
     if not re.match(r"^[a-zA-Z][a-zA-Z0-9-]{0,14}$", prefix):
@@ -728,7 +752,6 @@ def normalize_winpe(
     drive = result["ShareDrive"]
     result["ImagesPath"] = f"{drive}\\Images"
     result["DriversPath"] = f"{drive}\\Drivers"
-    result["PostInstallPath"] = f"{drive}\\PostInstall"
     return result
 
 

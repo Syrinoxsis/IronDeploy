@@ -160,6 +160,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title="IronAPI", version="0.9.0", lifespan=lifespan)
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+SERVER_TEMPLATES_ROOT = IRONDEPLOY_ROOT / "ServerTemplates"
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 access_logger = logging.getLogger("uvicorn.error")
 
@@ -1438,7 +1439,9 @@ def deployment_unattend(
         require_domain_join=False,
     )
     template_path = (
-        IRONDEPLOY_ROOT / "Share" / "Unattend" / "unattend-win11-template.xml"
+        SERVER_TEMPLATES_ROOT
+        / "Unattend"
+        / "unattend-win11-template.xml"
     )
     try:
         content = template_path.read_text(encoding="utf-8-sig")
@@ -1456,6 +1459,60 @@ def deployment_unattend(
         content.replace("COMPUTER_NAME", deployment.computer_name),
         media_type="application/xml",
         headers={"Cache-Control": "no-store"},
+    )
+
+
+def deployment_postinstall_file(
+    deployment_id: int,
+    request: Request,
+    session: Session,
+    filename: str,
+) -> FileResponse:
+    get_domain_join_deployment(
+        deployment_id,
+        request,
+        session,
+        require_domain_join=False,
+    )
+    path = SERVER_TEMPLATES_ROOT / "PostInstall" / filename
+    if not path.is_file():
+        raise HTTPException(
+            status_code=503,
+            detail=f"Post-install template is unavailable: {filename}",
+        )
+    return FileResponse(
+        path,
+        filename=filename,
+        media_type="text/plain",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.get("/api/deploy/{deployment_id}/postinstall/setup-complete")
+def deployment_setup_complete(
+    deployment_id: int,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> FileResponse:
+    return deployment_postinstall_file(
+        deployment_id,
+        request,
+        session,
+        "SetupComplete.cmd",
+    )
+
+
+@app.get("/api/deploy/{deployment_id}/postinstall/script")
+def deployment_postinstall_script(
+    deployment_id: int,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> FileResponse:
+    return deployment_postinstall_file(
+        deployment_id,
+        request,
+        session,
+        "postinstall.ps1",
     )
 
 

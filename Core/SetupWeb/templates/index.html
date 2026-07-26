@@ -132,9 +132,9 @@
                   <div class="form-grid two compact-grid">
                     <label><span class="field-title">LDAP server <span class="help" title="Domain controller host or IP, no ldap:// prefix. Empty disables LDAP with empty Base DN.">?</span></span><input data-api="IRONAPI_LDAP_SERVER" /></label>
                     <label><span class="field-title">LDAP base DN <span class="help" title="Search root. Example: DC=example,DC=test. Empty disables LDAP with empty server.">?</span></span><input data-api="IRONAPI_LDAP_BASE_DN" /></label>
-                    <label><span class="field-title">Credential target <span class="help" title="Windows Credential Manager generic credential name. Example: IronDeploy-LDAP.">?</span></span><input data-api="IRONAPI_LDAP_CREDENTIAL_TARGET" /></label>
                     <label><span class="field-title">LDAPS <span class="help" title="true uses TCP 636 with trusted LDAP TLS; false uses TCP 389.">?</span></span><select data-api="IRONAPI_LDAP_USE_SSL"><option value="false">false</option><option value="true">true</option></select></label>
                   </div>
+                  <p>LDAP searches use the Windows identity running IronAPI; no separate domain credential is stored.</p>
                 </div>
                 <div class="integration-group">
                   <h4>Offline Domain Join</h4>
@@ -178,7 +178,7 @@
             <section class="settings-card settings-card-wide">
               <div class="settings-card-head">
                 <h3>SMB deployment share</h3>
-                <p>Network source for Windows images, drivers, and post-install files. Credentials remain server-side and are released only to an authorized deployment.</p>
+                <p>Network source for Windows images, drivers, and optional installers. Credentials remain server-side and are released only to an authorized deployment.</p>
               </div>
               <div class="form-grid two compact-grid">
                 <label class="wide"><span class="field-title">SMB share UNC path <span class="help" title="UNC path exposed to WinPE. Example: \\DEPLOY-SERVER\\IronDeploy.">?</span></span><input data-winpe="SharePath" /></label>
@@ -226,6 +226,7 @@
               <div class="form-grid two compact-grid">
                 <label><span class="field-title">LDAP timeout <span class="help" title="Connection timeout in seconds, 1-60. Example: 5.">?</span></span><input data-api="IRONAPI_LDAP_CONNECT_TIMEOUT" inputmode="numeric" /></label>
                 <label><span class="field-title">ODJ timeout <span class="help" title="djoin /provision timeout in seconds, 1-300. Example: 60.">?</span></span><input data-api="IRONAPI_ODJ_PROVISION_TIMEOUT" inputmode="numeric" /></label>
+                <label><span class="field-title">ODJ blob lifetime <span class="help" title="Short provision-to-download lifetime in minutes, 5-1440. Default 5. It is independent of the total deployment timeout.">?</span></span><input data-api="IRONAPI_ODJ_BLOB_MAX_AGE_MINUTES" inputmode="numeric" /></label>
               </div>
             </section>
 
@@ -238,7 +239,6 @@
                 <label><span class="field-title">WinPE drive <span class="help" title="Temporary mapped drive letter in WinPE. Example: Z:.">?</span></span><input data-winpe="ShareDrive" /></label>
                 <label><span class="field-title">Images path <span class="help" title="Derived from WinPE drive. Example: Z:\\Images.">?</span></span><input data-winpe="ImagesPath" disabled /></label>
                 <label><span class="field-title">Drivers path <span class="help" title="Derived from WinPE drive. Example: Z:\\Drivers.">?</span></span><input data-winpe="DriversPath" disabled /></label>
-                <label><span class="field-title">Post-install path <span class="help" title="Derived from WinPE drive. Example: Z:\\PostInstall.">?</span></span><input data-winpe="PostInstallPath" disabled /></label>
               </div>
             </section>
           </div>

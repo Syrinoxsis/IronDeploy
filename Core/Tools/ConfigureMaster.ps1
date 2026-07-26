@@ -22,10 +22,13 @@ $WinPEConfigExamplePath = Join-Path `
     "WinPE\Runtime\deploy.config.example.ps1"
 $UnattendPath = Join-Path `
     $IronDeployRoot `
-    "Share\Unattend\unattend-win11-template.xml"
+    "ServerTemplates\Unattend\unattend-win11-template.xml"
 $UnattendExamplePath = Join-Path `
     $IronDeployRoot `
-    "Share\Unattend\unattend-win11-template.example.xml"
+    "ServerTemplates\Unattend\unattend-win11-template.example.xml"
+$LegacyUnattendPath = Join-Path `
+    $IronDeployRoot `
+    "Share\Unattend\unattend-win11-template.xml"
 $WinPEInitializePath = Join-Path `
     $IronDeployRoot `
     "WinPE\Build\Initialize-IronDeployWinPE.ps1"
@@ -221,14 +224,36 @@ function Initialize-DirectoryLayout {
         "dist",
         "Share\Images",
         "Share\Drivers",
-        "Share\Unattend",
-        "Share\PostInstall"
+        "ServerTemplates\Unattend",
+        "ServerTemplates\PostInstall"
     ) | ForEach-Object {
         New-Item `
             -ItemType Directory `
             -Path (Join-Path $IronDeployRoot $_) `
             -Force |
             Out-Null
+    }
+
+    if (
+        -not (Test-Path -LiteralPath $UnattendPath -PathType Leaf) -and
+        (Test-Path -LiteralPath $LegacyUnattendPath -PathType Leaf)
+    ) {
+        Move-Item `
+            -LiteralPath $LegacyUnattendPath `
+            -Destination $UnattendPath
+        Write-Host (
+            "Moved legacy unattend template to: $UnattendPath"
+        ) -ForegroundColor Green
+    }
+    elseif (
+        (Test-Path -LiteralPath $UnattendPath -PathType Leaf) -and
+        (Test-Path -LiteralPath $LegacyUnattendPath -PathType Leaf)
+    ) {
+        throw (
+            "Both legacy SMB-exposed and server-only unattend templates exist. " +
+            "Remove the legacy Share\Unattend copy after verifying which " +
+            "configuration is current."
+        )
     }
 }
 
@@ -522,7 +547,6 @@ function Configure-WinPE {
         "`$ApiBaseUrl = $(ConvertTo-PowerShellLiteral $apiBaseUrl)",
         "`$ImagesPath = $(ConvertTo-PowerShellLiteral ($shareDrive + '\Images'))",
         "`$DriversPath = $(ConvertTo-PowerShellLiteral ($shareDrive + '\Drivers'))",
-        "`$PostInstallPath = $(ConvertTo-PowerShellLiteral ($shareDrive + '\PostInstall'))",
         "`$ImageIndex = $imageIndex",
         "`$SetupLocalAdminName = $(ConvertTo-PowerShellLiteral $setupLocalAdminName)",
         "`$EnableBuiltInAdministrator = $(ConvertTo-PowerShellBooleanLiteral $enableBuiltInAdministrator)",

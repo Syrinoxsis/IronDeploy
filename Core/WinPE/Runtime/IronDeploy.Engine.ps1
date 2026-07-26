@@ -115,7 +115,6 @@ $RequiredConfigValues = @(
     "ApiBaseUrl",
     "ImagesPath",
     "DriversPath",
-    "PostInstallPath",
     "ImageIndex"
 )
 
@@ -2542,21 +2541,66 @@ function Invoke-IronDeployment {
     $SetupScriptsDir = "C:\Windows\Setup\Scripts"
     New-Item -ItemType Directory -Force $SetupScriptsDir | Out-Null
 
-    Copy-Item `
-        (Join-Path $PostInstallPath "SetupComplete.cmd") `
-        "$SetupScriptsDir\SetupComplete.cmd" `
-        -Force
-    Copy-Item `
-        (Join-Path $PostInstallPath "postinstall.ps1") `
-        "$SetupScriptsDir\postinstall.ps1" `
-        -Force
+    $PostInstallBaseUrl = (
+        "{0}/api/deploy/{1}/postinstall" -f `
+            $ApiBaseUrl.TrimEnd("/"),
+            $script:DeploymentId
+    )
+    $SetupCompleteTarget = Join-Path $SetupScriptsDir "SetupComplete.cmd"
+    $PostInstallScriptTarget = Join-Path $SetupScriptsDir "postinstall.ps1"
+    $SetupCompleteDownload = "$SetupCompleteTarget.download"
+    $PostInstallScriptDownload = "$PostInstallScriptTarget.download"
 
-    if (!(Test-Path "$SetupScriptsDir\SetupComplete.cmd")) {
-        Fail "SetupComplete.cmd was not copied"
+    try {
+        Invoke-IronApiWebRequest `
+            -Uri "$PostInstallBaseUrl/setup-complete" `
+            -Method Get `
+            -OutFile $SetupCompleteDownload `
+            -TimeoutSec 30 | Out-Null
+        Invoke-IronApiWebRequest `
+            -Uri "$PostInstallBaseUrl/script" `
+            -Method Get `
+            -OutFile $PostInstallScriptDownload `
+            -TimeoutSec 30 | Out-Null
+
+        foreach ($DownloadedFile in @(
+            $SetupCompleteDownload,
+            $PostInstallScriptDownload
+        )) {
+            if (
+                !(Test-Path -LiteralPath $DownloadedFile -PathType Leaf) -or
+                (Get-Item -LiteralPath $DownloadedFile).Length -le 0
+            ) {
+                throw "Downloaded post-install file is empty: $DownloadedFile"
+            }
+        }
+
+        Move-Item `
+            -LiteralPath $SetupCompleteDownload `
+            -Destination $SetupCompleteTarget `
+            -Force
+        Move-Item `
+            -LiteralPath $PostInstallScriptDownload `
+            -Destination $PostInstallScriptTarget `
+            -Force
+    } catch {
+        Remove-Item `
+            -LiteralPath $SetupCompleteDownload `
+            -Force `
+            -ErrorAction SilentlyContinue
+        Remove-Item `
+            -LiteralPath $PostInstallScriptDownload `
+            -Force `
+            -ErrorAction SilentlyContinue
+        Fail "Failed to download post-install scripts: $($_.Exception.Message)"
     }
 
-    if (!(Test-Path "$SetupScriptsDir\postinstall.ps1")) {
-        Fail "postinstall.ps1 was not copied"
+    if (!(Test-Path -LiteralPath $SetupCompleteTarget -PathType Leaf)) {
+        Fail "SetupComplete.cmd was not downloaded"
+    }
+
+    if (!(Test-Path -LiteralPath $PostInstallScriptTarget -PathType Leaf)) {
+        Fail "postinstall.ps1 was not downloaded"
     }
 
     $PostInstallConfigPath = Join-Path `

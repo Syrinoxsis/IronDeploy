@@ -12,6 +12,7 @@ sys.path.insert(0, str(SETUPWEB_ROOT))
 
 from app.config_store import (
     IronDeployPaths,
+    ensure_config_files,
     load_config,
     normalize_api,
     normalize_winpe,
@@ -57,6 +58,7 @@ class AccessModeTests(unittest.TestCase):
             result["IRONAPI_DEPLOYMENT_AUTHORIZATION_TIMEOUT_MINUTES"], "10"
         )
         self.assertEqual(result["IRONAPI_DEPLOYMENT_TIMEOUT_MINUTES"], "90")
+        self.assertEqual(result["IRONAPI_ODJ_BLOB_MAX_AGE_MINUTES"], "5")
 
         with self.assertRaisesRegex(ValueError, "must be from 5 to 30"):
             normalize_api(
@@ -64,6 +66,13 @@ class AccessModeTests(unittest.TestCase):
             )
         with self.assertRaisesRegex(ValueError, "must be from 30 to 240"):
             normalize_api({"IRONAPI_DEPLOYMENT_TIMEOUT_MINUTES": "241"})
+        with self.assertRaisesRegex(ValueError, "must be from 5 to 1440"):
+            normalize_api(
+                {
+                    "IRONAPI_DEPLOYMENT_TIMEOUT_MINUTES": "120",
+                    "IRONAPI_ODJ_BLOB_MAX_AGE_MINUTES": "4",
+                }
+            )
 
     def test_https_proxy_forces_loopback_port_and_secure_cookie(self) -> None:
         result = normalize_api(
@@ -146,6 +155,64 @@ class AccessModeTests(unittest.TestCase):
 
 
 class CredentialMigrationTests(unittest.TestCase):
+    def test_legacy_unattend_is_moved_out_of_the_smb_share(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            legacy = (
+                root
+                / "Share"
+                / "Unattend"
+                / "unattend-win11-template.xml"
+            )
+            target = (
+                root
+                / "ServerTemplates"
+                / "Unattend"
+                / "unattend-win11-template.xml"
+            )
+            legacy.parent.mkdir(parents=True)
+            legacy.write_text("<Value>secret</Value>", encoding="utf-8")
+            api_env = root / "Api" / ".env"
+            winpe_config = root / "WinPE" / "Runtime" / "deploy.config.ps1"
+            api_env.parent.mkdir(parents=True)
+            winpe_config.parent.mkdir(parents=True)
+            api_env.write_text("", encoding="utf-8")
+            winpe_config.write_text("", encoding="utf-8")
+            paths = IronDeployPaths(
+                root=root,
+                api_env=api_env,
+                api_env_example=root / "Api" / ".env.example",
+                winpe_config=winpe_config,
+                winpe_config_example=(
+                    root / "WinPE" / "Runtime" / "deploy.config.example.ps1"
+                ),
+                unattend=target,
+                unattend_example=(
+                    root
+                    / "ServerTemplates"
+                    / "Unattend"
+                    / "unattend-win11-template.example.xml"
+                ),
+                backup_dir=root / "Logs" / "ConfigBackups",
+                validation_script=root / "Tools" / "Test-IronDeploy.ps1",
+                auth_bootstrap=root / "Data" / "auth-bootstrap.json",
+            )
+
+            ensure_config_files(paths)
+
+            self.assertFalse(legacy.exists())
+            self.assertEqual(
+                target.read_text(encoding="utf-8"),
+                "<Value>secret</Value>",
+            )
+            legacy.parent.mkdir(parents=True, exist_ok=True)
+            legacy.write_text("<Value>stale-secret</Value>", encoding="utf-8")
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "Both legacy SMB-exposed and server-only",
+            ):
+                ensure_config_files(paths)
+
     def test_load_prefers_legacy_share_over_api_sample_during_migration(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -158,9 +225,12 @@ class CredentialMigrationTests(unittest.TestCase):
                 / "WinPE"
                 / "Runtime"
                 / "deploy.config.example.ps1",
-                unattend=root / "Share" / "Unattend" / "unattend-win11-template.xml",
+                unattend=root
+                / "ServerTemplates"
+                / "Unattend"
+                / "unattend-win11-template.xml",
                 unattend_example=root
-                / "Share"
+                / "ServerTemplates"
                 / "Unattend"
                 / "unattend-win11-template.example.xml",
                 backup_dir=root / "Logs" / "ConfigBackups",
@@ -230,7 +300,7 @@ class CredentialMigrationTests(unittest.TestCase):
             root = Path(temporary)
             (root / "Api").mkdir()
             (root / "WinPE" / "Runtime").mkdir(parents=True)
-            (root / "Share" / "Unattend").mkdir(parents=True)
+            (root / "ServerTemplates" / "Unattend").mkdir(parents=True)
             shutil.copy2(
                 SETUPWEB_ROOT.parent / "Api" / ".env.example",
                 root / "Api" / ".env.example",
@@ -244,11 +314,11 @@ class CredentialMigrationTests(unittest.TestCase):
             )
             shutil.copy2(
                 SETUPWEB_ROOT.parent
-                / "Share"
+                / "ServerTemplates"
                 / "Unattend"
                 / "unattend-win11-template.example.xml",
                 root
-                / "Share"
+                / "ServerTemplates"
                 / "Unattend"
                 / "unattend-win11-template.example.xml",
             )
@@ -262,11 +332,11 @@ class CredentialMigrationTests(unittest.TestCase):
                 / "Runtime"
                 / "deploy.config.example.ps1",
                 unattend=root
-                / "Share"
+                / "ServerTemplates"
                 / "Unattend"
                 / "unattend-win11-template.xml",
                 unattend_example=root
-                / "Share"
+                / "ServerTemplates"
                 / "Unattend"
                 / "unattend-win11-template.example.xml",
                 backup_dir=root / "Logs" / "ConfigBackups",
@@ -297,6 +367,7 @@ class CredentialMigrationTests(unittest.TestCase):
                 "IRONAPI_DEPLOYMENT_AUTHORIZATION_TIMEOUT_MINUTES=10", api_env
             )
             self.assertIn("IRONAPI_DEPLOYMENT_TIMEOUT_MINUTES=90", api_env)
+            self.assertIn("IRONAPI_ODJ_BLOB_MAX_AGE_MINUTES=5", api_env)
             self.assertNotIn("server-side-password", winpe_config)
             self.assertNotIn("$SharePassword", winpe_config)
             self.assertNotIn("$ShareUser", winpe_config)
