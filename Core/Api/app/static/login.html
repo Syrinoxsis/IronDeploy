@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" type="image/png" href="/static/irondeploy-api-icon.png">
+    <title>IronDeploy - Sign in</title>
+    <link rel="stylesheet" href="/static/dashboard.css">
+    <link rel="stylesheet" href="/static/auth-admin.css">
+    <script src="/static/i18n.js"></script>
+    <script src="/static/login.js" defer></script>
+</head>
+<body class="login-body">
+    <div id="login-language"></div>
+    <main class="login-shell">
+        <section class="login-card">
+            <div class="login-brand">IronDeploy</div>
+            <h1>Sign in</h1>
+            <p>Use an IronAPI account to continue.</p>
+            <div class="auth-message" id="login-message" hidden></div>
+            <form id="login-form">
+                <label><span>Username</span><input id="login-username" autocomplete="username" autofocus required></label>
+                <label><span>Password</span><input id="login-password" type="password" autocomplete="current-password" required></label>
+                <button class="auth-primary" id="login-button" type="submit">Sign in</button>
+            </form>
+            <small>The initial superadmin is configured locally through SetupWeb.</small>
+        </section>
+    </main>
+    <script src="/static/language-control.js"></script>
+</body>
+</html>

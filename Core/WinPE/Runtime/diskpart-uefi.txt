@@ -1,0 +1,12 @@
+rem ВНИМАНИЕ: следующая команда полностью очистит disk 0 со всеми данными.
+select disk 0
+clean
+convert gpt
+create partition efi size=300
+format quick fs=fat32 label="System"
+assign letter=S
+create partition msr size=16
+create partition primary
+format quick fs=ntfs label="Windows"
+assign letter=C
+exit

@@ -1,0 +1,568 @@
+"""Read and write the typical Windows image settings surfaced in the Api.
+
+The settings live in two IronDeploy source files that are normally created by
+SetupWeb:
+
+* ``WinPE/Runtime/deploy.config.ps1`` — the post-install account policy
+  (``$SetupLocalAdminName``, ``$EnableBuiltInAdministrator``,
+  ``$EnableSetupLocalAdmin``) consumed by ``Share/PostInstall/postinstall.ps1``.
+* ``Share/Unattend/unattend-win11-template.xml`` — the Windows ``<TimeZone>``
+  and the ``localadmin`` local account (its name and plain-text password).
+
+Writes are line/element targeted so unrelated values (for example the SMB
+password inside ``deploy.config.ps1``) are preserved, and every changed file is
+backed up under ``Logs/ConfigBackups`` before it is replaced atomically.
+"""
+
+from __future__ import annotations
+
+import os
+import re
+import shutil
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+from xml.sax.saxutils import escape
+
+from app.config import IRONDEPLOY_ROOT
+
+# The plain-text placeholder shipped in the example templates. A value equal to
+# this (or any ``CHANGE_ME`` marker) is treated as "not configured yet".
+PASSWORD_PLACEHOLDER = "CHANGE_ME_USE_A_UNIQUE_PASSWORD"
+
+# Windows time zone ids, offset, and a short label. Kept in sync with the list
+# SetupWeb offers so both surfaces present the same choices.
+TIME_ZONES: tuple[tuple[str, str, str], ...] = (
+    ("Dateline Standard Time", "UTC-12", "International Date Line West"),
+    ("UTC-11", "UTC-11", "Coordinated Universal Time-11"),
+    ("Aleutian Standard Time", "UTC-10", "Aleutian Islands"),
+    ("Hawaiian Standard Time", "UTC-10", "Hawaii"),
+    ("Marquesas Standard Time", "UTC-09:30", "Marquesas Islands"),
+    ("Alaskan Standard Time", "UTC-09", "Alaska"),
+    ("UTC-09", "UTC-09", "Coordinated Universal Time-09"),
+    ("Pacific Standard Time", "UTC-08", "Pacific Time"),
+    ("UTC-08", "UTC-08", "Coordinated Universal Time-08"),
+    ("Mountain Standard Time", "UTC-07", "Mountain Time"),
+    ("US Mountain Standard Time", "UTC-07", "Arizona"),
+    ("Central Standard Time", "UTC-06", "Central Time"),
+    ("Canada Central Standard Time", "UTC-06", "Saskatchewan"),
+    ("Eastern Standard Time", "UTC-05", "Eastern Time"),
+    ("US Eastern Standard Time", "UTC-05", "Indiana East"),
+    ("SA Pacific Standard Time", "UTC-05", "Bogota, Lima, Quito"),
+    ("Atlantic Standard Time", "UTC-04", "Atlantic Time"),
+    ("SA Western Standard Time", "UTC-04", "Georgetown, La Paz, Manaus"),
+    ("Newfoundland Standard Time", "UTC-03:30", "Newfoundland"),
+    ("E. South America Standard Time", "UTC-03", "Brasilia"),
+    ("SA Eastern Standard Time", "UTC-03", "Cayenne, Fortaleza"),
+    ("UTC-02", "UTC-02", "Coordinated Universal Time-02"),
+    ("Azores Standard Time", "UTC-01", "Azores"),
+    ("UTC", "UTC+00", "Coordinated Universal Time"),
+    ("GMT Standard Time", "UTC+00", "Dublin, Edinburgh, Lisbon, London"),
+    ("W. Europe Standard Time", "UTC+01", "Amsterdam, Berlin, Rome"),
+    ("Central Europe Standard Time", "UTC+01", "Budapest, Prague, Warsaw"),
+    ("Romance Standard Time", "UTC+01", "Brussels, Copenhagen, Madrid, Paris"),
+    ("E. Europe Standard Time", "UTC+02", "Chisinau"),
+    ("FLE Standard Time", "UTC+02", "Helsinki, Kyiv, Riga, Sofia, Tallinn, Vilnius"),
+    ("GTB Standard Time", "UTC+02", "Athens, Bucharest"),
+    ("South Africa Standard Time", "UTC+02", "Harare, Pretoria"),
+    ("Turkey Standard Time", "UTC+03", "Istanbul"),
+    ("Russian Standard Time", "UTC+03", "Moscow, St. Petersburg"),
+    ("Arab Standard Time", "UTC+03", "Kuwait, Riyadh"),
+    ("Iran Standard Time", "UTC+03:30", "Tehran"),
+    ("Arabian Standard Time", "UTC+04", "Abu Dhabi, Muscat"),
+    ("Astrakhan Standard Time", "UTC+04", "Astrakhan, Ulyanovsk"),
+    ("Afghanistan Standard Time", "UTC+04:30", "Kabul"),
+    ("West Asia Standard Time", "UTC+05", "Ashgabat, Tashkent"),
+    ("Qyzylorda Standard Time", "UTC+05", "Qyzylorda"),
+    ("Pakistan Standard Time", "UTC+05", "Islamabad, Karachi"),
+    ("India Standard Time", "UTC+05:30", "Chennai, Kolkata, Mumbai, New Delhi"),
+    ("Nepal Standard Time", "UTC+05:45", "Kathmandu"),
+    ("Central Asia Standard Time", "UTC+06", "Astana"),
+    ("Bangladesh Standard Time", "UTC+06", "Dhaka"),
+    ("Myanmar Standard Time", "UTC+06:30", "Yangon"),
+    ("SE Asia Standard Time", "UTC+07", "Bangkok, Hanoi, Jakarta"),
+    ("North Asia Standard Time", "UTC+07", "Krasnoyarsk"),
+    ("N. Central Asia Standard Time", "UTC+07", "Novosibirsk"),
+    ("China Standard Time", "UTC+08", "Beijing, Chongqing, Hong Kong"),
+    ("Singapore Standard Time", "UTC+08", "Kuala Lumpur, Singapore"),
+    ("Taipei Standard Time", "UTC+08", "Taipei"),
+    ("North Asia East Standard Time", "UTC+08", "Irkutsk"),
+    ("Tokyo Standard Time", "UTC+09", "Osaka, Sapporo, Tokyo"),
+    ("Korea Standard Time", "UTC+09", "Seoul"),
+    ("AUS Central Standard Time", "UTC+09:30", "Darwin"),
+    ("E. Australia Standard Time", "UTC+10", "Brisbane"),
+    ("AUS Eastern Standard Time", "UTC+10", "Canberra, Melbourne, Sydney"),
+    ("West Pacific Standard Time", "UTC+10", "Guam, Port Moresby"),
+    ("Lord Howe Standard Time", "UTC+10:30", "Lord Howe Island"),
+    ("Central Pacific Standard Time", "UTC+11", "Solomon Islands, New Caledonia"),
+    ("New Zealand Standard Time", "UTC+12", "Auckland, Wellington"),
+    ("UTC+12", "UTC+12", "Coordinated Universal Time+12"),
+    ("Tonga Standard Time", "UTC+13", "Nuku'alofa"),
+    ("Line Islands Standard Time", "UTC+14", "Kiritimati Island"),
+)
+
+TIME_ZONE_IDS = {item[0] for item in TIME_ZONES}
+DEFAULT_TIME_ZONE = "Central Asia Standard Time"
+DEFAULT_LOCAL_ADMIN_NAME = "localadmin"
+
+_ADMIN_NAME_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,20}$")
+
+
+class ImageConfigError(ValueError):
+    """Raised when the submitted image settings are invalid."""
+
+
+@dataclass(frozen=True)
+class ImagePaths:
+    winpe_config: Path
+    winpe_config_example: Path
+    unattend: Path
+    unattend_example: Path
+    backup_dir: Path
+
+    @staticmethod
+    def default() -> "ImagePaths":
+        root = IRONDEPLOY_ROOT
+        return ImagePaths(
+            winpe_config=root / "WinPE" / "Runtime" / "deploy.config.ps1",
+            winpe_config_example=root
+            / "WinPE"
+            / "Runtime"
+            / "deploy.config.example.ps1",
+            unattend=root / "Share" / "Unattend" / "unattend-win11-template.xml",
+            unattend_example=root
+            / "Share"
+            / "Unattend"
+            / "unattend-win11-template.example.xml",
+            backup_dir=root / "Logs" / "ConfigBackups",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Low level file helpers
+# ---------------------------------------------------------------------------
+
+
+def _atomic_write(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f"{path.name}.tmp.{os.urandom(8).hex()}")
+    temporary.write_text(content, encoding="utf-8")
+    os.replace(temporary, path)
+
+
+def _backup_file(paths: ImagePaths, path: Path) -> str | None:
+    if not path.is_file():
+        return None
+    paths.backup_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")[:-3]
+    backup = paths.backup_dir / f"{path.name}.{stamp}.bak"
+    shutil.copy2(path, backup)
+    return str(backup)
+
+
+def _read_ps_config(path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    if not path.is_file():
+        return values
+    for line in path.read_text(encoding="utf-8-sig").splitlines():
+        string_match = re.match(
+            r"^\s*\$([A-Za-z][A-Za-z0-9_]*)\s*=\s*(['\"])(.*?)\2\s*$",
+            line,
+        )
+        if string_match:
+            values[string_match.group(1)] = string_match.group(3).replace("''", "'")
+            continue
+        bool_match = re.match(
+            r"^\s*\$([A-Za-z][A-Za-z0-9_]*)\s*=\s*\$(true|false)\s*$",
+            line,
+            re.IGNORECASE,
+        )
+        if bool_match:
+            values[bool_match.group(1)] = bool_match.group(2).lower()
+    return values
+
+
+def _ps_literal(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _normalize_bool(value: Any) -> bool:
+    return str(value).strip().lower() in {"true", "1", "yes", "y", "on"}
+
+
+# ---------------------------------------------------------------------------
+# Unattend XML helpers
+# ---------------------------------------------------------------------------
+
+
+def _unattend_source(paths: ImagePaths) -> Path:
+    return paths.unattend if paths.unattend.is_file() else paths.unattend_example
+
+
+def _local_account_block(content: str) -> str | None:
+    match = re.search(
+        r"<LocalAccount\b[^>]*>.*?</LocalAccount>",
+        content,
+        re.DOTALL,
+    )
+    return match.group(0) if match else None
+
+
+def _has_real_password(value: str | None) -> bool:
+    if value is None:
+        return False
+    stripped = value.strip()
+    return bool(stripped) and "CHANGE_ME" not in stripped
+
+
+def _read_unattend(paths: ImagePaths) -> dict[str, Any]:
+    source = _unattend_source(paths)
+    time_zone = DEFAULT_TIME_ZONE
+    admin_name = DEFAULT_LOCAL_ADMIN_NAME
+    has_password = False
+    has_builtin_password = False
+    if source.is_file():
+        content = source.read_text(encoding="utf-8-sig")
+        tz_match = re.search(r"<TimeZone>(.*?)</TimeZone>", content, re.DOTALL)
+        if tz_match:
+            time_zone = tz_match.group(1).strip()
+        block = _local_account_block(content)
+        if block:
+            name_match = re.search(r"<Name>(.*?)</Name>", block, re.DOTALL)
+            if name_match and name_match.group(1).strip():
+                admin_name = name_match.group(1).strip()
+            value_match = re.search(
+                r"<Password>.*?<Value>(.*?)</Value>",
+                block,
+                re.DOTALL,
+            )
+            if value_match:
+                has_password = _has_real_password(value_match.group(1))
+        builtin_match = re.search(
+            r"<AdministratorPassword\b[^>]*>.*?<Value>(.*?)</Value>",
+            content,
+            re.DOTALL,
+        )
+        if builtin_match:
+            has_builtin_password = _has_real_password(builtin_match.group(1))
+    return {
+        "timeZone": time_zone,
+        "localAdminName": admin_name,
+        "hasLocalAdminPassword": has_password,
+        "hasBuiltInAdministratorPassword": has_builtin_password,
+    }
+
+
+def _patch_unattend_block(block: str, admin_name: str, password: str | None) -> str:
+    updated = re.sub(
+        r"(<Name>)(.*?)(</Name>)",
+        lambda m: f"{m.group(1)}{escape(admin_name)}{m.group(3)}",
+        block,
+        count=1,
+        flags=re.DOTALL,
+    )
+    updated = re.sub(
+        r"(<DisplayName>)(.*?)(</DisplayName>)",
+        lambda m: f"{m.group(1)}{escape(admin_name)}{m.group(3)}",
+        updated,
+        count=1,
+        flags=re.DOTALL,
+    )
+    if password is not None:
+        if not re.search(r"<Password>.*?<Value>.*?</Value>", updated, re.DOTALL):
+            raise ImageConfigError(
+                "Unattend template does not contain a localadmin <Password><Value>."
+            )
+        updated = re.sub(
+            r"(<Password>.*?<Value>)(.*?)(</Value>)",
+            lambda m: f"{m.group(1)}{escape(password)}{m.group(3)}",
+            updated,
+            count=1,
+            flags=re.DOTALL,
+        )
+    return updated
+
+
+def _set_builtin_administrator_password(content: str, password: str) -> str:
+    """Set the built-in Administrator password in the oobeSystem UserAccounts.
+
+    The element is created only on demand so that leaving the field empty never
+    writes a password (a placeholder here would become the real password Windows
+    applies). Windows scrubs this value from the deployed C:\\Windows\\Panther
+    unattend after it is processed.
+    """
+
+    value = escape(password)
+    if re.search(r"<AdministratorPassword\b", content):
+        if not re.search(
+            r"<AdministratorPassword\b[^>]*>.*?<Value>.*?</Value>",
+            content,
+            re.DOTALL,
+        ):
+            raise ImageConfigError("Unattend <AdministratorPassword> is malformed.")
+        return re.sub(
+            r"(<AdministratorPassword\b[^>]*>.*?<Value>)(.*?)(</Value>)",
+            lambda m: f"{m.group(1)}{value}{m.group(3)}",
+            content,
+            count=1,
+            flags=re.DOTALL,
+        )
+
+    marker = re.search(r"(?m)^([ \t]*)<LocalAccounts>", content)
+    if marker is None:
+        raise ImageConfigError(
+            "Unattend template does not contain a <LocalAccounts> element."
+        )
+    indent = marker.group(1)
+    block = (
+        f"{indent}<AdministratorPassword>\n"
+        f"{indent}  <Value>{value}</Value>\n"
+        f"{indent}  <PlainText>true</PlainText>\n"
+        f"{indent}</AdministratorPassword>\n"
+    )
+    return content[: marker.start()] + block + content[marker.start() :]
+
+
+def _save_unattend(
+    paths: ImagePaths,
+    time_zone: str,
+    admin_name: str,
+    password: str | None,
+    builtin_password: str | None,
+) -> str | None:
+    if not paths.unattend.is_file():
+        if not paths.unattend_example.is_file():
+            raise ImageConfigError(
+                f"Missing unattend template: {paths.unattend_example}"
+            )
+        paths.unattend.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(paths.unattend_example, paths.unattend)
+        backup = None
+    else:
+        backup = _backup_file(paths, paths.unattend)
+
+    content = paths.unattend.read_text(encoding="utf-8-sig")
+    if not re.search(r"<TimeZone>.*?</TimeZone>", content, re.DOTALL):
+        raise ImageConfigError("Unattend template does not contain a TimeZone element.")
+    content = re.sub(
+        r"<TimeZone>.*?</TimeZone>",
+        f"<TimeZone>{escape(time_zone)}</TimeZone>",
+        content,
+        flags=re.DOTALL,
+    )
+
+    block = _local_account_block(content)
+    if block is None:
+        raise ImageConfigError(
+            "Unattend template does not contain a localadmin <LocalAccount>."
+        )
+    content = content.replace(block, _patch_unattend_block(block, admin_name, password))
+
+    if builtin_password is not None:
+        content = _set_builtin_administrator_password(content, builtin_password)
+
+    _atomic_write(paths.unattend, content)
+    return backup
+
+
+# ---------------------------------------------------------------------------
+# deploy.config.ps1 helpers
+# ---------------------------------------------------------------------------
+
+_PS_WINPE_FIELDS = (
+    "SetupLocalAdminName",
+    "EnableBuiltInAdministrator",
+    "EnableSetupLocalAdmin",
+    "EnableGuiImageApplyProgress",
+)
+
+_PS_LEGACY_FIELDS = {"DisableSetupLocalAdmin"}
+
+
+def _read_enable_setup_local_admin(paths: ImagePaths) -> bool:
+    configured = _read_ps_config(paths.winpe_config)
+    if "EnableSetupLocalAdmin" in configured:
+        return _normalize_bool(configured["EnableSetupLocalAdmin"])
+    if "DisableSetupLocalAdmin" in configured:
+        return not _normalize_bool(configured["DisableSetupLocalAdmin"])
+
+    example = _read_ps_config(paths.winpe_config_example)
+    if "EnableSetupLocalAdmin" in example:
+        return _normalize_bool(example["EnableSetupLocalAdmin"])
+    if "DisableSetupLocalAdmin" in example:
+        return not _normalize_bool(example["DisableSetupLocalAdmin"])
+    return True
+
+
+def _save_winpe_config(
+    paths: ImagePaths,
+    admin_name: str,
+    enable_builtin: bool,
+    enable_setup_admin: bool,
+    enable_gui_image_apply_progress: bool,
+) -> str | None:
+    if not paths.winpe_config.is_file():
+        if not paths.winpe_config_example.is_file():
+            raise ImageConfigError(
+                f"Missing WinPE config template: {paths.winpe_config_example}"
+            )
+        paths.winpe_config.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(paths.winpe_config_example, paths.winpe_config)
+        backup = None
+    else:
+        backup = _backup_file(paths, paths.winpe_config)
+
+    replacements = {
+        "SetupLocalAdminName": f"$SetupLocalAdminName = {_ps_literal(admin_name)}",
+        "EnableBuiltInAdministrator": (
+            f"$EnableBuiltInAdministrator = ${'true' if enable_builtin else 'false'}"
+        ),
+        "EnableSetupLocalAdmin": (
+            f"$EnableSetupLocalAdmin = ${'true' if enable_setup_admin else 'false'}"
+        ),
+        "EnableGuiImageApplyProgress": (
+            "$EnableGuiImageApplyProgress = "
+            f"${'true' if enable_gui_image_apply_progress else 'false'}"
+        ),
+    }
+
+    lines = paths.winpe_config.read_text(encoding="utf-8-sig").splitlines()
+    seen: set[str] = set()
+    updated: list[str] = []
+    for line in lines:
+        match = re.match(r"^\s*\$([A-Za-z][A-Za-z0-9_]*)\s*=", line)
+        if match and match.group(1) in replacements:
+            name = match.group(1)
+            updated.append(replacements[name])
+            seen.add(name)
+        elif match and match.group(1) in _PS_LEGACY_FIELDS:
+            continue
+        else:
+            updated.append(line)
+    for name in _PS_WINPE_FIELDS:
+        if name not in seen:
+            updated.append(replacements[name])
+
+    _atomic_write(paths.winpe_config, "\n".join(updated) + "\n")
+    return backup
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+
+def load_image_config(paths: ImagePaths | None = None) -> dict[str, Any]:
+    paths = paths or ImagePaths.default()
+    winpe = _read_ps_config(paths.winpe_config_example)
+    winpe.update(_read_ps_config(paths.winpe_config))
+    unattend = _read_unattend(paths)
+
+    # The account name lives in both files; prefer the WinPE policy value and
+    # fall back to the name declared in the unattend template.
+    admin_name = winpe.get("SetupLocalAdminName") or unattend["localAdminName"]
+
+    return {
+        "localAdminName": admin_name,
+        "enableBuiltInAdministrator": _normalize_bool(
+            winpe.get("EnableBuiltInAdministrator", "false")
+        ),
+        "enableSetupLocalAdmin": _read_enable_setup_local_admin(paths),
+        "enableGuiImageApplyProgress": _normalize_bool(
+            winpe.get("EnableGuiImageApplyProgress", "true")
+        ),
+        "timeZone": unattend["timeZone"],
+        "hasLocalAdminPassword": unattend["hasLocalAdminPassword"],
+        "hasBuiltInAdministratorPassword": unattend[
+            "hasBuiltInAdministratorPassword"
+        ],
+        "timeZones": [
+            {"id": item[0], "offset": item[1], "label": item[2]}
+            for item in TIME_ZONES
+        ],
+        "files": {
+            "winpeConfig": str(paths.winpe_config),
+            "winpeConfigExists": paths.winpe_config.is_file(),
+            "unattend": str(paths.unattend),
+            "unattendExists": paths.unattend.is_file(),
+        },
+    }
+
+
+def save_image_config(
+    payload: dict[str, Any],
+    paths: ImagePaths | None = None,
+) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise ImageConfigError("Invalid payload.")
+    paths = paths or ImagePaths.default()
+
+    admin_name = str(payload.get("localAdminName", "")).strip()
+    if not _ADMIN_NAME_PATTERN.match(admin_name):
+        raise ImageConfigError(
+            "Local admin name must be 1-20 letters, digits, dot, underscore, or hyphen."
+        )
+
+    time_zone = str(payload.get("timeZone", "")).strip()
+    if time_zone not in TIME_ZONE_IDS:
+        raise ImageConfigError(
+            "Time zone must be selected from the supported Windows time zone list."
+        )
+
+    enable_builtin = _normalize_bool(payload.get("enableBuiltInAdministrator"))
+    if "enableSetupLocalAdmin" in payload:
+        enable_setup_admin = _normalize_bool(payload.get("enableSetupLocalAdmin"))
+    elif "disableSetupLocalAdmin" in payload:
+        # Compatibility with older API clients during the setting rename.
+        enable_setup_admin = not _normalize_bool(payload.get("disableSetupLocalAdmin"))
+    else:
+        enable_setup_admin = _read_enable_setup_local_admin(paths)
+    current_winpe = _read_ps_config(paths.winpe_config_example)
+    current_winpe.update(_read_ps_config(paths.winpe_config))
+    enable_gui_image_apply_progress = _normalize_bool(
+        payload.get(
+            "enableGuiImageApplyProgress",
+            current_winpe.get("EnableGuiImageApplyProgress", "true"),
+        )
+    )
+
+    password = _validate_optional_password(
+        payload.get("localAdminPassword"), "Local admin"
+    )
+    builtin_password = _validate_optional_password(
+        payload.get("builtInAdministratorPassword"), "Built-in Administrator"
+    )
+
+    backups: list[str] = []
+    backup = _save_winpe_config(
+        paths,
+        admin_name,
+        enable_builtin,
+        enable_setup_admin,
+        enable_gui_image_apply_progress,
+    )
+    if backup:
+        backups.append(backup)
+    backup = _save_unattend(
+        paths, time_zone, admin_name, password, builtin_password
+    )
+    if backup:
+        backups.append(backup)
+
+    return {"saved": True, "backups": backups, "config": load_image_config(paths)}
+
+
+def _validate_optional_password(raw: Any, label: str) -> str | None:
+    """Return a validated password string, or None to keep the existing value."""
+
+    if raw in (None, ""):
+        return None
+    password = str(raw)
+    if "CHANGE_ME" in password:
+        raise ImageConfigError(
+            f"Choose a real {label} password, not the CHANGE_ME placeholder."
+        )
+    if len(password) < 8:
+        raise ImageConfigError(f"{label} password must be at least 8 characters.")
+    return password

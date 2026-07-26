@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" type="image/png" href="/static/irondeploy-api-icon.png">
+    <title>IronDeploy - Deployment details</title>
+    <link rel="stylesheet" href="/static/dashboard.css">
+    <link rel="stylesheet" href="/static/navigation.css">
+    <link rel="stylesheet" href="/static/deployment-detail.css">
+    <script src="/static/i18n.js"></script>
+    <script src="/static/navigation.js"></script>
+    <script src="/static/deployment-detail.js" defer></script>
+</head>
+<body data-page="dashboard">
+    <header class="app-header">
+        <div class="header-inner">
+            <a class="detail-back-link" href="/">
+                <svg aria-hidden="true" viewBox="0 0 24 24">
+                    <path d="m15 18-6-6 6-6"></path>
+                </svg>
+                <span>Back to deployments</span>
+            </a>
+            <div class="header-actions">
+                <button class="refresh-button" id="refresh-button" type="button">
+                    <svg aria-hidden="true" viewBox="0 0 24 24">
+                        <path d="M20 6v5h-5"></path>
+                        <path d="M19 11a7.5 7.5 0 1 0 .1 3.4"></path>
+                    </svg>
+                    <span>Refresh</span>
+                </button>
+                <span class="sync-state">
+                    <span class="sync-dot" aria-hidden="true"></span>
+                    <span class="updated-at" id="updated-at">Loading...</span>
+                </span>
+            </div>
+        </div>
+    </header>
+
+    <main class="page-shell detail-shell">
+        <div class="detail-loading" id="detail-loading" role="status">
+            Loading deployment details...
+        </div>
+
+        <div id="detail-content" hidden>
+            <section class="detail-hero" aria-labelledby="deployment-title">
+                <div>
+                    <div class="detail-eyebrow" id="deployment-number">Deployment</div>
+                    <h1 id="deployment-title">-</h1>
+                    <p id="deployment-subtitle">-</p>
+                </div>
+                <span class="detail-status" id="deployment-status">-</span>
+            </section>
+
+            <section class="detail-layout" aria-label="Deployment information">
+                <article class="detail-panel detail-overview">
+                    <div class="detail-panel-heading">
+                        <div>
+                            <span class="detail-section-kicker">Identity</span>
+                            <h2>Deployment overview</h2>
+                        </div>
+                        <span class="detail-copy-state" id="copy-state">
+                            Click a value to copy
+                        </span>
+                    </div>
+                    <dl class="detail-facts">
+                        <div><dt>Computer</dt><dd data-field="computer_name">-</dd></div>
+                        <div><dt>Hardware model</dt><dd data-field="model">-</dd></div>
+                        <div><dt>Serial number</dt><dd data-field="serial_number">-</dd></div>
+                        <div><dt>MAC address</dt><dd data-field="mac_address">-</dd></div>
+                        <div><dt>IP address</dt><dd data-field="ip_address">-</dd></div>
+                        <div><dt>Windows image</dt><dd data-field="image_name">-</dd></div>
+                        <div><dt>Domain join</dt><dd data-field="domain_join">-</dd></div>
+                        <div><dt>Deployment ID</dt><dd data-field="deployment_id">-</dd></div>
+                    </dl>
+                </article>
+
+                <article class="detail-panel detail-timing">
+                    <div class="detail-panel-heading">
+                        <div>
+                            <span class="detail-section-kicker">Timing</span>
+                            <h2>Run duration</h2>
+                        </div>
+                    </div>
+                    <div class="duration-total" id="total-duration">-</div>
+                    <dl class="timing-facts">
+                        <div><dt>Started</dt><dd id="started-at">-</dd></div>
+                        <div><dt>Finished</dt><dd id="completed-at">-</dd></div>
+                    </dl>
+                </article>
+            </section>
+
+            <section class="detail-panel detail-error" id="deployment-error" hidden>
+                <div class="detail-panel-heading">
+                    <div>
+                        <span class="detail-section-kicker">Failure details</span>
+                        <h2>Deployment error</h2>
+                    </div>
+                </div>
+                <pre id="deployment-error-message"></pre>
+            </section>
+
+            <section class="detail-panel">
+                <div class="detail-panel-heading">
+                    <div>
+                        <span class="detail-section-kicker">WinPE workflow</span>
+                        <h2>Deployment stages</h2>
+                    </div>
+                    <span class="detail-count" id="stage-count">0 stages</span>
+                </div>
+                <div class="detail-timeline" id="stage-list"></div>
+                <p class="detail-empty" id="stage-empty" hidden>
+                    No stage events were reported.
+                </p>
+            </section>
+
+            <section class="detail-panel">
+                <div class="detail-panel-heading">
+                    <div>
+                        <span class="detail-section-kicker">Post-install</span>
+                        <h2>Software results</h2>
+                    </div>
+                    <span class="detail-count" id="program-count">0 programs</span>
+                </div>
+                <div class="detail-programs" id="program-list"></div>
+                <p class="detail-empty" id="program-empty" hidden>
+                    No post-install software results were reported.
+                </p>
+            </section>
+
+            <section class="detail-panel network-panel">
+                <div class="detail-panel-heading">
+                    <div>
+                        <span class="detail-section-kicker">WinPE diagnostics</span>
+                        <h2>Network diagnostics</h2>
+                    </div>
+                    <span class="network-report-state" id="network-report-state">
+                        Not reported
+                    </span>
+                </div>
+                <div class="network-empty" id="network-empty">
+                    <strong>No network diagnostics were reported.</strong>
+                    <p>Older WinPE images do not collect these measurements. The deployment data above remains complete.</p>
+                </div>
+                <div id="network-content" hidden>
+                    <div class="network-adapters">
+                        <article class="network-adapter-card">
+                            <span class="network-card-label">SMB traffic adapter</span>
+                            <strong id="network-smb-adapter">-</strong>
+                            <div class="network-adapter-meta">
+                                <span id="network-smb-ip">-</span>
+                                <span id="network-link-speed">-</span>
+                            </div>
+                        </article>
+                        <article class="network-adapter-card">
+                            <span class="network-card-label">IronAPI route</span>
+                            <strong id="network-api-adapter">-</strong>
+                            <div class="network-adapter-meta">
+                                <span id="network-api-ip">-</span>
+                                <span id="network-api-link-speed">-</span>
+                                <span id="network-adapter-route-note">Same adapter</span>
+                            </div>
+                        </article>
+                        <article class="network-adapter-card">
+                            <span class="network-card-label">Ping target</span>
+                            <strong id="network-ping-target">-</strong>
+                            <div class="network-adapter-meta">
+                                <span>One ICMP request per second</span>
+                                <span>800 ms timeout</span>
+                            </div>
+                        </article>
+                    </div>
+
+                    <div class="network-summary-grid">
+                        <article class="network-summary-card">
+                            <span class="network-card-label">Overall ICMP</span>
+                            <strong class="network-big-value" id="network-icmp-status">-</strong>
+                            <dl class="network-mini-facts">
+                                <div><dt>Sent / received / lost</dt><dd id="network-ping-counts">-</dd></div>
+                                <div><dt>Packet loss</dt><dd id="network-ping-loss">-</dd></div>
+                                <div><dt>RTT min / avg / max</dt><dd id="network-rtt">-</dd></div>
+                                <div><dt>RTT above 50 ms</dt><dd id="network-spikes">-</dd></div>
+                            </dl>
+                        </article>
+                        <article class="network-summary-card">
+                            <span class="network-card-label">Adapter traffic</span>
+                            <strong class="network-big-value" id="network-inbound-rate">-</strong>
+                            <p class="network-honest-label">
+                                Average inbound adapter traffic during WinPE
+                            </p>
+                            <dl class="network-mini-facts">
+                                <div><dt>Received</dt><dd id="network-received-bytes">-</dd></div>
+                                <div><dt>Link utilization</dt><dd id="network-link-use">-</dd></div>
+                                <div><dt>Measured for</dt><dd id="network-duration">-</dd></div>
+                            </dl>
+                        </article>
+                        <article class="network-summary-card">
+                            <span class="network-card-label">IronAPI requests</span>
+                            <strong class="network-big-value" id="network-api-requests">-</strong>
+                            <dl class="network-mini-facts">
+                                <div><dt>Errors</dt><dd id="network-api-errors">-</dd></div>
+                                <div><dt>Response min / avg / max</dt><dd id="network-api-rtt">-</dd></div>
+                            </dl>
+                        </article>
+                        <article class="network-summary-card">
+                            <span class="network-card-label">Real SMB connection</span>
+                            <strong class="network-big-value" id="network-smb-status">-</strong>
+                            <dl class="network-mini-facts">
+                                <div><dt>Attempts</dt><dd id="network-smb-attempts">-</dd></div>
+                                <div><dt>Connection time</dt><dd id="network-smb-duration">-</dd></div>
+                            </dl>
+                            <p class="network-smb-error" id="network-smb-error" hidden></p>
+                        </article>
+                    </div>
+
+                    <div class="network-stage-section">
+                        <div class="network-subheading">
+                            <div>
+                                <span class="detail-section-kicker">Long-running stages</span>
+                                <h3>Network statistics by stage</h3>
+                            </div>
+                            <span>Incoming traffic includes all adapter traffic</span>
+                        </div>
+                        <div class="network-stage-list" id="network-stage-list"></div>
+                    </div>
+
+                    <details class="network-errors" id="network-errors" hidden>
+                        <summary>Diagnostic warnings</summary>
+                        <ul id="network-error-list"></ul>
+                    </details>
+                </div>
+            </section>
+        </div>
+    </main>
+</body>
+</html>

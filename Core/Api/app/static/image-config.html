@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" type="image/png" href="/static/irondeploy-api-icon.png">
+    <title>IronDeploy - Image settings</title>
+    <link rel="stylesheet" href="/static/dashboard.css">
+    <link rel="stylesheet" href="/static/navigation.css">
+    <link rel="stylesheet" href="/static/image-config.css">
+    <script src="/static/i18n.js"></script>
+    <script src="/static/navigation.js"></script>
+    <script src="/static/image-config.js" defer></script>
+</head>
+<body data-page="image-config">
+    <header class="app-header">
+        <div class="header-inner">
+            <span class="header-page-title">Image settings</span>
+            <div class="header-actions">
+                <button class="refresh-button" id="save-button" type="button">
+                    <span>Save changes</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="page-shell">
+        <section class="page-heading">
+            <h1>Image settings</h1>
+            <p>
+                Typical Windows image defaults applied on every deployment. Writes
+                <code>WinPE\Runtime\deploy.config.ps1</code> and
+                <code>Share\Unattend\unattend-win11-template.xml</code>, backing up
+                each file first. Available to the same allowed networks as the
+                deployment dashboard.
+            </p>
+        </section>
+
+        <section class="notice" id="message-area" hidden></section>
+
+        <form id="image-form" class="config-card" autocomplete="off">
+            <div class="settings-toolbar">
+                <label class="category-picker">
+                    <span class="field-label">Settings category</span>
+                    <select id="settings-category">
+                        <option value="accounts">Accounts</option>
+                        <option value="regional">Regional &amp; language</option>
+                        <option value="winpe-gui">WinPE GUI</option>
+                    </select>
+                </label>
+                <div class="build-actions">
+                    <button class="build-button" id="build-wim-button" type="button">
+                        Rebuild WIM
+                    </button>
+                    <button class="build-button" id="build-iso-button" type="button">
+                        Rebuild ISO
+                    </button>
+                </div>
+            </div>
+            <div class="build-feedback">
+                <div class="build-state" id="build-state" role="status">
+                    Checking build status...
+                </div>
+                <div class="files-note" id="build-log" hidden></div>
+            </div>
+
+            <fieldset class="settings-panel" data-settings-panel="accounts">
+                <legend>Accounts</legend>
+                <p class="fieldset-help">
+                    Configure the setup-created local account separately from the
+                    built-in Windows Administrator account.
+                </p>
+
+                <section class="account-card" aria-labelledby="setup-account-title">
+                    <div class="account-heading">
+                        <div>
+                            <h2 id="setup-account-title">Setup local account</h2>
+                            <p>
+                                A normal local administrator created from the unattend
+                                template. Its default name is <code>localadmin</code>.
+                            </p>
+                        </div>
+                        <span class="account-badge">localadmin</span>
+                    </div>
+                    <label class="toggle account-toggle">
+                        <input id="enableSetupLocalAdmin"
+                               name="enableSetupLocalAdmin" type="checkbox">
+                        <span>
+                            <strong>Keep setup local account enabled after installation</strong>
+                            <em>Disable only after domain join and alternative admin
+                                access have been verified.</em>
+                        </span>
+                    </label>
+                    <div class="field-grid">
+                        <label class="field">
+                            <span class="field-label">Account name</span>
+                            <input id="localAdminName" name="localAdminName" type="text"
+                                   maxlength="20" spellcheck="false">
+                            <span class="field-hint">
+                                1-20 letters, digits, dot, underscore, or hyphen. Kept
+                                in sync with the post-install policy.
+                            </span>
+                        </label>
+                        <label class="field">
+                            <span class="field-label">Account password</span>
+                            <input id="localAdminPassword" name="localAdminPassword"
+                                   type="password" autocomplete="new-password"
+                                   placeholder="Leave blank to keep the current password">
+                            <span class="field-hint" id="password-status">
+                                Stored as plain text in the unattend template. At least
+                                8 characters.
+                            </span>
+                        </label>
+                    </div>
+                </section>
+
+                <section class="account-card" aria-labelledby="builtin-account-title">
+                    <div class="account-heading">
+                        <div>
+                            <h2 id="builtin-account-title">Built-in Administrator</h2>
+                            <p>
+                                The Windows built-in account identified by SID ending
+                                in <code>-500</code>, even if it has been renamed.
+                            </p>
+                        </div>
+                        <span class="account-badge">SID -500</span>
+                    </div>
+                    <label class="toggle account-toggle">
+                        <input id="enableBuiltInAdministrator"
+                               name="enableBuiltInAdministrator" type="checkbox">
+                        <span>
+                            <strong>Enable built-in Administrator after installation</strong>
+                            <em>Activates the built-in account during post-installation
+                                configuration.</em>
+                        </span>
+                    </label>
+                    <div class="field-grid">
+                        <label class="field wide">
+                            <span class="field-label">Administrator password</span>
+                            <input id="builtInAdministratorPassword"
+                                   name="builtInAdministratorPassword" type="password"
+                                   autocomplete="new-password"
+                                   placeholder="Leave blank to keep the current password">
+                            <span class="field-hint" id="builtin-password-status">
+                                Applied by Windows Setup. At least 8 characters.
+                            </span>
+                        </label>
+                    </div>
+                    <p class="inline-warning" id="builtin-password-warning" hidden>
+                        Built-in Administrator is enabled but no password is set
+                        &mdash; it may be activated with a blank password. Set one above.
+                    </p>
+                </section>
+            </fieldset>
+
+            <fieldset class="settings-panel" data-settings-panel="regional" hidden>
+                <legend>Regional &amp; language</legend>
+                <p class="fieldset-help">
+                    Configure Windows regional defaults written into the unattend
+                    template. Additional language options can be added here later.
+                </p>
+                <div class="field-grid">
+                    <label class="field wide">
+                        <span class="field-label">Windows time zone</span>
+                        <select id="timeZone" name="timeZone"></select>
+                        <span class="field-hint">
+                            Windows TimeZone id written into the unattend template.
+                        </span>
+                    </label>
+                </div>
+            </fieldset>
+
+            <fieldset class="settings-panel" data-settings-panel="winpe-gui" hidden>
+                <legend>WinPE GUI</legend>
+                <p class="fieldset-help">
+                    Configure optional live feedback shown while WinPE applies the
+                    selected Windows image.
+                </p>
+                <label class="toggle">
+                    <input id="enableGuiImageApplyProgress"
+                           name="enableGuiImageApplyProgress" type="checkbox">
+                    <span>
+                        <strong>Show live DISM image-apply percentage</strong>
+                        <em>
+                            Parses DISM percentage lines and updates the GUI progress
+                            bar. The overhead is negligible compared with applying the WIM.
+                        </em>
+                    </span>
+                </label>
+            </fieldset>
+
+            <div class="files-note" id="files-note"></div>
+        </form>
+    </main>
+
+    <section class="confirmation-overlay" id="build-confirmation" hidden
+             role="dialog" aria-modal="true" aria-labelledby="build-confirmation-title">
+        <div class="confirmation-dialog">
+            <h2 id="build-confirmation-title">Start WinPE rebuild?</h2>
+            <p id="build-confirmation-message"></p>
+            <div class="confirmation-actions">
+                <button class="refresh-button" id="confirm-build-button" type="button">
+                    Start rebuild
+                </button>
+                <button class="dialog-cancel-button" id="cancel-build-button" type="button">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    </section>
+</body>
+</html>

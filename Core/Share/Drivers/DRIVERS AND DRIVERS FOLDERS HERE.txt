@@ -1,0 +1,10 @@
+Place extracted, signed Windows driver packages and driver folders here.
+
+Subdirectories are supported. IronDeploy recursively finds all .inf files
+below Z:\Drivers and stages their packages in the offline Windows DriverStore
+before the first boot. Windows Plug and Play installs only packages compatible
+with the target hardware. Keep companion and software-component INF packages
+together with their primary driver because modern audio and display drivers
+often depend on them.
+
+Executable installers (.exe and .msi) are not processed.

@@ -1,0 +1,441 @@
+(() => {
+    const STORAGE_KEY = "irondeploy-language";
+    const ru = {
+        "Dashboard": "Панель управления",
+        "IronDeploy - Dashboard": "IronDeploy — Панель управления",
+        "IronDeploy - Windows images": "IronDeploy — Образы Windows",
+        "IronDeploy - Post-install software": "IronDeploy — ПО после установки",
+        "IronDeploy - Drivers": "IronDeploy — Драйверы",
+        "IronDeploy - Image settings": "IronDeploy — Настройки образа",
+        "IronDeploy - Users": "IronDeploy — Пользователи",
+        "IronDeploy - Access control": "IronDeploy — Управление доступом",
+        "IronDeploy - Sign in": "IronDeploy — Вход",
+        "Windows images": "Образы Windows",
+        "Post-install software": "ПО после установки",
+        "Drivers": "Драйверы",
+        "Driver packages": "Пакеты драйверов",
+        "Organize drivers by vendor and model. WinPE lets the operator select exactly one complete package before deployment.": "Организуйте драйверы по вендорам и моделям. Перед развёртыванием оператор выбирает ровно один полный пакет.",
+        "Vendors": "Вендоры",
+        "Create vendors such as HP, Lenovo, or Dell.": "Создавайте вендоров, например HP, Lenovo или Dell.",
+        "Vendor name": "Название вендора",
+        "Add vendor": "Добавить вендора",
+        "Add a driver package": "Добавить пакет драйверов",
+        "Choose a vendor, enter the model, then select the complete driver folder. Its nested folders are preserved.": "Выберите вендора, укажите модель и выберите целую папку драйверов. Вложенные папки будут сохранены.",
+        "Select vendor": "Выберите вендора",
+        "Model name": "Название модели",
+        "Choose driver folder": "Выбрать папку драйверов",
+        "No folder selected": "Папка не выбрана",
+        "Upload package": "Загрузить пакет",
+        "Available driver packages": "Доступные пакеты драйверов",
+        "No driver packages were found. Create a vendor and upload a driver folder.": "Пакеты драйверов не найдены. Создайте вендора и загрузите папку драйверов.",
+        "New vendor name": "Новое название вендора",
+        "New model name": "Новое название модели",
+        "Image settings": "Настройки образа",
+        "Users": "Пользователи",
+        "Access control": "Управление доступом",
+        "WinPE deployment only": "Только установка из WinPE",
+        "Refresh": "Обновить",
+        "Loading...": "Загрузка...",
+        "Loading data...": "Загрузка данных...",
+        "Deployments": "Развёртывания",
+        "Computers": "Компьютеры",
+        "Windows deployment journal and WinPE status": "Журнал установок Windows и состояние WinPE",
+        "Known computers and their latest deployment state": "Известные компьютеры и состояние последней установки",
+        "Hardware seen by IronDeploy across all deployments": "Оборудование, обнаруженное IronDeploy во всех установках",
+        "Total": "Всего",
+        "Running": "Выполняется",
+        "Completed": "Завершено",
+        "Failed": "Ошибка",
+        "Search": "Поиск",
+        "Search every visible cell": "Поиск по видимым ячейкам",
+        "Status filter": "Фильтр состояния",
+        "All statuses": "Все состояния",
+        "Shown: -": "Показано: —",
+        "Click any cell to copy": "Нажмите ячейку, чтобы скопировать",
+        "No deployments yet.": "Развёртываний пока нет.",
+        "No deployments yet": "Развёртываний пока нет",
+        "No computers yet.": "Компьютеров пока нет.",
+        "No computers yet": "Компьютеров пока нет",
+        "No deployments match the current filters.": "Нет развёртываний по выбранным фильтрам.",
+        "No deployments match the current filters": "Нет развёртываний по выбранным фильтрам",
+        "No computers match the current filters.": "Нет компьютеров по выбранным фильтрам.",
+        "No computers match the current search": "Нет компьютеров по текущему поиску",
+        "Disk partitioning": "Разметка диска",
+        "Apply image": "Применение образа",
+        "Driver injection": "Добавление драйверов",
+        "Save deployment state": "Сохранение состояния установки",
+        "Generate unattend.xml": "Создание unattend.xml",
+        "Apply unattend.xml": "Применение unattend.xml",
+        "Domain join": "Ввод в домен",
+        "Copy post-install": "Копирование post-install",
+        "Create boot files": "Создание загрузочных файлов",
+        "Start Windows setup": "Запуск установки Windows",
+        "Yes": "Да",
+        "No": "Нет",
+        "Click to copy": "Нажмите, чтобы скопировать",
+        "Clipboard unavailable": "Буфер обмена недоступен",
+        "IronDeploy - Deployment details": "IronDeploy — сведения о развёртывании",
+        "Back to deployments": "Назад к развёртываниям",
+        "Loading deployment details...": "Загрузка данных о развёртывании...",
+        "Deployment": "Развёртывание",
+        "Identity": "Идентификация",
+        "Deployment overview": "Обзор развёртывания",
+        "Click a value to copy": "Нажмите значение, чтобы скопировать",
+        "Computer": "Компьютер",
+        "Hardware model": "Модель оборудования",
+        "Serial number": "Серийный номер",
+        "MAC address": "MAC-адрес",
+        "IP address": "IP-адрес",
+        "Windows image": "Образ Windows",
+        "Deployment ID": "ID развёртывания",
+        "Timing": "Время",
+        "Run duration": "Длительность выполнения",
+        "Started": "Начато",
+        "Finished": "Завершено",
+        "Failure details": "Сведения об ошибке",
+        "Deployment error": "Ошибка развёртывания",
+        "WinPE workflow": "Процесс WinPE",
+        "Deployment stages": "Этапы развёртывания",
+        "No stage events were reported.": "События этапов не передавались.",
+        "Post-install": "После установки",
+        "Software results": "Результаты установки ПО",
+        "No post-install software results were reported.": "Результаты установки ПО не передавались.",
+        "WinPE diagnostics": "Диагностика WinPE",
+        "Network diagnostics": "Сетевая диагностика",
+        "Not reported": "Не передано",
+        "Reported": "Передано",
+        "No network diagnostics were reported.": "Сетевая диагностика не передавалась.",
+        "Older WinPE images do not collect these measurements. The deployment data above remains complete.": "Старые образы WinPE не собирают эти показатели. Остальные данные о развёртывании выше остаются полными.",
+        "SMB traffic adapter": "Адаптер трафика SMB",
+        "IronAPI route": "Маршрут IronAPI",
+        "Same adapter": "Тот же адаптер",
+        "Different adapter": "Другой адаптер",
+        "Ping target": "Цель ping",
+        "One ICMP request per second": "Один ICMP-запрос в секунду",
+        "800 ms timeout": "Тайм-аут 800 мс",
+        "Overall ICMP": "ICMP за весь WinPE",
+        "Available": "Доступен",
+        "ICMP unavailable": "ICMP недоступен",
+        "Not measured": "Не измерено",
+        "Sent / received": "Отправлено / получено",
+        "Sent / received / lost": "Отправлено / получено / потеряно",
+        "Packet loss": "Потери пакетов",
+        "loss": "потерь",
+        "RTT min / avg / max": "RTT мин. / сред. / макс.",
+        "RTT above 50 ms": "RTT выше 50 мс",
+        "Adapter traffic": "Трафик адаптера",
+        "Average inbound adapter traffic during WinPE": "Средний входящий трафик адаптера во время WinPE",
+        "Received": "Получено",
+        "Link utilization": "Использование линка",
+        "Measured for": "Период измерения",
+        "IronAPI requests": "Запросы IronAPI",
+        "Errors": "Ошибки",
+        "Response min / avg / max": "Ответ мин. / сред. / макс.",
+        "Real SMB connection": "Реальное подключение SMB",
+        "Connected": "Подключено",
+        "Attempts": "Попытки",
+        "Connection time": "Время подключения",
+        "Long-running stages": "Длительные этапы",
+        "Network statistics by stage": "Сетевая статистика по этапам",
+        "Incoming traffic includes all adapter traffic": "Входящий трафик включает весь трафик адаптера",
+        "Diagnostic warnings": "Предупреждения диагностики",
+        "Not detected": "Не определён",
+        "IP unavailable": "IP недоступен",
+        "Measured": "Измерено",
+        "ICMP": "ICMP",
+        "Average inbound adapter traffic during stage": "Средний входящий трафик адаптера во время этапа",
+        "request": "запрос",
+        "requests": "запросов",
+        "Hardware model was not reported": "Модель оборудования не передана",
+        "Invalid deployment ID.": "Некорректный ID развёртывания.",
+        "Unable to load deployment": "Не удалось загрузить развёртывание",
+        "Copied": "Скопировано",
+        "Updated": "Обновлено",
+        "Duration": "Длительность",
+        "Exit code": "Код завершения",
+        "Reason": "Причина",
+        "Installed": "Установлено",
+        "Timed out": "Превышено время ожидания",
+        "stage": "этап",
+        "stages": "этапов",
+        "program": "программа",
+        "programs": "программ",
+        "Windows image library": "Библиотека образов Windows",
+        "Upload and manage": "Загрузка и управление",
+        "Upload image": "Загрузить образ",
+        "Files are streamed directly into": "Файлы передаются напрямую в",
+        "files used by WinPE deployments.": "— эти файлы используются при установке из WinPE.",
+        "No WIM or ESD images were found. Upload one above or copy it into": "Образы WIM или ESD не найдены. Загрузите образ выше либо скопируйте его в",
+        ", then press Refresh.": ", затем нажмите «Обновить».",
+        "Upload WIM or ESD files used by WinPE deployments.": "Загрузите WIM- или ESD-файлы для установок из WinPE.",
+        "Add an image": "Добавить образ",
+        "Select a .wim or .esd file. ESD can be stored as-is or converted to WIM after upload.": "Выберите файл .wim или .esd. ESD можно сохранить как есть либо преобразовать в WIM.",
+        "Choose file": "Выбрать файл",
+        "Upload": "Загрузить",
+        "Preparing upload...": "Подготовка загрузки...",
+        "Cancel upload": "Отменить загрузку",
+        "Cancel conversion": "Отменить преобразование",
+        "ESD to WIM conversion": "Преобразование ESD в WIM",
+        "ESD conversion": "Преобразование ESD",
+        "Available images": "Доступные образы",
+        "How should this ESD be uploaded?": "Как загрузить этот ESD?",
+        "Convert it to WIM after upload for faster and more predictable WinPE deployment, or keep the original ESD file.": "Преобразовать в WIM после загрузки для более быстрой и предсказуемой установки либо сохранить исходный ESD.",
+        "Upload and convert to WIM": "Загрузить и преобразовать в WIM",
+        "Upload and convert": "Загрузить и преобразовать",
+        "Upload ESD only": "Загрузить только ESD",
+        "Cancel": "Отмена",
+        "Rename": "Переименовать",
+        "Delete": "Удалить",
+        "Convert to WIM": "Преобразовать в WIM",
+        "Default deployment index": "Индекс установки по умолчанию",
+        "Index": "Индекс",
+        "Save": "Сохранить",
+        "Post-install program library": "Библиотека программ после установки",
+        "Upload program": "Загрузить программу",
+        "Program files can be up to 5 GiB. Launch arguments are optional. Each argument must start with": "Размер программы — до 5 ГиБ. Параметры запуска необязательны. Каждый параметр должен начинаться с",
+        "No programs were found. Upload one above or copy an": "Программы не найдены. Загрузите программу выше либо скопируйте файл",
+        "file into": "в",
+        "installers into": "установщики в",
+        ". WinPE offers them as checkboxes before deployment, and the selected programs are installed with their launch arguments during Windows setup.": ". WinPE покажет их перед установкой, а выбранные программы будут установлены с заданными параметрами во время настройки Windows.",
+        "Upload EXE or MSI installers that can be selected in WinPE.": "Загрузите установщики EXE или MSI, доступные для выбора в WinPE.",
+        "Add a program": "Добавить программу",
+        "Select an .exe or .msi installer and optionally define silent launch arguments.": "Выберите установщик .exe или .msi и при необходимости задайте параметры тихой установки.",
+        "File name (optional)": "Имя файла (необязательно)",
+        "Launch arguments, e.g. /S /norestart": "Параметры запуска, например /S /norestart",
+        "Launch arguments": "Параметры запуска",
+        "No arguments": "Без параметров",
+        "Edit": "Изменить",
+        "+ Add argument": "+ Добавить параметр",
+        "Available programs": "Доступные программы",
+        "Image settings control the files embedded into the next WinPE build and the Windows answer file used during deployment.": "Настройки управляют файлами следующей сборки WinPE и файлом ответов Windows.",
+        "Typical Windows image defaults applied on every deployment. Writes": "Типовые параметры Windows для каждой установки. Изменяет",
+        ", backing up each file first. Available to the same allowed networks as the deployment dashboard.": "с предварительным резервным копированием. Доступно тем же разрешённым сетям, что и панель установок.",
+        "Rebuild WIM": "Пересобрать WIM",
+        "Rebuild ISO": "Пересобрать ISO",
+        "Checking build status...": "Проверка состояния сборки...",
+        "Regional & language": "Регион и язык",
+        "WinPE GUI": "Интерфейс WinPE",
+        "Configure the setup-created local account separately from the built-in Windows Administrator account.": "Настройте создаваемую при установке локальную учётную запись отдельно от встроенного Администратора Windows.",
+        "Save changes": "Сохранить изменения",
+        "Settings category": "Категория настроек",
+        "Accounts": "Учётные записи",
+        "Regional": "Региональные",
+        "Domain join": "Ввод в домен",
+        "Build WinPE WIM": "Собрать WinPE WIM",
+        "Build WinPE ISO": "Собрать WinPE ISO",
+        "Setup local account": "Локальная учётная запись",
+        "Create the local account used after Windows Setup completes.": "Создать локальную учётную запись для работы после завершения установки Windows.",
+        "Create local account": "Создавать локальную учётную запись",
+        "Keep setup local account enabled after installation": "Оставлять локальную учётную запись включённой после установки",
+        "A normal local administrator created from the unattend template. Its default name is": "Обычный локальный администратор, создаваемый из шаблона unattend. Имя по умолчанию:",
+        "1-20 letters, digits, dot, underscore, or hyphen. Kept in sync with the post-install policy.": "От 1 до 20 букв, цифр, точек, подчёркиваний или дефисов. Синхронизируется с политикой post-install.",
+        "Account name": "Имя учётной записи",
+        "Account password": "Пароль учётной записи",
+        "Leave blank to keep the current password": "Оставьте пустым, чтобы сохранить текущий пароль",
+        "Built-in Administrator": "Встроенный Администратор",
+        "Enable and configure the built-in Windows Administrator account.": "Включить и настроить встроенную учётную запись Администратор Windows.",
+        "Enable built-in Administrator": "Включить встроенного Администратора",
+        "Enable built-in Administrator after installation": "Включить встроенного Администратора после установки",
+        "The Windows built-in account identified by SID ending in": "Встроенная учётная запись Windows с SID, заканчивающимся на",
+        "Activates the built-in account during post-installation configuration.": "Активирует встроенную учётную запись во время настройки после установки.",
+        "Disable only after domain join and alternative admin access have been verified.": "Отключайте только после проверки ввода в домен и альтернативного административного доступа.",
+        "Administrator password": "Пароль Администратора",
+        "Windows time zone": "Часовой пояс Windows",
+        "Windows TimeZone id written into the unattend template.": "Идентификатор TimeZone Windows, записываемый в шаблон unattend.",
+        "Configure Windows regional defaults written into the unattend template. Additional language options can be added here later.": "Настройте региональные параметры Windows для шаблона unattend. Дополнительные языковые параметры можно добавить позже.",
+        "Configure optional live feedback shown while WinPE applies the selected Windows image.": "Настройте отображение прогресса при применении выбранного образа Windows в WinPE.",
+        "Show live DISM image-apply percentage": "Показывать процент применения образа DISM",
+        "Parses DISM percentage lines and updates the GUI progress bar. The overhead is negligible compared with applying the WIM.": "Считывает проценты DISM и обновляет индикатор в интерфейсе. Накладные расходы незначительны.",
+        "Join Active Directory domain": "Вводить в домен Active Directory",
+        "Start WinPE rebuild?": "Запустить пересборку WinPE?",
+        "Start build": "Начать сборку",
+        "Start rebuild": "Начать пересборку",
+        "User accounts": "Учётные записи пользователей",
+        "Create accounts, reset passwords, and block access.": "Создавайте учётные записи, меняйте пароли и блокируйте доступ.",
+        "Create user": "Создать пользователя",
+        "Username": "Имя пользователя",
+        "Initial password": "Начальный пароль",
+        "Existing users": "Существующие пользователи",
+        "Page access": "Доступ к страницам",
+        "Assign exact page permissions to each regular user. Saving permissions signs that user out.": "Назначайте обычным пользователям точные права. После сохранения активные сеансы пользователя закрываются.",
+        "Permissions": "Разрешения",
+        "Superadmin always has full access": "Суперадминистратор всегда имеет полный доступ",
+        "WinPE authorization": "Авторизация WinPE",
+        "Choose how an operator authorizes a deployment before disk 0 can be erased.": "Выберите, как оператор подтверждает установку перед очисткой диска 0.",
+        "Username and password": "Имя пользователя и пароль",
+        "Use a dedicated account with WinPE deployment permission.": "Использовать отдельную учётную запись с правом установки из WinPE.",
+        "PIN code": "PIN-код",
+        "Operators enter a shared 6-10 digit PIN. Attempts are limited by the API.": "Операторы вводят общий PIN из 6–10 цифр. API ограничивает число попыток.",
+        "No operator authorization": "Без авторизации оператора",
+        "WinPE starts after receiving a short-lived deployment token. Anyone who can boot this WinPE can erase disk 0.": "WinPE продолжает работу после получения временного токена. Любой, кто загрузит этот WinPE, сможет очистить диск 0.",
+        "Anyone who can boot this WinPE will be able to erase disk 0. Enable deployment without operator authorization?": "Любой, кто загрузит этот WinPE, сможет очистить диск 0. Включить установку без авторизации оператора?",
+        "New PIN": "Новый PIN",
+        "Leave blank to keep the configured PIN": "Оставьте пустым, чтобы сохранить настроенный PIN",
+        "Save WinPE authorization": "Сохранить авторизацию WinPE",
+        "PIN is configured": "PIN настроен",
+        "PIN is not configured": "PIN не настроен",
+        "Sign in": "Войти",
+        "Use an IronAPI account to continue.": "Используйте учётную запись IronAPI.",
+        "Password": "Пароль",
+        "The initial superadmin is configured locally through SetupWeb.": "Начальный суперадминистратор настраивается локально через SetupWeb.",
+        "Access denied": "Доступ запрещён",
+        "Your account does not have permission to open this page.": "У вашей учётной записи нет права открывать эту страницу.",
+        "Return to Dashboard": "Вернуться на панель",
+        "Superadmin": "Суперадминистратор",
+        "Active": "Активен",
+        "Blocked": "Заблокирован",
+        "Credentials managed in SetupWeb": "Учётные данные управляются в SetupWeb",
+        "New password (12+ characters)": "Новый пароль (12+ символов)",
+        "Reset password": "Сменить пароль",
+        "Block user": "Заблокировать",
+        "Enable user": "Включить",
+        "Save access": "Сохранить доступ",
+        "Allows WinPE login for one deployment at a time; cannot be combined with any other access.": "Разрешает один вход WinPE для одной установки; нельзя совмещать с другими правами.",
+        "Create a regular user first.": "Сначала создайте обычного пользователя.",
+        "Sign out": "Выйти",
+        "Collapse navigation": "Свернуть навигацию",
+        "Expand navigation": "Развернуть навигацию",
+        "Main navigation": "Основная навигация",
+        "Updated just now": "Обновлено только что",
+        "Refresh failed": "Ошибка обновления",
+        "Skipped": "Пропущено",
+        "No software report": "Нет отчёта по программам",
+        "No stage data": "Нет данных об этапах",
+        "Starting upload...": "Начало загрузки...",
+        "Build status unavailable.": "Состояние сборки недоступно.",
+        "Log": "Журнал",
+        "The source program must be an .exe or .msi file.": "Исходный файл должен иметь формат .exe или .msi.",
+        "Enter a valid program file name.": "Введите допустимое имя файла программы.",
+        "Launch arguments are limited to 500 characters.": "Параметры запуска ограничены 500 символами.",
+        "PIN must contain 6-10 digits.": "PIN должен содержать 6–10 цифр.",
+        "WinPE authorization settings saved.": "Настройки авторизации WinPE сохранены.",
+        "Invalid username or password.": "Неверное имя пользователя или пароль.",
+        "Account is temporarily locked. Try again later.": "Учётная запись временно заблокирована. Повторите позже.",
+        "Login required.": "Требуется вход.",
+        "Access denied.": "Доступ запрещён.",
+        "Sign-in failed.": "Не удалось войти.",
+        "Invalid PIN.": "Неверный PIN.",
+        "Too many incorrect PIN attempts. Try again later.": "Слишком много неверных попыток PIN. Повторите позже.",
+        "Set a PIN before enabling PIN authorization.": "Задайте PIN перед включением авторизации по PIN.",
+        "Username and password authorization is disabled for WinPE.": "Авторизация WinPE по имени и паролю отключена.",
+        "Credential-free authorization is disabled.": "Режим без авторизации отключён.",
+        "PIN authorization is disabled.": "Авторизация по PIN отключена.",
+        "WinPE authorization mode changed. Refresh and try again.": "Режим авторизации WinPE изменился. Обновите данные и повторите.",
+        "Password must contain at least 12 characters.": "Пароль должен содержать не менее 12 символов.",
+    };
+
+    function detectLanguage() {
+        try {
+            const saved = localStorage.getItem(STORAGE_KEY);
+            if (saved === "ru" || saved === "en") return saved;
+        } catch {
+            // Browser language remains a safe fallback.
+        }
+        return (navigator.language || "en").toLowerCase().startsWith("ru") ? "ru" : "en";
+    }
+
+    const language = detectLanguage();
+
+    function t(value) {
+        if (language !== "ru" || typeof value !== "string") return value;
+        if (ru[value]) return ru[value];
+        let match = value.match(/^(\d+) accounts?$/);
+        if (match) return `${match[1]} учётных записей`;
+        match = value.match(/^(\d+) images?$/);
+        if (match) return `${match[1]} образов`;
+        match = value.match(/^(\d+) programs?$/);
+        if (match) return `${match[1]} программ`;
+        match = value.match(/^Shown: (\d+) of (\d+)$/);
+        if (match) return `Показано: ${match[1]} из ${match[2]}`;
+        match = value.match(/^Updated (\d+)s ago$/);
+        if (match) return `Обновлено ${match[1]} сек. назад`;
+        match = value.match(/^Copied: (.+)$/);
+        if (match) return `Скопировано: ${match[1]}`;
+        match = value.match(/^Uploaded (.+)\.$/);
+        if (match) return `Загружено: ${match[1]}.`;
+        match = value.match(/^Password for (.+) changed\. Active sessions were closed\.$/);
+        if (match) return `Пароль пользователя ${match[1]} изменён. Активные сеансы закрыты.`;
+        match = value.match(/^Access for (.+) saved\. Active sessions were closed\.$/);
+        if (match) return `Доступ пользователя ${match[1]} сохранён. Активные сеансы закрыты.`;
+        match = value.match(/^(.+) created\.$/);
+        if (match) return `${match[1]} создан.`;
+        match = value.match(/^(.+) blocked\.$/);
+        if (match) return `${match[1]} заблокирован.`;
+        match = value.match(/^(.+) enabled\.$/);
+        if (match) return `${match[1]} включён.`;
+        match = value.match(/^Allows the (.+) page and its backend API\.$/);
+        if (match) return `Разрешает страницу «${t(match[1])}» и её API.`;
+        return value;
+    }
+
+    function translateNode(node) {
+        if (language !== "ru") return;
+        if (node.nodeType === Node.TEXT_NODE) {
+            const parent = node.parentElement;
+            if (!parent || ["SCRIPT", "STYLE"].includes(parent.tagName)) return;
+            const original = node.nodeValue;
+            const trimmed = original.trim();
+            if (!trimmed) return;
+            const translated = t(trimmed);
+            if (translated !== trimmed) {
+                node.nodeValue = original.replace(trimmed, translated);
+            }
+            return;
+        }
+        if (!(node instanceof Element)) return;
+        for (const attribute of ["placeholder", "title", "aria-label"]) {
+            const value = node.getAttribute(attribute);
+            const translated = value ? t(value) : value;
+            if (value && translated !== value) {
+                node.setAttribute(attribute, translated);
+            }
+        }
+        for (const child of node.childNodes) translateNode(child);
+    }
+
+    function apply(root = document.documentElement) {
+        document.documentElement.lang = language;
+        translateNode(root);
+    }
+
+    function setLanguage(nextLanguage) {
+        if (!["ru", "en"].includes(nextLanguage)) return;
+        try { localStorage.setItem(STORAGE_KEY, nextLanguage); } catch {}
+        if (nextLanguage !== language) window.location.reload();
+    }
+
+    function makeSwitcher(className = "language-switcher") {
+        const wrapper = document.createElement("div");
+        wrapper.className = className;
+        wrapper.setAttribute("aria-label", language === "ru" ? "Язык" : "Language");
+        for (const code of ["ru", "en"]) {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.textContent = code.toUpperCase();
+            button.className = code === language ? "is-active" : "";
+            button.addEventListener("click", () => setLanguage(code));
+            wrapper.append(button);
+        }
+        return wrapper;
+    }
+
+    window.IronI18n = { language, t, apply, setLanguage, makeSwitcher };
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", () => apply(), { once: true });
+    } else {
+        apply();
+    }
+    const observer = new MutationObserver((mutations) => {
+        if (language !== "ru") return;
+        for (const mutation of mutations) {
+            if (mutation.type === "attributes") translateNode(mutation.target);
+            for (const node of mutation.addedNodes) translateNode(node);
+        }
+    });
+    observer.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ["placeholder", "title", "aria-label"],
+        childList: true,
+        subtree: true,
+    });
+})();

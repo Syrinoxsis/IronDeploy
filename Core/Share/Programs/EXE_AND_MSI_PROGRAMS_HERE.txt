@@ -1,0 +1,2 @@
+Upload .exe and .msi installers here (or through the IronAPI Programs page).
+Launch arguments are stored in .irondeploy-programs.json next to the files.

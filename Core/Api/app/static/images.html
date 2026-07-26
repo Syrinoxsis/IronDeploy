@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" type="image/png" href="/static/irondeploy-api-icon.png">
+    <title>IronDeploy - Windows images</title>
+    <link rel="stylesheet" href="/static/dashboard.css">
+    <link rel="stylesheet" href="/static/navigation.css">
+    <link rel="stylesheet" href="/static/images.css">
+    <script src="/static/i18n.js"></script>
+    <script src="/static/navigation.js"></script>
+    <script src="/static/images.js" defer></script>
+</head>
+<body data-page="images">
+    <header class="app-header">
+        <div class="header-inner">
+            <span class="header-page-title">Windows images</span>
+            <div class="header-actions">
+                <button class="refresh-button" id="refresh-button" type="button">
+                    <svg aria-hidden="true" viewBox="0 0 24 24">
+                        <path d="M20 6v5h-5"></path>
+                        <path d="M19 11a7.5 7.5 0 1 0 .1 3.4"></path>
+                    </svg>
+                    <span>Refresh</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="page-shell">
+        <section class="page-heading">
+            <h1>Windows images</h1>
+            <p>
+                Upload and manage <code>install.wim</code> and
+                <code>install.esd</code> files used by WinPE deployments.
+            </p>
+        </section>
+
+        <section class="notice" id="message-area" hidden></section>
+
+        <section class="upload-card" aria-labelledby="upload-title">
+            <div>
+                <h2 id="upload-title">Add an image</h2>
+                <p>
+                    Files are streamed directly into <code>Share\Images</code>.
+                    ESD files can be converted to WIM after upload.
+                </p>
+            </div>
+            <div class="upload-controls">
+                <input id="image-file" type="file" accept=".wim,.esd">
+                <button class="primary-button" id="upload-button" type="button">
+                    Upload image
+                </button>
+            </div>
+            <div class="progress-row" id="upload-progress-row" hidden>
+                <progress id="upload-progress" max="100" value="0"></progress>
+                <span id="upload-progress-text">Preparing upload...</span>
+                <button class="cancel-button" id="cancel-upload-button" type="button">
+                    Cancel upload
+                </button>
+            </div>
+        </section>
+
+        <section class="conversion-card" id="conversion-card" hidden>
+            <div>
+                <strong>ESD to WIM conversion</strong>
+                <p id="conversion-message"></p>
+            </div>
+            <div class="conversion-actions">
+                <span class="status-pill" id="conversion-status"></span>
+                <button class="cancel-button" id="cancel-conversion-button"
+                        type="button" hidden>Cancel conversion</button>
+            </div>
+        </section>
+
+        <section class="images-card">
+            <div class="section-heading">
+                <div>
+                    <h2>Available images</h2>
+                    <p id="images-directory"></p>
+                </div>
+                <span id="image-count">0 images</span>
+            </div>
+            <div class="empty-state" id="empty-state" hidden>
+                No WIM or ESD images were found. Upload one above or copy it into
+                <code>Share\Images</code>, then press Refresh.
+            </div>
+            <div class="image-list" id="image-list"></div>
+        </section>
+    </main>
+
+    <section class="decision-overlay" id="esd-decision" hidden
+             role="dialog" aria-modal="true" aria-labelledby="esd-decision-title">
+        <div class="decision-dialog">
+            <span class="format-badge esd">ESD</span>
+            <h2 id="esd-decision-title">How should this ESD be uploaded?</h2>
+            <p id="esd-decision-file"></p>
+            <p class="decision-help">
+                Converting to WIM starts automatically after the upload finishes.
+                It preserves the original ESD, but takes additional time and disk space.
+            </p>
+            <div class="decision-actions">
+                <button class="primary-button" id="upload-convert-button" type="button">
+                    Upload and convert
+                </button>
+                <button class="secondary-button" id="upload-only-button" type="button">
+                    Upload ESD only
+                </button>
+                <button class="quiet-button" id="upload-cancel-button" type="button">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    </section>
+</body>
+</html>

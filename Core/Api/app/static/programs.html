@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" type="image/png" href="/static/irondeploy-api-icon.png">
+    <title>IronDeploy - Post-install software</title>
+    <link rel="stylesheet" href="/static/dashboard.css">
+    <link rel="stylesheet" href="/static/navigation.css">
+    <link rel="stylesheet" href="/static/images.css">
+    <link rel="stylesheet" href="/static/programs.css">
+    <script src="/static/i18n.js"></script>
+    <script src="/static/navigation.js"></script>
+    <script src="/static/programs.js" defer></script>
+</head>
+<body data-page="programs">
+    <header class="app-header">
+        <div class="header-inner">
+            <span class="header-page-title">Post-install software</span>
+            <div class="header-actions">
+                <button class="refresh-button" id="refresh-button" type="button">
+                    <svg aria-hidden="true" viewBox="0 0 24 24">
+                        <path d="M20 6v5h-5"></path>
+                        <path d="M19 11a7.5 7.5 0 1 0 .1 3.4"></path>
+                    </svg>
+                    <span>Refresh</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="page-shell">
+        <section class="page-heading">
+            <h1>Post-install software</h1>
+            <p>
+                Upload <code>.exe</code> and <code>.msi</code> installers into
+                <code>Share\Programs</code>. WinPE offers them as checkboxes
+                before deployment, and the selected programs are installed
+                with their launch arguments during Windows setup.
+            </p>
+        </section>
+
+        <section class="notice" id="message-area" hidden></section>
+
+        <section class="upload-card" aria-labelledby="upload-title">
+            <div>
+                <h2 id="upload-title">Add a program</h2>
+                <p>
+                    Program files can be up to 5 GiB. Launch arguments are optional.
+                    Each argument must start with
+                    <code>/</code> or <code>-</code>, for example
+                    <code>/S</code>, <code>/qn /norestart</code> or <code>-silent</code>.
+                </p>
+            </div>
+            <div class="upload-controls program-upload-controls">
+                <input id="program-file" type="file" accept=".exe,.msi">
+                <input id="program-name" type="text"
+                       class="arguments-input program-name-input"
+                       placeholder="File name (optional)" maxlength="255"
+                       spellcheck="false">
+                <input id="program-arguments" type="text" class="arguments-input"
+                       placeholder="Launch arguments, e.g. /S /norestart"
+                       maxlength="500" spellcheck="false">
+                <button class="primary-button" id="upload-button" type="button">
+                    Upload program
+                </button>
+            </div>
+            <div class="progress-row" id="upload-progress-row" hidden>
+                <progress id="upload-progress" max="100" value="0"></progress>
+                <span id="upload-progress-text">Preparing upload...</span>
+                <button class="cancel-button" id="cancel-upload-button" type="button">
+                    Cancel upload
+                </button>
+            </div>
+        </section>
+
+        <section class="images-card">
+            <div class="section-heading">
+                <div>
+                    <h2>Available programs</h2>
+                    <p id="programs-directory"></p>
+                </div>
+                <span id="program-count">0 programs</span>
+            </div>
+            <div class="empty-state" id="empty-state" hidden>
+                No programs were found. Upload one above or copy an
+                <code>.exe</code> / <code>.msi</code> file into
+                <code>Share\Programs</code>, then press Refresh.
+            </div>
+            <div class="image-list" id="program-list"></div>
+        </section>
+    </main>
+</body>
+</html>

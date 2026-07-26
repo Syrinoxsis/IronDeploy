@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" type="image/png" href="/static/irondeploy-api-icon.png">
+    <title>IronDeploy - Access control</title>
+    <link rel="stylesheet" href="/static/dashboard.css"><link rel="stylesheet" href="/static/navigation.css"><link rel="stylesheet" href="/static/auth-admin.css">
+    <script src="/static/i18n.js"></script><script src="/static/navigation.js"></script><script src="/static/auth-admin.js" defer></script>
+</head>
+<body data-page="access-control">
+    <header class="app-header"><div class="header-inner"><span class="header-page-title">Access control</span></div></header>
+    <main class="page-shell admin-shell">
+        <section class="page-heading"><h1>Page access</h1><p>Assign exact page permissions to each regular user. Saving permissions signs that user out.</p></section>
+        <section class="admin-card" id="winpe-auth-card">
+            <div class="admin-heading"><h2>WinPE authorization</h2><span id="winpe-pin-status"></span></div>
+            <p>Choose how an operator authorizes a deployment before disk 0 can be erased.</p>
+            <div class="winpe-auth-options">
+                <label class="winpe-auth-option">
+                    <input type="radio" name="winpe-auth-mode" value="account">
+                    <span class="winpe-auth-copy"><strong>Username and password</strong><small>Use a dedicated account with WinPE deployment permission.</small></span>
+                </label>
+                <label class="winpe-auth-option">
+                    <input type="radio" name="winpe-auth-mode" value="pin">
+                    <span class="winpe-auth-copy"><strong>PIN code</strong><small>Operators enter a shared 6-10 digit PIN. Attempts are limited by the API.</small></span>
+                </label>
+                <label class="winpe-auth-option danger">
+                    <input type="radio" name="winpe-auth-mode" value="none">
+                    <span class="winpe-auth-copy"><strong>No operator authorization</strong><small>WinPE starts after receiving a short-lived deployment token. Anyone who can boot this WinPE can erase disk 0.</small></span>
+                </label>
+            </div>
+            <div class="winpe-pin-row">
+                <label><span>New PIN</span><input id="winpe-pin" type="password" inputmode="numeric" pattern="[0-9]{6,10}" minlength="6" maxlength="10" autocomplete="new-password" placeholder="Leave blank to keep the configured PIN"></label>
+                <button class="auth-primary" id="save-winpe-auth" type="button">Save WinPE authorization</button>
+            </div>
+        </section>
+        <section class="admin-card"><div class="admin-heading"><h2>Permissions</h2><span>Superadmin always has full access</span></div><div id="access-list" class="access-list"></div></section>
+        <div class="admin-toast" id="admin-toast" hidden></div>
+    </main>
+</body>
+</html>

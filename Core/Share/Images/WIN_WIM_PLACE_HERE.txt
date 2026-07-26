@@ -1,0 +1,7 @@
+Place Windows deployment images in this directory.
+
+IronDeploy reads *.wim files from the Images directory configured by
+WinPE/Runtime/deploy.config.ps1 (Z:\Images by default).
+
+The WIM files are deployment artifacts and are intentionally excluded from
+Git by the root .gitignore. Do not commit them to this repository.

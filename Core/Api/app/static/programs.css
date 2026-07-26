@@ -1,0 +1,182 @@
+.program-upload-controls {
+    flex-wrap: wrap;
+}
+
+.arguments-input {
+    flex: 1 1 240px;
+    min-width: 200px;
+    padding: 9px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--ink);
+    font: inherit;
+    font-family: Consolas, "SF Mono", monospace;
+    font-size: 13px;
+    outline: none;
+}
+
+.arguments-input::placeholder {
+    color: var(--muted);
+}
+
+.arguments-input:focus {
+    border-color: var(--blue);
+    box-shadow: 0 0 0 3px var(--focus);
+}
+
+.program-name-input {
+    flex-basis: 220px;
+}
+
+.program-name-edit-input {
+    width: min(56vw, 420px);
+    min-height: 40px;
+    padding: 0 11px;
+    border: 1px solid var(--blue);
+    border-radius: 6px;
+    color: var(--ink);
+    background: var(--surface);
+    font-family: Consolas, "SF Mono", monospace;
+    font-size: 14px;
+    font-weight: 650;
+    outline: none;
+    box-shadow: 0 0 0 3px var(--focus);
+}
+
+.program-arguments {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+}
+
+.program-arguments-summary,
+.program-argument-editor-actions,
+.program-argument-input-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.program-arguments-summary[hidden] {
+    display: none;
+}
+
+.program-arguments-copy {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    min-width: 180px;
+}
+
+.program-arguments-label {
+    font-size: 12px;
+    color: var(--muted, #9a9ab0);
+}
+
+.program-arguments-value {
+    padding: 3px 7px;
+    border-radius: 5px;
+    color: var(--ink);
+    background: var(--surface-muted);
+    font-family: Consolas, "SF Mono", monospace;
+    font-size: 12px;
+}
+
+.program-arguments-value.is-empty {
+    color: var(--muted);
+    font-family: inherit;
+}
+
+.program-arguments-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.argument-action-button,
+.argument-remove-button {
+    min-height: 32px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: 6px;
+    color: var(--blue);
+    background: transparent;
+    font-weight: 650;
+}
+
+.argument-action-button:hover {
+    background: var(--surface-hover);
+}
+
+.program-argument-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+}
+
+.program-argument-editor[hidden] {
+    display: none;
+}
+
+.program-argument-inputs {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+}
+
+.program-argument-input-row {
+    flex-wrap: nowrap;
+}
+
+.program-argument-input-row .arguments-input {
+    flex: 0 1 440px;
+    width: min(100%, 440px);
+    min-width: 0;
+}
+
+.argument-remove-button {
+    flex: 0 0 32px;
+    width: 32px;
+    padding: 0;
+    color: var(--muted);
+    font-size: 18px;
+}
+
+.argument-remove-button:hover {
+    color: var(--red);
+    background: rgba(192, 54, 44, .08);
+}
+
+.program-argument-editor-actions {
+    margin-top: 2px;
+}
+
+.format-badge.exe {
+    background: rgba(76, 139, 245, 0.18);
+    color: #7fabf7;
+}
+
+.format-badge.msi {
+    background: rgba(63, 185, 80, 0.18);
+    color: #58c76a;
+}
+
+.danger-button {
+    padding: 8px 14px;
+    border: 1px solid rgba(229, 72, 77, 0.55);
+    border-radius: 8px;
+    background: rgba(229, 72, 77, 0.12);
+    color: #ef8489;
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.danger-button:hover {
+    background: rgba(229, 72, 77, 0.22);
+}

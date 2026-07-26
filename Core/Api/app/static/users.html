@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" type="image/png" href="/static/irondeploy-api-icon.png">
+    <title>IronDeploy - Users</title>
+    <link rel="stylesheet" href="/static/dashboard.css"><link rel="stylesheet" href="/static/navigation.css"><link rel="stylesheet" href="/static/auth-admin.css">
+    <script src="/static/i18n.js"></script><script src="/static/navigation.js"></script><script src="/static/auth-admin.js" defer></script>
+</head>
+<body data-page="users">
+    <header class="app-header"><div class="header-inner"><span class="header-page-title">Users</span></div></header>
+    <main class="page-shell admin-shell">
+        <section class="page-heading"><h1>User accounts</h1><p>Create accounts, reset passwords, and block access.</p></section>
+        <section class="admin-card create-user-card">
+            <h2>Create user</h2>
+            <form id="create-user-form" class="admin-form">
+                <label><span>Username</span><input id="new-username" required autocomplete="off" pattern="[A-Za-z0-9._-]{3,64}"></label>
+                <label><span>Initial password</span><input id="new-password" required type="password" minlength="12" autocomplete="new-password"></label>
+                <button class="auth-primary" type="submit">Create user</button>
+            </form>
+        </section>
+        <section class="admin-card"><div class="admin-heading"><h2>Existing users</h2><span id="user-count"></span></div><div id="users-list" class="users-list"></div></section>
+        <div class="admin-toast" id="admin-toast" hidden></div>
+    </main>
+</body>
+</html>

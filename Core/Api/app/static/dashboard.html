@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" type="image/png" href="/static/irondeploy-api-icon.png">
+    <title>IronDeploy - Dashboard</title>
+    <link rel="stylesheet" href="/static/dashboard.css">
+    <link rel="stylesheet" href="/static/navigation.css">
+    <script src="/static/i18n.js"></script>
+    <script src="/static/navigation.js"></script>
+    <script src="/static/dashboard.js" defer></script>
+</head>
+<body data-page="dashboard">
+    <header class="app-header">
+        <div class="header-inner">
+            <span class="header-page-title">Dashboard</span>
+            <div class="header-actions">
+                <button class="refresh-button" id="refresh-button" type="button">
+                    <svg aria-hidden="true" viewBox="0 0 24 24">
+                        <path d="M20 6v5h-5"></path>
+                        <path d="M19 11a7.5 7.5 0 1 0 .1 3.4"></path>
+                    </svg>
+                    <span>Refresh</span>
+                </button>
+                <span class="sync-state">
+                    <span class="sync-dot" aria-hidden="true"></span>
+                    <span class="updated-at" id="updated-at">Loading...</span>
+                </span>
+            </div>
+        </div>
+    </header>
+
+    <main class="page-shell">
+        <section class="page-heading" aria-labelledby="page-title">
+            <h1 id="page-title">Deployments</h1>
+            <p id="page-subtitle">Windows deployment journal and WinPE status</p>
+        </section>
+
+        <nav class="view-tabs" aria-label="Dashboard views">
+            <button class="view-tab is-active" type="button" data-view="deployments">
+                Deployments
+            </button>
+            <button class="view-tab" type="button" data-view="computers">
+                Computers
+            </button>
+        </nav>
+
+        <section class="summary" id="deployment-summary" aria-label="Deployment summary">
+            <button
+                class="summary-item is-active"
+                type="button"
+                data-summary-status="all"
+                aria-pressed="true"
+            >
+                <strong id="total-count">-</strong>
+                <span>Total</span>
+            </button>
+            <button
+                class="summary-item"
+                type="button"
+                data-summary-status="begin"
+                aria-pressed="false"
+            >
+                <strong id="begin-count">-</strong>
+                <span>Running</span>
+            </button>
+            <button
+                class="summary-item"
+                type="button"
+                data-summary-status="completed"
+                aria-pressed="false"
+            >
+                <strong id="completed-count">-</strong>
+                <span>Completed</span>
+            </button>
+            <button
+                class="summary-item"
+                type="button"
+                data-summary-status="failed"
+                aria-pressed="false"
+            >
+                <strong id="failed-count">-</strong>
+                <span>Failed</span>
+            </button>
+        </section>
+
+        <section class="data-panel" aria-label="Dashboard data">
+            <div class="toolbar">
+                <label class="search-control">
+                    <span class="visually-hidden">Search</span>
+                    <svg aria-hidden="true" viewBox="0 0 24 24">
+                        <circle cx="11" cy="11" r="7"></circle>
+                        <path d="m16.5 16.5 4 4"></path>
+                    </svg>
+                    <input
+                        id="search-input"
+                        type="search"
+                        placeholder="Search every visible cell"
+                        autocomplete="off"
+                    >
+                </label>
+
+                <label class="status-select" id="status-select-wrap">
+                    <span class="visually-hidden">Status filter</span>
+                    <select id="status-select">
+                        <option value="all">All statuses</option>
+                        <option value="begin">Running</option>
+                        <option value="completed">Completed</option>
+                        <option value="failed">Failed</option>
+                    </select>
+                </label>
+
+                <div class="status-tabs" id="status-tabs" role="group" aria-label="Status filter">
+                    <button class="status-tab is-active" type="button" data-status="all">
+                        All statuses
+                    </button>
+                    <button class="status-tab" type="button" data-status="begin">
+                        Running
+                    </button>
+                    <button class="status-tab" type="button" data-status="completed">
+                        Completed
+                    </button>
+                    <button class="status-tab" type="button" data-status="failed">
+                        Failed
+                    </button>
+                </div>
+            </div>
+
+            <div class="table-region" id="table-region" aria-live="polite">
+                <table>
+                    <thead>
+                        <tr id="table-head"></tr>
+                    </thead>
+                    <tbody id="table-rows"></tbody>
+                </table>
+                <div class="table-message" id="table-message">Loading data...</div>
+            </div>
+            <div class="table-footer">
+                <span id="visible-count">Shown: -</span>
+                <span id="copy-state">Click any cell to copy</span>
+            </div>
+        </section>
+    </main>
+</body>
+</html>

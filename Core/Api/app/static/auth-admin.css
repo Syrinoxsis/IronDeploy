@@ -1,0 +1,66 @@
+.login-body { min-height: 100vh; display: grid; place-items: center; background: #eef2f7; }
+.login-shell { width: min(100% - 32px, 430px); }
+.login-card { padding: 34px; border: 1px solid var(--border); border-radius: 13px; background: var(--surface); box-shadow: 0 24px 60px rgba(16, 24, 40, .14); }
+.login-brand { color: var(--blue); font-size: 20px; font-weight: 800; }
+.login-card h1 { margin: 18px 0 0; font-size: 30px; }
+.login-card > p { margin: 7px 0 0; color: var(--muted); }
+.login-card form { display: flex; flex-direction: column; gap: 16px; margin-top: 24px; }
+.login-card label, .admin-form label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; }
+.login-card input, .admin-form input, .user-controls input { min-height: 44px; padding: 0 12px; border: 1px solid var(--border); border-radius: 7px; color: var(--ink); background: var(--surface); }
+.login-card input:focus, .admin-form input:focus, .user-controls input:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 3px var(--focus); }
+.login-card small { display: block; margin-top: 22px; color: var(--muted); }
+.auth-primary, .admin-secondary, .admin-danger { min-height: 42px; padding: 0 16px; border-radius: 7px; font-weight: 700; white-space: nowrap; }
+.auth-primary { border: 1px solid var(--blue); color: #fff; background: var(--blue); }
+.auth-primary:hover { background: var(--blue-dark); }
+.admin-secondary { border: 1px solid var(--border-strong); color: var(--ink); background: var(--surface); }
+.admin-secondary:hover { border-color: var(--blue); color: var(--blue); }
+.admin-danger { border: 1px solid rgba(192, 54, 44, .45); color: var(--red); background: rgba(192, 54, 44, .06); }
+.auth-primary:disabled, .admin-secondary:disabled, .admin-danger:disabled { cursor: wait; opacity: .6; }
+.auth-link { display: inline-flex; align-items: center; margin-top: 22px; text-decoration: none; }
+.auth-message { margin-top: 18px; padding: 11px 13px; border-radius: 7px; color: var(--red); background: rgba(192, 54, 44, .08); font-weight: 650; }
+.login-language { position: fixed; top: 18px; right: 18px; display: flex; gap: 5px; }
+.login-language button { color: var(--muted); border-color: var(--border-strong); background: var(--surface); }
+.login-language button:hover, .login-language button.is-active { color: #fff; border-color: var(--blue); background: var(--blue); }
+
+.admin-shell { padding-bottom: 60px; }
+.admin-card { width: min(100%, 1100px); margin-top: 22px; padding: 24px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow); }
+.admin-card h2 { margin: 0; font-size: 19px; }
+.admin-form { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(240px, 1fr) auto; align-items: end; gap: 14px; margin-top: 18px; }
+.admin-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.admin-heading > span, .managed-note { color: var(--muted); font-size: 13px; }
+.users-list, .access-list { display: flex; flex-direction: column; gap: 12px; margin-top: 18px; }
+.user-row { display: flex; align-items: center; gap: 18px; padding: 16px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-muted); }
+.account-identity { min-width: 170px; display: flex; flex-direction: column; gap: 6px; }
+.account-labels { display: flex; gap: 6px; }
+.account-status { width: fit-content; padding: 3px 8px; border-radius: 999px; color: var(--muted); background: #e9edf3; font-size: 11px; font-weight: 750; text-transform: uppercase; }
+.account-status.active { color: var(--green); background: rgba(15, 159, 110, .11); }
+.account-status.blocked { color: var(--red); background: rgba(192, 54, 44, .1); }
+.account-status.superadmin { color: var(--blue); background: #e8f0ff; }
+.user-controls { min-width: 0; flex: 1; display: grid; grid-template-columns: minmax(220px, 1fr) auto auto; gap: 9px; }
+.managed-note { margin-left: auto; }
+.access-row { padding: 18px; border: 1px solid var(--border); border-radius: 10px; }
+.access-user-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.permission-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 16px; }
+.permission-option { display: flex; align-items: flex-start; gap: 10px; padding: 13px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-muted); }
+.permission-option input { width: 18px; height: 18px; margin-top: 2px; accent-color: var(--blue); }
+.permission-option span { display: flex; flex-direction: column; gap: 3px; }
+.permission-option small { color: var(--muted); line-height: 1.35; }
+.admin-empty { padding: 28px; border-radius: 8px; color: var(--muted); text-align: center; background: var(--surface-muted); }
+.admin-toast { position: fixed; right: 22px; bottom: 22px; z-index: 100; width: min(430px, calc(100% - var(--sidebar-width) - 44px)); padding: 13px 16px; border: 1px solid var(--border); border-radius: 8px; color: var(--green); background: #fff; box-shadow: 0 14px 34px rgba(16, 24, 40, .2); font-weight: 650; }
+.admin-toast.error { color: var(--red); }
+.winpe-auth-options { display: grid; gap: 10px; margin-top: 18px; }
+.winpe-auth-option { display: flex; align-items: flex-start; gap: 11px; padding: 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-muted); }
+.winpe-auth-option input { width: 18px; height: 18px; margin-top: 3px; accent-color: var(--blue); }
+.winpe-auth-copy { display: flex; flex-direction: column; gap: 4px; }
+.winpe-auth-copy small { color: var(--muted); line-height: 1.4; }
+.winpe-auth-option.danger { border-color: rgba(192, 54, 44, .32); background: rgba(192, 54, 44, .045); }
+.winpe-pin-row { display: grid; grid-template-columns: minmax(220px, 360px) auto; align-items: end; gap: 12px; margin-top: 16px; }
+.winpe-pin-row label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; }
+.winpe-pin-row input { min-height: 42px; padding: 0 12px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); }
+.winpe-pin-status { color: var(--muted); font-size: 13px; }
+
+@media (max-width: 850px) {
+    .admin-form, .user-controls, .permission-grid { grid-template-columns: 1fr; }
+    .user-row { align-items: stretch; flex-direction: column; }
+    .managed-note { margin-left: 0; }
+}

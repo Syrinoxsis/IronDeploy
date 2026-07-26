@@ -1,0 +1,132 @@
+from functools import lru_cache
+from ipaddress import IPv4Network, IPv6Network, ip_network
+from os import getenv
+from pathlib import Path
+
+from dotenv import load_dotenv
+from pydantic import BaseModel, Field
+
+
+API_ROOT = Path(__file__).resolve().parents[1]
+IRONDEPLOY_ROOT = API_ROOT.parent
+load_dotenv(API_ROOT / ".env")
+
+
+def _expand_irondeploy_root(value: str) -> str:
+    return value.replace(
+        "{IRONDEPLOY_ROOT}",
+        IRONDEPLOY_ROOT.as_posix(),
+    )
+
+
+def _get_required_env(name: str, allow_empty: bool = False) -> str:
+    value = getenv(name)
+    if value is None:
+        raise RuntimeError(f"{name} is required in Api\\.env.")
+    value = value.strip()
+    if not allow_empty and value == "":
+        raise RuntimeError(f"{name} cannot be empty in Api\\.env.")
+    return value
+
+
+def _get_optional_env(name: str) -> str | None:
+    value = _get_required_env(name, allow_empty=True)
+    return value or None
+
+
+def _get_bool(name: str) -> bool:
+    return _get_required_env(name).lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _get_int(name: str) -> int:
+    value = _get_required_env(name)
+    try:
+        return int(value)
+    except ValueError as exc:
+        raise RuntimeError(f"{name} must be an integer in Api\\.env.") from exc
+
+
+def _get_int_or_default(name: str, default: int) -> int:
+    value = getenv(name)
+    if value is None:
+        return default
+    try:
+        return int(value.strip())
+    except ValueError as exc:
+        raise RuntimeError(f"{name} must be an integer in Api\\.env.") from exc
+
+
+def _get_allowed_client_networks() -> tuple[IPv4Network | IPv6Network, ...]:
+    value = _get_required_env("IRONAPI_ALLOWED_CLIENT_NETWORKS")
+    networks = tuple(
+        ip_network(item.strip(), strict=False)
+        for item in value.split(",")
+        if item.strip()
+    )
+    if not networks:
+        raise RuntimeError("IRONAPI_ALLOWED_CLIENT_NETWORKS cannot be empty")
+    return networks
+
+
+class Settings(BaseModel):
+    database_url: str = Field(repr=False)
+    smb_share_path: str = Field(default="", repr=False)
+    smb_user: str = Field(default="", repr=False)
+    smb_password: str = Field(default="", repr=False)
+
+    name_prefix: str
+    name_width: int = Field(ge=1, le=20)
+    name_start: int = Field(ge=0)
+    allowed_client_networks: tuple[IPv4Network | IPv6Network, ...]
+    deployment_authorization_timeout_minutes: int = Field(default=10, ge=5, le=30)
+    deployment_timeout_minutes: int = Field(default=90, ge=30, le=240)
+
+    ldap_server: str | None
+    ldap_base_dn: str | None
+    ldap_credential_target: str
+    ldap_use_ssl: bool
+    ldap_connect_timeout: int = Field(ge=1, le=60)
+
+    odj_domain: str
+    odj_machine_ou: str
+    odj_blob_dir: Path
+    odj_djoin_path: Path
+    odj_provision_timeout: int = Field(ge=1, le=300)
+
+    @property
+    def ldap_enabled(self) -> bool:
+        return bool(self.ldap_server and self.ldap_base_dn)
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings(
+        database_url=_expand_irondeploy_root(
+            _get_required_env("IRONAPI_DATABASE_URL")
+        ),
+        smb_share_path=getenv("IRONAPI_SMB_SHARE_PATH", "").strip(),
+        smb_user=getenv("IRONAPI_SMB_USER", "").strip(),
+        smb_password=getenv("IRONAPI_SMB_PASSWORD", "").strip(),
+        name_prefix=_get_required_env("IRONAPI_NAME_PREFIX"),
+        name_width=_get_int("IRONAPI_NAME_WIDTH"),
+        name_start=_get_int("IRONAPI_NAME_START"),
+        allowed_client_networks=_get_allowed_client_networks(),
+        deployment_authorization_timeout_minutes=_get_int_or_default(
+            "IRONAPI_DEPLOYMENT_AUTHORIZATION_TIMEOUT_MINUTES", 10
+        ),
+        deployment_timeout_minutes=_get_int_or_default(
+            "IRONAPI_DEPLOYMENT_TIMEOUT_MINUTES", 90
+        ),
+        ldap_server=_get_optional_env("IRONAPI_LDAP_SERVER"),
+        ldap_base_dn=_get_optional_env("IRONAPI_LDAP_BASE_DN"),
+        ldap_credential_target=_get_required_env("IRONAPI_LDAP_CREDENTIAL_TARGET"),
+        ldap_use_ssl=_get_bool("IRONAPI_LDAP_USE_SSL"),
+        ldap_connect_timeout=_get_int("IRONAPI_LDAP_CONNECT_TIMEOUT"),
+        odj_domain=_get_required_env("IRONAPI_ODJ_DOMAIN"),
+        odj_machine_ou=_get_required_env("IRONAPI_ODJ_MACHINE_OU"),
+        odj_blob_dir=Path(
+            _expand_irondeploy_root(_get_required_env("IRONAPI_ODJ_BLOB_DIR"))
+        ),
+        odj_djoin_path=Path(_get_required_env("IRONAPI_ODJ_DJOIN_PATH")),
+        odj_provision_timeout=_get_int("IRONAPI_ODJ_PROVISION_TIMEOUT"),
+    )
