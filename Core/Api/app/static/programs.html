@@ -58,16 +58,38 @@
                        class="arguments-input program-name-input"
                        placeholder="File name (optional)" maxlength="255"
                        spellcheck="false">
-                <textarea id="program-arguments"
-                          class="arguments-input program-config-input"
-                          placeholder="Arguments (one per line), e.g. /S"
-                          maxlength="4096" spellcheck="false"
-                          aria-label="Launch arguments"></textarea>
-                <textarea id="program-msi-properties"
-                          class="arguments-input program-config-input"
-                          placeholder="MSI properties (one NAME=VALUE per line)"
-                          maxlength="4096" spellcheck="false"
-                          aria-label="MSI properties" hidden></textarea>
+                <div class="program-upload-configuration">
+                    <label class="program-config-field">
+                        <span class="program-config-field-heading">
+                            <span>Launch arguments</span>
+                            <span class="program-config-badge">EXE &amp; MSI</span>
+                        </span>
+                        <span class="program-config-help">
+                            One argument per line.
+                        </span>
+                        <textarea id="program-arguments"
+                                  class="arguments-input program-config-input"
+                                  placeholder="/S&#10;--quiet&#10;install"
+                                  maxlength="4096" spellcheck="false"></textarea>
+                    </label>
+                    <label class="program-config-field is-unavailable"
+                           id="program-msi-properties-field">
+                        <span class="program-config-field-heading">
+                            <span>MSI properties</span>
+                            <span class="program-config-badge msi">MSI only</span>
+                        </span>
+                        <span class="program-config-help"
+                              id="program-msi-properties-help">
+                            Select an MSI installer to enable this field.
+                        </span>
+                        <textarea id="program-msi-properties"
+                                  class="arguments-input program-config-input"
+                                  placeholder="ALLUSERS=1&#10;REBOOT=ReallySuppress"
+                                  maxlength="4096" spellcheck="false"
+                                  aria-describedby="program-msi-properties-help"
+                                  disabled></textarea>
+                    </label>
+                </div>
                 <button class="primary-button" id="upload-button" type="button">
                     Upload program
                 </button>

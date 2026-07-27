@@ -29,7 +29,62 @@
     flex-basis: 220px;
 }
 
+.program-upload-configuration {
+    flex: 1 0 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.program-config-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: var(--surface-muted);
+}
+
+.program-config-field-heading,
+.program-config-group-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+    color: var(--ink);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.program-config-help {
+    min-height: 17px;
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.program-config-badge {
+    padding: 2px 7px;
+    border-radius: 999px;
+    color: var(--blue);
+    background: var(--focus);
+    font-size: 10px;
+    letter-spacing: .03em;
+    text-transform: uppercase;
+}
+
+.program-config-badge.msi {
+    color: #58c76a;
+    background: rgba(63, 185, 80, 0.14);
+}
+
+.program-config-field.is-unavailable {
+    opacity: .65;
+}
+
 .program-config-input {
+    width: 100%;
     min-height: 78px;
     resize: vertical;
 }
@@ -121,7 +176,7 @@
 .program-argument-editor {
     display: flex;
     flex-direction: column;
-    gap: 9px;
+    gap: 12px;
 }
 
 .program-argument-editor[hidden] {
@@ -134,12 +189,18 @@
     gap: 7px;
 }
 
-.program-msi-properties {
+.program-config-group {
     display: flex;
     flex-direction: column;
-    align-items: flex-start;
-    gap: 7px;
-    padding-top: 4px;
+    gap: 9px;
+    padding: 11px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface-muted);
+}
+
+.program-msi-properties {
+    border-color: rgba(63, 185, 80, .25);
 }
 
 .program-msi-properties[hidden] {
@@ -183,6 +244,17 @@
 
 .program-argument-editor-actions {
     margin-top: 2px;
+    justify-content: flex-end;
+}
+
+@media (max-width: 760px) {
+    .program-upload-configuration {
+        grid-template-columns: 1fr;
+    }
+
+    .program-arguments-summary {
+        align-items: flex-start;
+    }
 }
 
 .format-badge.exe {
