@@ -1,7 +1,7 @@
 """Manage post-install programs stored in Share\\Programs.
 
 Operators upload .exe / .msi installers through the Programs page and give
-each one an optional launch-argument string (tokens such as /S or -silent).
+each one an optional raw launch-argument string (such as /S or ALLUSERS=1).
 IronAPI publishes the metadata and SHA-256 values in a deployment manifest;
 WinPE copies only the selected bytes from SMB and postinstall.ps1 runs them
 during Windows SetupComplete.
@@ -12,7 +12,6 @@ from __future__ import annotations
 import json
 import hashlib
 import os
-import re
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import RLock
@@ -30,11 +29,6 @@ METADATA_PATH = PROGRAMS_DIR / METADATA_NAME
 ALLOWED_SUFFIXES = (".exe", ".msi")
 MAX_ARGUMENTS_LENGTH = 500
 MAX_PROGRAM_SIZE_BYTES = 5 * 1024**3
-
-# Each whitespace-separated token must be a launch switch: it starts with
-# "/" or "-" and contains no quotes or shell metacharacters. The values are
-# later passed to Start-Process -ArgumentList, never through a shell.
-_ARGUMENT_TOKEN = re.compile(r"^[/-][^\s\"'&|<>^;%`]+$")
 
 _metadata_lock = RLock()
 
@@ -62,18 +56,16 @@ def _sha256_file(path: Path) -> str:
 
 
 def validate_program_arguments(arguments: str) -> str:
-    normalized = " ".join(str(arguments).split())
+    value = str(arguments)
+    if any(character in value for character in ("\0", "\r", "\n")):
+        raise ProgramError(
+            "Launch arguments must not contain NUL, CR, or LF characters."
+        )
+    normalized = value.strip(" ")
     if len(normalized) > MAX_ARGUMENTS_LENGTH:
         raise ProgramError(
             f"Launch arguments are limited to {MAX_ARGUMENTS_LENGTH} characters."
         )
-    for token in normalized.split():
-        if not _ARGUMENT_TOKEN.match(token):
-            raise ProgramError(
-                f"Invalid launch argument '{token}'. Each argument must start "
-                "with / or - (for example /S or -silent) and must not contain "
-                "quotes or shell characters."
-            )
     return normalized
 
 

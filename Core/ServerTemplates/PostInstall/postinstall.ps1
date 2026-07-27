@@ -363,11 +363,6 @@ function Install-IronDeployPrograms {
             continue
         }
 
-        $ArgumentList = @(
-            $ProgramArguments -split "\s+" |
-                Where-Object { ![string]::IsNullOrWhiteSpace($_) }
-        )
-
         $ExpectedHash = ([string]$Program.sha256).ToLowerInvariant()
         $ActualHash = ""
         try {
@@ -402,16 +397,21 @@ function Install-IronDeployPrograms {
         Write-Host ("Installing {0} {1}" -f $ProgramName, $ProgramArguments)
         try {
             if ($ProgramName -match "\.msi$") {
-                $MsiArguments = @("/i", "`"$ProgramPath`"") + $ArgumentList
-                $Process = Start-Process msiexec.exe `
+                $MsiArguments = "/i `"$ProgramPath`""
+                if (![string]::IsNullOrWhiteSpace($ProgramArguments)) {
+                    $MsiArguments += " $ProgramArguments"
+                }
+                $Process = Start-Process `
+                    -FilePath msiexec.exe `
                     -ArgumentList $MsiArguments `
                     -PassThru
-            } elseif ($ArgumentList.Count -gt 0) {
-                $Process = Start-Process $ProgramPath `
-                    -ArgumentList $ArgumentList `
+            } elseif (![string]::IsNullOrWhiteSpace($ProgramArguments)) {
+                $Process = Start-Process `
+                    -FilePath $ProgramPath `
+                    -ArgumentList $ProgramArguments `
                     -PassThru
             } else {
-                $Process = Start-Process $ProgramPath -PassThru
+                $Process = Start-Process -FilePath $ProgramPath -PassThru
             }
 
             $Exited = $Process.WaitForExit($ProgramInstallTimeoutSeconds * 1000)

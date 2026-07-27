@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from app.programs import (
+    MAX_ARGUMENTS_LENGTH,
     MAX_PROGRAM_SIZE_BYTES,
     ProgramError,
     _safe_program_name,
@@ -62,27 +63,41 @@ class ProgramNameTests(unittest.TestCase):
 
 
 class ProgramArgumentTests(unittest.TestCase):
-    def test_switch_style_arguments_are_accepted(self) -> None:
-        self.assertEqual(validate_program_arguments("/S"), "/S")
+    def test_raw_installer_arguments_are_accepted_without_rewriting(self) -> None:
+        for arguments in (
+            "/qn /norestart ALLUSERS=1",
+            "/S ALLUSERS=1",
+            "--quiet --server https://example.test",
+            'INSTALLDIR="C:\\Program Files\\App"',
+        ):
+            with self.subTest(arguments=arguments):
+                self.assertEqual(validate_program_arguments(arguments), arguments)
+
         self.assertEqual(
-            validate_program_arguments("  /qn   /norestart "), "/qn /norestart"
+            validate_program_arguments("  /qn   /norestart  "),
+            "/qn   /norestart",
         )
-        self.assertEqual(validate_program_arguments("-silent -log:a.txt"),
-                         "-silent -log:a.txt")
+        self.assertEqual(
+            validate_program_arguments("x" * MAX_ARGUMENTS_LENGTH),
+            "x" * MAX_ARGUMENTS_LENGTH,
+        )
         self.assertEqual(validate_program_arguments(""), "")
 
-    def test_non_switch_or_shell_arguments_are_rejected(self) -> None:
+    def test_legacy_installer_arguments_remain_accepted(self) -> None:
+        for arguments in ("/S", "/qn /norestart", "-silent"):
+            with self.subTest(arguments=arguments):
+                self.assertEqual(validate_program_arguments(arguments), arguments)
+
+    def test_control_characters_and_excessive_length_are_rejected(self) -> None:
         for arguments in (
-            "quiet",
-            "PROPERTY=1",
-            '/S "extra"',
-            "/a&b",
-            "/a|b",
-            "/a;b",
-            "/" + "x" * 600,
+            "/S\0ALLUSERS=1",
+            "/S\rALLUSERS=1",
+            "/S\nALLUSERS=1",
+            "x" * (MAX_ARGUMENTS_LENGTH + 1),
         ):
-            with self.assertRaises(ProgramError):
-                validate_program_arguments(arguments)
+            with self.subTest(arguments=repr(arguments)):
+                with self.assertRaises(ProgramError):
+                    validate_program_arguments(arguments)
 
 
 class ProgramManagementTests(unittest.TestCase):
@@ -233,13 +248,16 @@ class ProgramManagementTests(unittest.TestCase):
             "tool.exe", " /qn  /norestart ", self.programs_dir, self.metadata_path
         )
 
-        self.assertEqual(program["arguments"], "/qn /norestart")
+        self.assertEqual(program["arguments"], "/qn  /norestart")
         metadata = json.loads(self.metadata_path.read_text(encoding="utf-8"))
-        self.assertEqual(metadata["programs"]["tool.exe"]["arguments"], "/qn /norestart")
+        self.assertEqual(metadata["version"], 2)
+        self.assertEqual(
+            metadata["programs"]["tool.exe"]["arguments"], "/qn  /norestart"
+        )
 
-        with self.assertRaises(ProgramError):
+        with self.assertRaisesRegex(ProgramError, "NUL, CR, or LF"):
             set_program_arguments(
-                "tool.exe", "not-a-switch spaced", self.programs_dir, self.metadata_path
+                "tool.exe", "/S\nALLUSERS=1", self.programs_dir, self.metadata_path
             )
         with self.assertRaisesRegex(ProgramError, "not found"):
             set_program_arguments(

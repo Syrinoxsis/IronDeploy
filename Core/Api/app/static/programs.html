@@ -47,9 +47,9 @@
                 <h2 id="upload-title">Add a program</h2>
                 <p>
                     Program files can be up to 5 GiB. Launch arguments are optional.
-                    Each argument must start with
-                    <code>/</code> or <code>-</code>, for example
-                    <code>/S</code>, <code>/qn /norestart</code> or <code>-silent</code>.
+                    Enter the arguments exactly as they should be passed to the
+                    installer, for example
+                    <code>/qn /norestart ALLUSERS=1</code>.
                 </p>
             </div>
             <div class="upload-controls program-upload-controls">
@@ -59,7 +59,7 @@
                        placeholder="File name (optional)" maxlength="255"
                        spellcheck="false">
                 <input id="program-arguments" type="text" class="arguments-input"
-                       placeholder="Launch arguments, e.g. /S /norestart"
+                       placeholder="Arguments passed to the installer, e.g. /qn /norestart ALLUSERS=1"
                        maxlength="500" spellcheck="false">
                 <button class="primary-button" id="upload-button" type="button">
                     Upload program

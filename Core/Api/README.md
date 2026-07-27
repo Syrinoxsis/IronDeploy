@@ -255,12 +255,14 @@ Open `http://<ironapi-host>:8000/programs`, or follow **Post-install software**
 from the dashboard, to manage the contents of `Share\Programs`. The page
 accepts streamed uploads of `.exe` and `.msi` installers and stores an
 optional launch-argument string for each one (for example `/S`,
-`/qn /norestart`, or `-silent`). Every argument token must start with `/` or
-`-` and must not contain quotes or shell characters; the arguments are later
-passed directly to the installer process, never through a shell. Arguments can
-be edited, and programs can be renamed or deleted from their cards. The upload
-form can assign a different file name before the upload starts. Files copied into
-`Share\Programs` manually are discovered on **Refresh**.
+`/qn /norestart ALLUSERS=1`, or
+`INSTALLDIR="C:\Program Files\App"`). The raw string is limited to 500
+characters, retains internal spaces and quotes, and rejects NUL, CR, and LF.
+It is passed directly to the installer process, never through a shell.
+Arguments can be edited, and programs can be renamed or deleted from their
+cards. The upload form can assign a different file name before the upload
+starts. Files copied into `Share\Programs` manually are discovered on
+**Refresh**.
 Uploads are limited to 5 GiB per program.
 
 The argument and SHA-256 map is stored in

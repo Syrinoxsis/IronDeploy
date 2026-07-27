@@ -18,8 +18,6 @@ const elements = {
 let activeUploadRequest = null;
 let messageTimer = null;
 
-const ARGUMENT_TOKEN = /^[/-][^\s"'&|<>^;%`]+$/;
-
 function showMessage(text, type = "success") {
     if (messageTimer) window.clearTimeout(messageTimer);
     elements.message.hidden = false;
@@ -67,18 +65,13 @@ function formatBytes(bytes) {
 }
 
 function validateArguments(value) {
-    const normalized = value.trim().replace(/\s+/g, " ");
+    if (/[\0\r\n]/.test(value)) {
+        throw new Error("Launch arguments must not contain NUL, CR, or LF characters.");
+    }
+    const normalized = value.replace(/^ +| +$/g, "");
     if (!normalized) return "";
     if (normalized.length > 500) {
         throw new Error("Launch arguments are limited to 500 characters.");
-    }
-    for (const token of normalized.split(" ")) {
-        if (!ARGUMENT_TOKEN.test(token)) {
-            throw new Error(
-                `Invalid launch argument '${token}'. Each argument must start with / or - ` +
-                "(for example /S or -silent) and must not contain quotes or shell characters."
-            );
-        }
     }
     return normalized;
 }
@@ -251,12 +244,7 @@ function createProgramCard(program) {
     const edit = document.createElement("button");
     edit.className = "argument-action-button";
     edit.type = "button";
-    edit.textContent = "Edit";
-    const add = document.createElement("button");
-    add.className = "argument-action-button";
-    add.type = "button";
-    add.textContent = "+ Add argument";
-    summaryActions.append(edit, add);
+    summaryActions.append(edit);
     summary.append(summaryCopy, summaryActions);
 
     const editor = document.createElement("div");
@@ -264,12 +252,18 @@ function createProgramCard(program) {
     editor.hidden = true;
     const inputs = document.createElement("div");
     inputs.className = "program-argument-inputs";
+    const inputRow = document.createElement("div");
+    inputRow.className = "program-argument-input-row";
+    const argumentInput = document.createElement("input");
+    argumentInput.type = "text";
+    argumentInput.className = "arguments-input";
+    argumentInput.maxLength = 500;
+    argumentInput.spellcheck = false;
+    argumentInput.placeholder = "e.g. /qn /norestart ALLUSERS=1";
+    inputRow.append(argumentInput);
+    inputs.append(inputRow);
     const editorActions = document.createElement("div");
     editorActions.className = "program-argument-editor-actions";
-    const addAnother = document.createElement("button");
-    addAnother.className = "argument-action-button";
-    addAnother.type = "button";
-    addAnother.textContent = "+ Add argument";
     const save = document.createElement("button");
     save.className = "secondary-button compact-button";
     save.type = "button";
@@ -278,55 +272,32 @@ function createProgramCard(program) {
     cancel.className = "quiet-button compact-button";
     cancel.type = "button";
     cancel.textContent = "Cancel";
-    editorActions.append(addAnother, save, cancel);
+    editorActions.append(save, cancel);
     editor.append(inputs, editorActions);
 
     function updateArgumentSummary() {
         const value = program.arguments || "";
         summaryValue.textContent = value || "No arguments";
         summaryValue.classList.toggle("is-empty", !value);
-        edit.hidden = !value;
+        edit.textContent = value ? "Edit" : "+ Add arguments";
     }
 
-    function addArgumentInput(value = "") {
-        const row = document.createElement("div");
-        row.className = "program-argument-input-row";
-        const input = document.createElement("input");
-        input.type = "text";
-        input.className = "arguments-input";
-        input.maxLength = 500;
-        input.spellcheck = false;
-        input.placeholder = "e.g. /S or /qn /norestart";
-        input.value = value;
-        const removeInput = document.createElement("button");
-        removeInput.className = "argument-remove-button";
-        removeInput.type = "button";
-        removeInput.title = "Remove this argument row";
-        removeInput.setAttribute("aria-label", "Remove this argument row");
-        removeInput.textContent = "×";
-        removeInput.addEventListener("click", () => row.remove());
-        input.addEventListener("keydown", (event) => {
-            if (event.key === "Enter") {
-                event.preventDefault();
-                save.click();
-            }
-        });
-        row.append(input, removeInput);
-        inputs.append(row);
-        input.focus();
-    }
-
-    function openArgumentEditor(addBlankRow = false) {
+    function openArgumentEditor() {
         summary.hidden = true;
         editor.hidden = false;
-        inputs.replaceChildren();
-        if (program.arguments) addArgumentInput(program.arguments);
-        if (addBlankRow || !program.arguments) addArgumentInput();
+        argumentInput.value = program.arguments || "";
+        argumentInput.focus();
+        argumentInput.select();
     }
 
-    edit.addEventListener("click", () => openArgumentEditor(false));
-    add.addEventListener("click", () => openArgumentEditor(Boolean(program.arguments)));
-    addAnother.addEventListener("click", () => addArgumentInput());
+    argumentInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+            event.preventDefault();
+            save.click();
+        }
+        if (event.key === "Escape") cancel.click();
+    });
+    edit.addEventListener("click", openArgumentEditor);
     cancel.addEventListener("click", () => {
         editor.hidden = true;
         summary.hidden = false;
@@ -335,19 +306,13 @@ function createProgramCard(program) {
         clearMessage();
         let normalized;
         try {
-            const values = Array.from(inputs.querySelectorAll("input"))
-                .map((input) => input.value.trim())
-                .filter(Boolean);
-            normalized = validateArguments(values.join(" "));
+            normalized = validateArguments(argumentInput.value);
         } catch (error) {
             showMessage(error.message, "error");
-            inputs.querySelector("input")?.focus();
+            argumentInput.focus();
             return;
         }
-        inputs.querySelectorAll("input, button").forEach((control) => {
-            control.disabled = true;
-        });
-        addAnother.disabled = true;
+        argumentInput.disabled = true;
         cancel.disabled = true;
         save.disabled = true;
         try {
@@ -366,10 +331,7 @@ function createProgramCard(program) {
         } catch (error) {
             showMessage(error.message, "error");
         } finally {
-            inputs.querySelectorAll("input, button").forEach((control) => {
-                control.disabled = false;
-            });
-            addAnother.disabled = false;
+            argumentInput.disabled = false;
             cancel.disabled = false;
             save.disabled = false;
         }
