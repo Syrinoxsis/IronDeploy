@@ -2217,12 +2217,26 @@ function Get-IronDeployProgramList {
     $Catalog = Get-IronDeployCatalog
     $Programs = @(
         $Catalog.programs | ForEach-Object {
-            $Arguments = [string]$_.arguments
+            $Arguments = @(
+                $_.arguments | ForEach-Object { [string]$_ }
+            )
+            $MsiProperties = $_.msi_properties
+            $ConfigurationDisplay = @($Arguments)
+            if ($null -ne $MsiProperties) {
+                $ConfigurationDisplay += @(
+                    $MsiProperties.PSObject.Properties |
+                        ForEach-Object {
+                            "{0}={1}" -f $_.Name, ([string]$_.Value)
+                        }
+                )
+            }
             $Display = "{0}   ({1:N1} MB)" -f `
                 ([string]$_.name),
                 ([long]$_.size / 1MB)
-            if (![string]::IsNullOrWhiteSpace($Arguments)) {
-                $Display = "{0}   [{1}]" -f $Display, $Arguments
+            if ($ConfigurationDisplay.Count -gt 0) {
+                $Display = "{0}   [{1}]" -f `
+                    $Display,
+                    ($ConfigurationDisplay -join " ")
             }
             [pscustomobject]@{
                 Name = [string]$_.name
@@ -2230,6 +2244,7 @@ function Get-IronDeployProgramList {
                 Length = [long]$_.size
                 Type = [string]$_.type
                 Arguments = $Arguments
+                MsiProperties = $MsiProperties
                 Sha256 = [string]$_.sha256
                 Display = $Display
             }
@@ -2866,23 +2881,31 @@ function Invoke-IronDeployment {
                     "[ERROR] SHA-256 mismatch after copy: {0}" -f $ProgramName
                 ) -Level error
             } else {
+                $ArgumentText = @(
+                    $SelectedProgram.arguments |
+                        ForEach-Object { [string]$_ }
+                ) -join " "
                 Write-IronLog (
                     "[OK] Program staged and verified: {0} {1}" -f `
                         $ProgramName,
-                        ([string]$SelectedProgram.arguments)
+                        $ArgumentText
                 ) -Level ok
             }
             $ProgramManifest += @{
                 name = $ProgramName
                 size = [long]$SelectedProgram.size
                 type = [string]$SelectedProgram.type
-                arguments = [string]$SelectedProgram.arguments
+                arguments = @(
+                    $SelectedProgram.arguments |
+                        ForEach-Object { [string]$_ }
+                )
+                msi_properties = $SelectedProgram.msi_properties
                 sha256 = $ExpectedProgramHash
             }
         }
 
         $ProgramManifestPath = Join-Path $ProgramsTargetDir "programs.json"
-        ConvertTo-Json -InputObject @($ProgramManifest) |
+        ConvertTo-Json -InputObject @($ProgramManifest) -Depth 4 |
             Out-File $ProgramManifestPath -Encoding UTF8 -Force
         if (!(Test-Path $ProgramManifestPath)) {
             Fail "Program manifest was not written: $ProgramManifestPath"

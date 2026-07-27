@@ -4,6 +4,7 @@ const elements = {
     fileInput: document.querySelector("#program-file"),
     programNameInput: document.querySelector("#program-name"),
     argumentsInput: document.querySelector("#program-arguments"),
+    msiPropertiesInput: document.querySelector("#program-msi-properties"),
     uploadButton: document.querySelector("#upload-button"),
     progressRow: document.querySelector("#upload-progress-row"),
     progress: document.querySelector("#upload-progress"),
@@ -18,7 +19,15 @@ const elements = {
 let activeUploadRequest = null;
 let messageTimer = null;
 
-const ARGUMENT_TOKEN = /^[/-][^\s"'&|<>^;%`]+$/;
+const MAX_ARGUMENT_COUNT = 100;
+const MAX_ARGUMENT_LENGTH = 512;
+const MAX_ARGUMENTS_LENGTH = 4096;
+const MAX_MSI_PROPERTY_COUNT = 100;
+const MAX_MSI_PROPERTY_NAME_LENGTH = 72;
+const MAX_MSI_PROPERTY_VALUE_LENGTH = 512;
+const MAX_MSI_PROPERTIES_LENGTH = 4096;
+const MSI_PROPERTY_NAME = /^[A-Z_][A-Z0-9_.]*$/;
+const MSI_PROPERTY_ARGUMENT = /^[A-Z_][A-Z0-9_.]*=/i;
 
 function showMessage(text, type = "success") {
     if (messageTimer) window.clearTimeout(messageTimer);
@@ -66,21 +75,112 @@ function formatBytes(bytes) {
     return `${(bytes / (1024 ** unit)).toFixed(unit < 2 ? 0 : 1)} ${units[unit]}`;
 }
 
-function validateArguments(value) {
-    const normalized = value.trim().replace(/\s+/g, " ");
-    if (!normalized) return "";
-    if (normalized.length > 500) {
-        throw new Error("Launch arguments are limited to 500 characters.");
+function validateCommandLineValue(value, label, maximumLength, allowEmpty = false) {
+    if (typeof value !== "string") {
+        throw new Error(`${label} must be a string.`);
     }
-    for (const token of normalized.split(" ")) {
-        if (!ARGUMENT_TOKEN.test(token)) {
+    if (!allowEmpty && !value) {
+        throw new Error(`${label} must not be empty.`);
+    }
+    if (value.length > maximumLength) {
+        throw new Error(`${label} is limited to ${maximumLength} characters.`);
+    }
+    if (/[\s\u0000"']/.test(value)) {
+        throw new Error(`${label} must not contain whitespace, NUL, or quotes.`);
+    }
+    return value;
+}
+
+function asArgumentArray(value) {
+    if (Array.isArray(value)) return value;
+    if (typeof value === "string") {
+        return value.trim() ? value.trim().split(/\s+/) : [];
+    }
+    return [];
+}
+
+function validateArguments(values, programType) {
+    if (!Array.isArray(values)) {
+        throw new Error("Launch arguments must be an array.");
+    }
+    const normalized = values.filter((value) => value !== "");
+    if (normalized.length > MAX_ARGUMENT_COUNT) {
+        throw new Error(`Launch arguments are limited to ${MAX_ARGUMENT_COUNT} items.`);
+    }
+    normalized.forEach((value, index) => {
+        validateCommandLineValue(
+            value,
+            `Launch argument ${index + 1}`,
+            MAX_ARGUMENT_LENGTH
+        );
+        if (programType === "MSI" && MSI_PROPERTY_ARGUMENT.test(value)) {
             throw new Error(
-                `Invalid launch argument '${token}'. Each argument must start with / or - ` +
-                "(for example /S or -silent) and must not contain quotes or shell characters."
+                "MSI NAME=VALUE properties belong in the MSI properties section."
             );
         }
+    });
+    const totalLength = normalized.join(" ").length;
+    if (totalLength > MAX_ARGUMENTS_LENGTH) {
+        throw new Error(
+            `Launch arguments are limited to ${MAX_ARGUMENTS_LENGTH} characters in total.`
+        );
     }
     return normalized;
+}
+
+function validateMsiProperties(entries, programType) {
+    if (!Array.isArray(entries)) {
+        throw new Error("MSI properties must be an object.");
+    }
+    if (entries.some(([name, value]) => name === "" && value !== "")) {
+        throw new Error("MSI property values require a property name.");
+    }
+    const populated = entries.filter(([name]) => name !== "");
+    if (populated.length > MAX_MSI_PROPERTY_COUNT) {
+        throw new Error(`MSI properties are limited to ${MAX_MSI_PROPERTY_COUNT} items.`);
+    }
+    if (programType !== "MSI" && populated.length) {
+        throw new Error("MSI properties are only valid for MSI programs.");
+    }
+    const normalized = {};
+    for (const [rawName, rawValue] of populated) {
+        const name = rawName.toUpperCase();
+        if (name.length > MAX_MSI_PROPERTY_NAME_LENGTH || !MSI_PROPERTY_NAME.test(name)) {
+            throw new Error(
+                `Invalid MSI property name '${rawName}'. Names must match ` +
+                "^[A-Z_][A-Z0-9_.]*$."
+            );
+        }
+        if (Object.prototype.hasOwnProperty.call(normalized, name)) {
+            throw new Error(`Duplicate MSI property name: ${name}.`);
+        }
+        normalized[name] = validateCommandLineValue(
+            rawValue,
+            `MSI property ${name} value`,
+            MAX_MSI_PROPERTY_VALUE_LENGTH,
+            true
+        );
+    }
+    const totalLength = Object.entries(normalized)
+        .map(([name, value]) => `${name}=${value}`)
+        .join(" ").length;
+    if (totalLength > MAX_MSI_PROPERTIES_LENGTH) {
+        throw new Error(
+            `MSI properties are limited to ${MAX_MSI_PROPERTIES_LENGTH} characters in total.`
+        );
+    }
+    return normalized;
+}
+
+function parseMsiPropertyLines(value) {
+    if (!value.trim()) return [];
+    return value.split(/\r?\n/).filter((line) => line !== "").map((line) => {
+        const separator = line.indexOf("=");
+        if (separator < 0) {
+            throw new Error(`MSI property '${line}' must use NAME=VALUE format.`);
+        }
+        return [line.slice(0, separator), line.slice(separator + 1)];
+    });
 }
 
 function normalizeProgramName(value, sourceName, useSourceWhenBlank = false) {
@@ -241,7 +341,7 @@ function createProgramCard(program) {
     summaryCopy.className = "program-arguments-copy";
     const summaryLabel = document.createElement("span");
     summaryLabel.className = "program-arguments-label";
-    summaryLabel.textContent = "Launch arguments";
+    summaryLabel.textContent = "Installer configuration";
     const summaryValue = document.createElement("code");
     summaryValue.className = "program-arguments-value";
     summaryCopy.append(summaryLabel, summaryValue);
@@ -262,8 +362,27 @@ function createProgramCard(program) {
     const editor = document.createElement("div");
     editor.className = "program-argument-editor";
     editor.hidden = true;
+
+    const argumentsLabel = document.createElement("span");
+    argumentsLabel.className = "program-arguments-label";
+    argumentsLabel.textContent = "Launch arguments (one item per row)";
     const inputs = document.createElement("div");
     inputs.className = "program-argument-inputs";
+
+    const propertiesGroup = document.createElement("div");
+    propertiesGroup.className = "program-msi-properties";
+    propertiesGroup.hidden = program.type !== "MSI";
+    const propertiesLabel = document.createElement("span");
+    propertiesLabel.className = "program-arguments-label";
+    propertiesLabel.textContent = "MSI properties";
+    const propertyInputs = document.createElement("div");
+    propertyInputs.className = "program-argument-inputs";
+    const addProperty = document.createElement("button");
+    addProperty.className = "argument-action-button";
+    addProperty.type = "button";
+    addProperty.textContent = "+ Add MSI property";
+    propertiesGroup.append(propertiesLabel, propertyInputs, addProperty);
+
     const editorActions = document.createElement("div");
     editorActions.className = "program-argument-editor-actions";
     const addAnother = document.createElement("button");
@@ -279,13 +398,18 @@ function createProgramCard(program) {
     cancel.type = "button";
     cancel.textContent = "Cancel";
     editorActions.append(addAnother, save, cancel);
-    editor.append(inputs, editorActions);
+    editor.append(argumentsLabel, inputs, propertiesGroup, editorActions);
 
     function updateArgumentSummary() {
-        const value = program.arguments || "";
-        summaryValue.textContent = value || "No arguments";
-        summaryValue.classList.toggle("is-empty", !value);
-        edit.hidden = !value;
+        const argumentsValues = asArgumentArray(program.arguments);
+        const properties = program.msi_properties || {};
+        const values = [
+            ...argumentsValues,
+            ...Object.entries(properties).map(([name, value]) => `${name}=${value}`),
+        ];
+        summaryValue.textContent = values.join(" ") || "No arguments or properties";
+        summaryValue.classList.toggle("is-empty", values.length === 0);
+        edit.hidden = values.length === 0;
     }
 
     function addArgumentInput(value = "") {
@@ -294,9 +418,9 @@ function createProgramCard(program) {
         const input = document.createElement("input");
         input.type = "text";
         input.className = "arguments-input";
-        input.maxLength = 500;
+        input.maxLength = MAX_ARGUMENT_LENGTH;
         input.spellcheck = false;
-        input.placeholder = "e.g. /S or /qn /norestart";
+        input.placeholder = program.type === "MSI" ? "e.g. /qn" : "e.g. /S or install";
         input.value = value;
         const removeInput = document.createElement("button");
         removeInput.className = "argument-remove-button";
@@ -316,35 +440,85 @@ function createProgramCard(program) {
         input.focus();
     }
 
+    function addPropertyInput(name = "", value = "") {
+        const row = document.createElement("div");
+        row.className = "program-argument-input-row msi-property-input-row";
+        const nameInput = document.createElement("input");
+        nameInput.type = "text";
+        nameInput.className = "arguments-input msi-property-name-input";
+        nameInput.maxLength = MAX_MSI_PROPERTY_NAME_LENGTH;
+        nameInput.spellcheck = false;
+        nameInput.placeholder = "NAME";
+        nameInput.value = name;
+        const valueInput = document.createElement("input");
+        valueInput.type = "text";
+        valueInput.className = "arguments-input";
+        valueInput.maxLength = MAX_MSI_PROPERTY_VALUE_LENGTH;
+        valueInput.spellcheck = false;
+        valueInput.placeholder = "VALUE";
+        valueInput.value = value;
+        const removeInput = document.createElement("button");
+        removeInput.className = "argument-remove-button";
+        removeInput.type = "button";
+        removeInput.title = "Remove this MSI property";
+        removeInput.setAttribute("aria-label", "Remove this MSI property");
+        removeInput.textContent = "×";
+        removeInput.addEventListener("click", () => row.remove());
+        row.append(nameInput, valueInput, removeInput);
+        propertyInputs.append(row);
+        nameInput.focus();
+    }
+
     function openArgumentEditor(addBlankRow = false) {
         summary.hidden = true;
         editor.hidden = false;
         inputs.replaceChildren();
-        if (program.arguments) addArgumentInput(program.arguments);
-        if (addBlankRow || !program.arguments) addArgumentInput();
+        propertyInputs.replaceChildren();
+        const argumentsValues = asArgumentArray(program.arguments);
+        argumentsValues.forEach((value) => addArgumentInput(value));
+        Object.entries(program.msi_properties || {}).forEach(
+            ([name, value]) => addPropertyInput(name, value)
+        );
+        if (addBlankRow || argumentsValues.length === 0) addArgumentInput();
+        if (
+            program.type === "MSI" &&
+            Object.keys(program.msi_properties || {}).length === 0
+        ) {
+            addPropertyInput();
+        }
     }
 
     edit.addEventListener("click", () => openArgumentEditor(false));
-    add.addEventListener("click", () => openArgumentEditor(Boolean(program.arguments)));
+    add.addEventListener("click", () => openArgumentEditor(
+        asArgumentArray(program.arguments).length > 0
+    ));
     addAnother.addEventListener("click", () => addArgumentInput());
+    addProperty.addEventListener("click", () => addPropertyInput());
     cancel.addEventListener("click", () => {
         editor.hidden = true;
         summary.hidden = false;
     });
     save.addEventListener("click", async () => {
         clearMessage();
-        let normalized;
+        let normalizedArguments;
+        let normalizedProperties;
         try {
             const values = Array.from(inputs.querySelectorAll("input"))
-                .map((input) => input.value.trim())
-                .filter(Boolean);
-            normalized = validateArguments(values.join(" "));
+                .map((input) => input.value);
+            normalizedArguments = validateArguments(values, program.type);
+            const properties = Array.from(
+                propertyInputs.querySelectorAll(".msi-property-input-row")
+            ).map((row) => {
+                const rowInputs = row.querySelectorAll("input");
+                return [rowInputs[0].value, rowInputs[1].value];
+            });
+            normalizedProperties = validateMsiProperties(properties, program.type);
         } catch (error) {
             showMessage(error.message, "error");
             inputs.querySelector("input")?.focus();
             return;
         }
-        inputs.querySelectorAll("input, button").forEach((control) => {
+        editor.querySelectorAll("input, button").forEach((control) => {
             control.disabled = true;
         });
         addAnother.disabled = true;
@@ -355,18 +529,22 @@ function createProgramCard(program) {
                 `/api/programs/${encodeURIComponent(program.name)}/arguments`,
                 {
                     method: "POST",
-                    body: JSON.stringify({ arguments: normalized }),
+                    body: JSON.stringify({
+                        arguments: normalizedArguments,
+                        msi_properties: normalizedProperties,
+                    }),
                 }
             );
-            program.arguments = result.arguments || "";
+            program.arguments = result.arguments || [];
+            program.msi_properties = result.msi_properties || {};
             updateArgumentSummary();
             editor.hidden = true;
             summary.hidden = false;
-            showMessage(`Launch arguments for ${program.name} saved.`);
+            showMessage(`Installer configuration for ${program.name} saved.`);
         } catch (error) {
             showMessage(error.message, "error");
         } finally {
-            inputs.querySelectorAll("input, button").forEach((control) => {
+            editor.querySelectorAll("input, button").forEach((control) => {
                 control.disabled = false;
             });
             addAnother.disabled = false;
@@ -416,7 +594,7 @@ async function refreshPrograms() {
     }
 }
 
-function uploadFile(file, programName, argumentsValue) {
+function uploadFile(file, programName, argumentsValue, msiProperties) {
     return new Promise((resolve, reject) => {
         const request = new XMLHttpRequest();
         activeUploadRequest = request;
@@ -426,7 +604,14 @@ function uploadFile(file, programName, argumentsValue) {
         request.open("POST", "/api/programs/upload");
         request.setRequestHeader("x-requested-with", "IronDeploy");
         request.setRequestHeader("x-irondeploy-filename", encodeURIComponent(programName));
-        request.setRequestHeader("x-irondeploy-arguments", encodeURIComponent(argumentsValue));
+        request.setRequestHeader(
+            "x-irondeploy-arguments",
+            encodeURIComponent(JSON.stringify(argumentsValue))
+        );
+        request.setRequestHeader(
+            "x-irondeploy-msi-properties",
+            encodeURIComponent(JSON.stringify(msiProperties))
+        );
         request.setRequestHeader("content-type", "application/octet-stream");
         request.upload.addEventListener("progress", (event) => {
             if (!event.lengthComputable) return;
@@ -476,9 +661,20 @@ async function beginUpload() {
         elements.programNameInput.focus();
         return;
     }
+    const programType = /\.msi$/i.test(programName) ? "MSI" : "EXE";
     let argumentsValue;
+    let msiProperties;
     try {
-        argumentsValue = validateArguments(elements.argumentsInput.value);
+        const argumentLines = elements.argumentsInput.value
+            ? elements.argumentsInput.value.split(/\r?\n/)
+            : [];
+        argumentsValue = validateArguments(argumentLines, programType);
+        msiProperties = validateMsiProperties(
+            programType === "MSI"
+                ? parseMsiPropertyLines(elements.msiPropertiesInput.value)
+                : [],
+            programType
+        );
     } catch (error) {
         showMessage(error.message, "error");
         elements.argumentsInput.focus();
@@ -489,17 +685,25 @@ async function beginUpload() {
     elements.fileInput.disabled = true;
     elements.programNameInput.disabled = true;
     elements.argumentsInput.disabled = true;
+    elements.msiPropertiesInput.disabled = true;
     elements.progressRow.hidden = false;
     elements.cancelUploadButton.hidden = false;
     elements.progress.value = 0;
     elements.progressText.textContent = "Starting upload...";
     try {
-        const result = await uploadFile(file, programName, argumentsValue);
+        const result = await uploadFile(
+            file,
+            programName,
+            argumentsValue,
+            msiProperties
+        );
         elements.progress.value = 100;
         elements.progressText.textContent = `Uploaded ${formatBytes(result.size)}.`;
         elements.fileInput.value = "";
         elements.programNameInput.value = "";
         elements.argumentsInput.value = "";
+        elements.msiPropertiesInput.value = "";
+        elements.msiPropertiesInput.hidden = true;
         showMessage(`${result.name} uploaded successfully.`);
         await refreshPrograms();
     } catch (error) {
@@ -509,6 +713,7 @@ async function beginUpload() {
         elements.fileInput.disabled = false;
         elements.programNameInput.disabled = false;
         elements.argumentsInput.disabled = false;
+        elements.msiPropertiesInput.disabled = false;
         elements.cancelUploadButton.hidden = true;
     }
 }
@@ -523,6 +728,7 @@ elements.fileInput.addEventListener("change", () => {
     elements.programNameInput.placeholder = file
         ? `File name (optional; default: ${file.name})`
         : "File name (optional)";
+    elements.msiPropertiesInput.hidden = !file || !/\.msi$/i.test(file.name);
 });
 elements.cancelUploadButton.addEventListener("click", () => {
     if (activeUploadRequest) activeUploadRequest.abort();

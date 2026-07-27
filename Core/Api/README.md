@@ -254,27 +254,61 @@ action bar remains fixed while the page scrolls.
 Open `http://<ironapi-host>:8000/programs`, or follow **Post-install software**
 from the dashboard, to manage the contents of `Share\Programs`. The page
 accepts streamed uploads of `.exe` and `.msi` installers and stores an
-optional launch-argument string for each one (for example `/S`,
-`/qn /norestart`, or `-silent`). Every argument token must start with `/` or
-`-` and must not contain quotes or shell characters; the arguments are later
-passed directly to the installer process, never through a shell. Arguments can
-be edited, and programs can be renamed or deleted from their cards. The upload
-form can assign a different file name before the upload starts. Files copied into
+optional ordered launch-argument array for each one. EXE arguments are opaque:
+values such as `/S`, `--quiet`, `install`, `ALLUSERS=1`, and
+`URL=https://example.test` are accepted without a switch-name whitelist. MSI
+public properties are stored separately in `msi_properties`; an MSI argument
+that uses property syntax such as `ALLUSERS=1` is rejected.
+
+MSI property names are normalized to uppercase and must match
+`^[A-Z_][A-Z0-9_.]*$`; names are not selected from a whitelist. In the first
+format version, each argument and each property value is one command-line item,
+so whitespace, quotes, NUL, CR, and LF are rejected. A program can have at most
+100 arguments of at most 512 characters each and 4096 characters in total.
+MSI properties have the same item count and total limits; names are limited to
+72 characters and values to 512. Arguments and properties can be edited, and
+programs can be renamed or deleted from their cards. The upload form can assign
+a different file name before the upload starts. Files copied into
 `Share\Programs` manually are discovered on **Refresh**.
 Uploads are limited to 5 GiB per program.
 
-The argument and SHA-256 map is stored in
+The argument, MSI-property, and SHA-256 map is stored in
 `Share\Programs\.irondeploy-programs.json`. WinPE gets names, sizes, types,
-arguments, and hashes from the authenticated API catalog; the deployment GUI
-lists every available program as a checkbox under **Post-install software**.
+arguments, MSI properties, and hashes from the authenticated API catalog; the
+deployment GUI lists every available program as a checkbox under
+**Post-install software**. Metadata version 3 writes `arguments` as an array
+and `msi_properties` as an object:
+
+```json
+{
+  "version": 3,
+  "programs": {
+    "agent.msi": {
+      "arguments": ["/qn", "/norestart"],
+      "msi_properties": {
+        "ALLUSERS": "1",
+        "REBOOT": "ReallySuppress"
+      }
+    }
+  }
+}
+```
+
+Version 2 records with a string `arguments` value remain readable. IronAPI
+splits that legacy value only on whitespace, validates every resulting item,
+and writes the structured version on the next metadata save.
+
 The final manifest fixes the selected image/index, selected programs, and
 post-install account flags. SetupComplete and the generic post-install script
 are downloaded through the same authenticated HTTP(S) API. Selected program
 bytes are copied from SMB to `C:\IronDeploy\Programs` together with a
 `programs.json` manifest during the `postinstall_copy` stage, and
 `postinstall.ps1` installs them during Windows SetupComplete — `.msi` files
-through `msiexec.exe /i` and `.exe` files directly, each with its stored
-arguments. WinPE verifies SHA-256 after copying,
+as `msiexec.exe /i <package> <arguments> <NAME=VALUE properties>` and `.exe`
+files directly with their stored argument arrays. The script revalidates the
+manifest and joins only validated items with spaces for Windows PowerShell 5.1
+`Start-Process -ArgumentList`. No shell evaluates the resulting command line.
+WinPE verifies SHA-256 after copying,
 and postinstall verifies it again immediately before execution. Exit codes 0
 and 3010 are treated as success. A hash failure is reported as status `failed`
 with reason `hash_mismatch`, displayed as **SHA-256 mismatch**, and the
@@ -428,7 +462,8 @@ it cannot replace the report or restore WinPE or post-install permissions.
 
 WinPE registers the deployment before the SMB share and Windows image are
 selected, so early share and image-selection failures can be recorded. It gets
-available images, indexes, programs, arguments, and hashes from:
+available images, indexes, programs, argument arrays, MSI properties, and
+hashes from:
 
 ```http
 GET /api/deploy/catalog
@@ -446,9 +481,9 @@ POST /api/deploy/1/manifest
 ```
 
 The response contains the selected image size/format/readiness/indexes/default
-index, each selected program's size/type/arguments/SHA-256, and the postinstall
-local-account name and enablement flags. The manifest request also updates the
-deployment and computer inventory with the selected image.
+index, each selected program's size/type/arguments/msi_properties/SHA-256, and
+the postinstall local-account name and enablement flags. The manifest request
+also updates the deployment and computer inventory with the selected image.
 
 If WinPE stops with an error after registration, it reports the message with:
 

@@ -419,7 +419,11 @@ class DeploymentTimeoutTests(unittest.TestCase):
                     "name": "agent.msi",
                     "size": 9876,
                     "type": "MSI",
-                    "arguments": "/qn /norestart",
+                    "arguments": ["/qn", "/norestart"],
+                    "msi_properties": {
+                        "ALLUSERS": "1",
+                        "REBOOT": "ReallySuppress",
+                    },
                     "sha256": "a" * 64,
                 }
             ],
@@ -474,7 +478,14 @@ class DeploymentTimeoutTests(unittest.TestCase):
                 )
 
             self.assertEqual(result["image"]["defaultIndex"], 6)
-            self.assertEqual(result["programs"][0]["arguments"], "/qn /norestart")
+            self.assertEqual(
+                result["programs"][0]["arguments"],
+                ["/qn", "/norestart"],
+            )
+            self.assertEqual(
+                result["programs"][0]["msi_properties"],
+                {"ALLUSERS": "1", "REBOOT": "ReallySuppress"},
+            )
             self.assertEqual(result["programs"][0]["sha256"], "a" * 64)
             self.assertEqual(
                 result["driverPackage"]["relativePath"],

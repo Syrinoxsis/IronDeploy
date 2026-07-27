@@ -29,6 +29,11 @@
     flex-basis: 220px;
 }
 
+.program-config-input {
+    min-height: 78px;
+    resize: vertical;
+}
+
 .program-name-edit-input {
     width: min(56vw, 420px);
     min-height: 40px;
@@ -129,6 +134,18 @@
     gap: 7px;
 }
 
+.program-msi-properties {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 7px;
+    padding-top: 4px;
+}
+
+.program-msi-properties[hidden] {
+    display: none;
+}
+
 .program-argument-input-row {
     flex-wrap: nowrap;
 }
@@ -137,6 +154,18 @@
     flex: 0 1 440px;
     width: min(100%, 440px);
     min-width: 0;
+}
+
+.msi-property-input-row {
+    width: min(100%, 760px);
+}
+
+.msi-property-input-row .arguments-input {
+    flex: 1 1 280px;
+}
+
+.msi-property-input-row .msi-property-name-input {
+    flex: 0 1 220px;
 }
 
 .argument-remove-button {

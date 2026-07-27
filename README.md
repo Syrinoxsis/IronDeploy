@@ -258,8 +258,9 @@ Core\Logs
 
 ## Data flow
 
-WinPE receives image/program/driver catalogs, selected indexes, installer
-arguments, hashes, the final deployment manifest, unattend, and
+WinPE receives image/program/driver catalogs, selected indexes, structured
+installer argument arrays, separate MSI properties, hashes, the final
+deployment manifest, unattend, and
 SetupComplete/postinstall scripts from IronAPI. Heavy Windows images, drivers,
 and installer bytes stay on the SMB `Share`. WinPE and postinstall verify
 installer SHA-256 before execution. ODJ never travels through SMB: IronAPI

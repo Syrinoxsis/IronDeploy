@@ -37,9 +37,10 @@ certificate to their owning configurations. The Windows installation reads the
 per-deployment unattend file returned by IronAPI after authorization.
 
 Deployment control data travels through the authenticated HTTP(S) API: image
-readiness/indexes, program arguments/hashes, the final selection manifest, SMB
-credentials, unattend content, post-install scripts, and post-install account
-flags. SMB contains the heavy WIM/ESD, driver, and installer bytes. HTTP
+readiness/indexes, structured program argument arrays, separate MSI
+properties/hashes, the final selection manifest, SMB credentials, unattend
+content, post-install scripts, and post-install account flags. SMB contains the
+heavy WIM/ESD, driver, and installer bytes. HTTP
 remains supported; HTTPS can use certificate-validation bypass, a pinned
 self-signed certificate, or a trusted CA certificate.
 

@@ -1,3 +1,4 @@
+import json
 import logging
 import re
 from contextlib import asynccontextmanager
@@ -131,7 +132,11 @@ from app.deployment_images import (
     start_esd_conversion,
 )
 from app.programs import (
+    ProgramConfigurationRequest,
     ProgramError,
+    ProgramListing,
+    ProgramRecord,
+    ProgramUploadResponse,
     delete_program,
     list_programs,
     rename_program,
@@ -556,40 +561,64 @@ async def upload_deployment_image(request: Request) -> JSONResponse:
     return JSONResponse(result, status_code=201)
 
 
-@app.get("/api/programs")
-def get_programs() -> dict:
+@app.get("/api/programs", response_model=ProgramListing)
+def get_programs() -> ProgramListing:
     try:
         return list_programs()
     except ProgramError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-@app.post("/api/programs/upload")
+@app.post("/api/programs/upload", response_model=ProgramUploadResponse)
 async def upload_program(request: Request) -> JSONResponse:
     require_image_config_write(request)
     encoded_name = request.headers.get("x-irondeploy-filename", "")
     encoded_arguments = request.headers.get("x-irondeploy-arguments", "")
+    encoded_msi_properties = request.headers.get(
+        "x-irondeploy-msi-properties",
+        "",
+    )
     try:
+        decoded_arguments = unquote(encoded_arguments)
+        if decoded_arguments:
+            try:
+                arguments = json.loads(decoded_arguments)
+            except json.JSONDecodeError:
+                # Older clients sent the legacy whitespace-delimited string.
+                arguments = decoded_arguments
+        else:
+            arguments = []
+        decoded_msi_properties = unquote(encoded_msi_properties)
+        msi_properties = (
+            json.loads(decoded_msi_properties)
+            if decoded_msi_properties
+            else {}
+        )
         result = await save_uploaded_program(
             unquote(encoded_name),
             request.stream(),
-            arguments=unquote(encoded_arguments),
+            arguments=arguments,
+            msi_properties=msi_properties,
         )
-    except ProgramError as exc:
+    except (json.JSONDecodeError, ProgramError) as exc:
         status_code = 409 if "already exists" in str(exc) else 400
         raise HTTPException(status_code=status_code, detail=str(exc)) from exc
     return JSONResponse(result, status_code=201)
 
 
-@app.post("/api/programs/{name}/arguments")
-async def update_program_arguments(name: str, request: Request) -> JSONResponse:
+@app.post("/api/programs/{name}/arguments", response_model=ProgramRecord)
+async def update_program_arguments(
+    name: str,
+    payload: ProgramConfigurationRequest,
+    request: Request,
+) -> JSONResponse:
     require_image_config_write(request)
     try:
-        payload = await request.json()
-        arguments = str(payload.get("arguments", ""))
-        result = set_program_arguments(name, arguments)
-    except (AttributeError, TypeError, ValueError):
-        raise HTTPException(status_code=400, detail="arguments must be a string.")
+        result = set_program_arguments(
+            name,
+            payload.arguments,
+            msi_properties=payload.msi_properties,
+        )
     except ProgramError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return JSONResponse(result)
@@ -1185,6 +1214,7 @@ def _deployment_catalog() -> dict:
                 "size": program["size"],
                 "type": program["type"],
                 "arguments": program["arguments"],
+                "msi_properties": program["msi_properties"],
                 "sha256": program["sha256"],
             }
             for program in program_listing["programs"]

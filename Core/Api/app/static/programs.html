@@ -46,10 +46,10 @@
             <div>
                 <h2 id="upload-title">Add a program</h2>
                 <p>
-                    Program files can be up to 5 GiB. Launch arguments are optional.
-                    Each argument must start with
-                    <code>/</code> or <code>-</code>, for example
-                    <code>/S</code>, <code>/qn /norestart</code> or <code>-silent</code>.
+                    Program files can be up to 5 GiB. Enter one opaque launch
+                    argument per line. Spaces and quotes are not supported yet.
+                    For MSI installers, enter public properties separately as
+                    <code>NAME=VALUE</code>, one per line.
                 </p>
             </div>
             <div class="upload-controls program-upload-controls">
@@ -58,9 +58,16 @@
                        class="arguments-input program-name-input"
                        placeholder="File name (optional)" maxlength="255"
                        spellcheck="false">
-                <input id="program-arguments" type="text" class="arguments-input"
-                       placeholder="Launch arguments, e.g. /S /norestart"
-                       maxlength="500" spellcheck="false">
+                <textarea id="program-arguments"
+                          class="arguments-input program-config-input"
+                          placeholder="Arguments (one per line), e.g. /S"
+                          maxlength="4096" spellcheck="false"
+                          aria-label="Launch arguments"></textarea>
+                <textarea id="program-msi-properties"
+                          class="arguments-input program-config-input"
+                          placeholder="MSI properties (one NAME=VALUE per line)"
+                          maxlength="4096" spellcheck="false"
+                          aria-label="MSI properties" hidden></textarea>
                 <button class="primary-button" id="upload-button" type="button">
                     Upload program
                 </button>

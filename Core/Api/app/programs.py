@@ -1,10 +1,10 @@
 """Manage post-install programs stored in Share\\Programs.
 
 Operators upload .exe / .msi installers through the Programs page and give
-each one an optional launch-argument string (tokens such as /S or -silent).
-IronAPI publishes the metadata and SHA-256 values in a deployment manifest;
-WinPE copies only the selected bytes from SMB and postinstall.ps1 runs them
-during Windows SetupComplete.
+each one optional structured launch arguments. MSI public properties are kept
+separate from installer arguments. IronAPI publishes the metadata and SHA-256
+values in a deployment manifest; WinPE copies only the selected bytes from SMB
+and postinstall.ps1 runs them during Windows SetupComplete.
 """
 
 from __future__ import annotations
@@ -19,6 +19,8 @@ from threading import RLock
 from typing import Any, AsyncIterator
 from uuid import uuid4
 
+from pydantic import BaseModel, Field, StrictStr
+
 from app.config import IRONDEPLOY_ROOT
 from app.file_names import validate_windows_file_name
 
@@ -28,19 +30,60 @@ METADATA_NAME = ".irondeploy-programs.json"
 METADATA_PATH = PROGRAMS_DIR / METADATA_NAME
 
 ALLOWED_SUFFIXES = (".exe", ".msi")
-MAX_ARGUMENTS_LENGTH = 500
+MAX_ARGUMENT_COUNT = 100
+MAX_ARGUMENT_LENGTH = 512
+MAX_ARGUMENTS_LENGTH = 4096
+MAX_MSI_PROPERTY_COUNT = 100
+MAX_MSI_PROPERTY_NAME_LENGTH = 72
+MAX_MSI_PROPERTY_VALUE_LENGTH = 512
+MAX_MSI_PROPERTIES_LENGTH = 4096
 MAX_PROGRAM_SIZE_BYTES = 5 * 1024**3
 
-# Each whitespace-separated token must be a launch switch: it starts with
-# "/" or "-" and contains no quotes or shell metacharacters. The values are
-# later passed to Start-Process -ArgumentList, never through a shell.
-_ARGUMENT_TOKEN = re.compile(r"^[/-][^\s\"'&|<>^;%`]+$")
+_MSI_PROPERTY_NAME = re.compile(r"^[A-Z_][A-Z0-9_.]*$")
+_MSI_PROPERTY_ARGUMENT = re.compile(r"^[A-Z_][A-Z0-9_.]*=", re.IGNORECASE)
 
 _metadata_lock = RLock()
 
 
 class ProgramError(RuntimeError):
     """Raised when a program-management operation cannot be completed."""
+
+
+class ProgramConfigurationRequest(BaseModel):
+    """Structured installer configuration accepted by the Programs API."""
+
+    arguments: list[StrictStr] = Field(
+        default_factory=list,
+        max_length=MAX_ARGUMENT_COUNT,
+    )
+    msi_properties: dict[str, StrictStr] = Field(
+        default_factory=dict,
+        max_length=MAX_MSI_PROPERTY_COUNT,
+    )
+
+
+class ProgramRecord(BaseModel):
+    name: str
+    type: str
+    size: int
+    modifiedAt: str
+    arguments: list[str]
+    msi_properties: dict[str, str]
+    sha256: str
+
+
+class ProgramListing(BaseModel):
+    programs: list[ProgramRecord]
+    directory: str
+
+
+class ProgramUploadResponse(BaseModel):
+    uploaded: bool
+    name: str
+    size: int
+    arguments: list[str]
+    msi_properties: dict[str, str]
+    sha256: str
 
 
 def _safe_program_name(name: str) -> str:
@@ -61,27 +104,136 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def validate_program_arguments(arguments: str) -> str:
-    normalized = " ".join(str(arguments).split())
-    if len(normalized) > MAX_ARGUMENTS_LENGTH:
+def _validate_command_line_value(
+    value: object,
+    *,
+    label: str,
+    maximum_length: int,
+    allow_empty: bool = False,
+) -> str:
+    if not isinstance(value, str):
+        raise ProgramError(f"{label} must be a string.")
+    if not value and not allow_empty:
+        raise ProgramError(f"{label} must not be empty.")
+    if len(value) > maximum_length:
+        raise ProgramError(f"{label} is limited to {maximum_length} characters.")
+    if any(character.isspace() for character in value):
+        raise ProgramError(f"{label} must not contain whitespace.")
+    if "\x00" in value or '"' in value or "'" in value:
+        raise ProgramError(f"{label} must not contain NUL or quotes.")
+    return value
+
+
+def validate_program_arguments(
+    arguments: object,
+    program_type: str = "EXE",
+) -> list[str]:
+    """Validate a structured argument list or safely migrate a legacy string."""
+
+    if isinstance(arguments, str):
+        values: object = arguments.split()
+    else:
+        values = arguments
+    if not isinstance(values, list):
+        raise ProgramError("arguments must be an array of strings.")
+    if len(values) > MAX_ARGUMENT_COUNT:
         raise ProgramError(
-            f"Launch arguments are limited to {MAX_ARGUMENTS_LENGTH} characters."
+            f"Launch arguments are limited to {MAX_ARGUMENT_COUNT} items."
         )
-    for token in normalized.split():
-        if not _ARGUMENT_TOKEN.match(token):
+    normalized: list[str] = []
+    total_length = 0
+    is_msi = program_type.upper() == "MSI"
+    for index, value in enumerate(values):
+        argument = _validate_command_line_value(
+            value,
+            label=f"Launch argument {index + 1}",
+            maximum_length=MAX_ARGUMENT_LENGTH,
+        )
+        if is_msi and _MSI_PROPERTY_ARGUMENT.match(argument):
             raise ProgramError(
-                f"Invalid launch argument '{token}'. Each argument must start "
-                "with / or - (for example /S or -silent) and must not contain "
-                "quotes or shell characters."
+                f"MSI property '{argument.split('=', 1)[0]}' must be stored in "
+                "msi_properties, not arguments."
             )
+        normalized.append(argument)
+        total_length += len(argument)
+    total_length += max(0, len(normalized) - 1)
+    if total_length > MAX_ARGUMENTS_LENGTH:
+        raise ProgramError(
+            f"Launch arguments are limited to {MAX_ARGUMENTS_LENGTH} characters "
+            "in total."
+        )
     return normalized
+
+
+def validate_msi_properties(
+    properties: object,
+    program_type: str = "MSI",
+) -> dict[str, str]:
+    if properties is None:
+        properties = {}
+    if not isinstance(properties, dict):
+        raise ProgramError("msi_properties must be an object of string values.")
+    if len(properties) > MAX_MSI_PROPERTY_COUNT:
+        raise ProgramError(
+            f"MSI properties are limited to {MAX_MSI_PROPERTY_COUNT} items."
+        )
+    if program_type.upper() != "MSI" and properties:
+        raise ProgramError("msi_properties are only valid for MSI programs.")
+
+    normalized: dict[str, str] = {}
+    total_length = 0
+    for raw_name, raw_value in properties.items():
+        if not isinstance(raw_name, str):
+            raise ProgramError("MSI property names must be strings.")
+        name = raw_name.upper()
+        if len(name) > MAX_MSI_PROPERTY_NAME_LENGTH:
+            raise ProgramError(
+                "MSI property names are limited to "
+                f"{MAX_MSI_PROPERTY_NAME_LENGTH} characters."
+            )
+        if not _MSI_PROPERTY_NAME.fullmatch(name):
+            raise ProgramError(
+                f"Invalid MSI property name '{raw_name}'. Names must match "
+                "^[A-Z_][A-Z0-9_.]*$."
+            )
+        if name in normalized:
+            raise ProgramError(
+                f"Duplicate MSI property name after uppercase normalization: {name}."
+            )
+        value = _validate_command_line_value(
+            raw_value,
+            label=f"MSI property {name} value",
+            maximum_length=MAX_MSI_PROPERTY_VALUE_LENGTH,
+            allow_empty=True,
+        )
+        normalized[name] = value
+        total_length += len(name) + 1 + len(value)
+    total_length += max(0, len(normalized) - 1)
+    if total_length > MAX_MSI_PROPERTIES_LENGTH:
+        raise ProgramError(
+            f"MSI properties are limited to {MAX_MSI_PROPERTIES_LENGTH} "
+            "characters in total."
+        )
+    return normalized
+
+
+def validate_program_configuration(
+    name: str,
+    arguments: object,
+    msi_properties: object = None,
+) -> tuple[list[str], dict[str, str]]:
+    program_type = Path(name).suffix[1:].upper()
+    return (
+        validate_program_arguments(arguments, program_type),
+        validate_msi_properties(msi_properties, program_type),
+    )
 
 
 def _read_metadata(path: Path = METADATA_PATH) -> dict[str, Any]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
-        return {"version": 2, "programs": {}}
+        return {"version": 3, "programs": {}}
     except (OSError, json.JSONDecodeError) as exc:
         raise ProgramError(f"Failed to read program metadata: {exc}") from exc
     if not isinstance(payload, dict) or not isinstance(payload.get("programs"), dict):
@@ -134,9 +286,18 @@ def _list_programs(
     for path in files:
         stat = path.stat()
         record = records.get(path.name)
-        if record is None or not isinstance(record.get("arguments"), str):
-            record = {"arguments": ""}
+        if not isinstance(record, dict):
+            record = {"arguments": [], "msi_properties": {}}
             changed = True
+        arguments, msi_properties = validate_program_configuration(
+            path.name,
+            record.get("arguments", []),
+            record.get("msi_properties", {}),
+        )
+        # Mutate the in-memory record so any subsequent metadata write also
+        # migrates legacy string arguments to the v3 structured format.
+        record["arguments"] = arguments
+        record["msi_properties"] = msi_properties
         signature_changed = (
             record.get("size") != stat.st_size
             or record.get("modifiedNs") != stat.st_mtime_ns
@@ -165,13 +326,14 @@ def _list_programs(
                 "modifiedAt": datetime.fromtimestamp(
                     stat.st_mtime, timezone.utc
                 ).isoformat(),
-                "arguments": record["arguments"],
+                "arguments": arguments,
+                "msi_properties": msi_properties,
                 "sha256": record["sha256"],
             }
         )
 
     if changed:
-        metadata["version"] = 2
+        metadata["version"] = 3
         _write_metadata(metadata, metadata_path)
     return {"programs": result, "directory": str(programs_dir)}
 
@@ -186,12 +348,18 @@ def list_programs(
 
 def set_program_arguments(
     name: str,
-    arguments: str,
+    arguments: object,
     programs_dir: Path = PROGRAMS_DIR,
     metadata_path: Path = METADATA_PATH,
+    *,
+    msi_properties: object = None,
 ) -> dict[str, Any]:
     safe_name = _safe_program_name(name)
-    normalized = validate_program_arguments(arguments)
+    normalized_arguments, normalized_properties = validate_program_configuration(
+        safe_name,
+        arguments,
+        msi_properties,
+    )
 
     with _metadata_lock:
         listing = _list_programs(programs_dir, metadata_path)
@@ -201,9 +369,12 @@ def set_program_arguments(
         if program is None:
             raise ProgramError("Program not found.")
         metadata = _read_metadata(metadata_path)
-        metadata["programs"][safe_name]["arguments"] = normalized
+        metadata["version"] = 3
+        metadata["programs"][safe_name]["arguments"] = normalized_arguments
+        metadata["programs"][safe_name]["msi_properties"] = normalized_properties
         _write_metadata(metadata, metadata_path)
-        program["arguments"] = normalized
+        program["arguments"] = normalized_arguments
+        program["msi_properties"] = normalized_properties
         return program
 
 
@@ -274,9 +445,17 @@ def rename_program(
 
             stat = destination.stat()
             if not isinstance(record, dict):
-                record = {"arguments": ""}
+                record = {"arguments": [], "msi_properties": {}}
+            arguments, msi_properties = validate_program_configuration(
+                safe_new_name,
+                record.get("arguments", []),
+                record.get("msi_properties", {}),
+            )
+            record["arguments"] = arguments
+            record["msi_properties"] = msi_properties
             record["size"] = stat.st_size
             record["modifiedNs"] = stat.st_mtime_ns
+            metadata["version"] = 3
             metadata["programs"][safe_new_name] = record
             _write_metadata(metadata, metadata_path)
         except (OSError, ProgramError) as exc:
@@ -295,19 +474,25 @@ def rename_program(
         "renamed": True,
         "oldName": safe_name,
         "name": safe_new_name,
-        "arguments": str(record.get("arguments", "")),
+        "arguments": arguments,
+        "msi_properties": msi_properties,
     }
 
 
 async def save_uploaded_program(
     name: str,
     chunks: AsyncIterator[bytes],
-    arguments: str = "",
+    arguments: object = None,
+    msi_properties: object = None,
     programs_dir: Path = PROGRAMS_DIR,
     metadata_path: Path = METADATA_PATH,
 ) -> dict[str, Any]:
     safe_name = _safe_program_name(name)
-    normalized_arguments = validate_program_arguments(arguments)
+    normalized_arguments, normalized_properties = validate_program_configuration(
+        safe_name,
+        [] if arguments is None else arguments,
+        msi_properties,
+    )
     programs_dir.mkdir(parents=True, exist_ok=True)
     destination = programs_dir / safe_name
     if destination.exists():
@@ -336,8 +521,10 @@ async def save_uploaded_program(
             published = True
             stat = destination.stat()
             metadata = _read_metadata(metadata_path)
+            metadata["version"] = 3
             metadata["programs"][safe_name] = {
                 "arguments": normalized_arguments,
+                "msi_properties": normalized_properties,
                 "size": stat.st_size,
                 "modifiedNs": stat.st_mtime_ns,
                 "sha256": digest.hexdigest(),
@@ -370,5 +557,6 @@ async def save_uploaded_program(
         "name": safe_name,
         "size": size,
         "arguments": normalized_arguments,
+        "msi_properties": normalized_properties,
         "sha256": digest.hexdigest(),
     }

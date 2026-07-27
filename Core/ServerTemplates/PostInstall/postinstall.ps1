@@ -7,6 +7,13 @@ $PostInstallConfigPath = Join-Path $PSScriptRoot "IronDeployPostInstall.config.p
 $ProgramsDir = "$LogDir\Programs"
 $ProgramsManifestFile = "$ProgramsDir\programs.json"
 $ProgramInstallTimeoutSeconds = 6 * 60
+$MaxProgramArgumentCount = 100
+$MaxProgramArgumentLength = 512
+$MaxProgramArgumentsLength = 4096
+$MaxMsiPropertyCount = 100
+$MaxMsiPropertyNameLength = 72
+$MaxMsiPropertyValueLength = 512
+$MaxMsiPropertiesLength = 4096
 $CompleteMaxAttempts = 12
 $CompleteRetryDelaySeconds = 10
 
@@ -313,6 +320,143 @@ function Invoke-LocalAdminPolicy {
     }
 }
 
+function Assert-IronCommandLineValue {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Value,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Label,
+
+        [Parameter(Mandatory = $true)]
+        [int]$MaximumLength,
+
+        [bool]$AllowEmpty = $false
+    )
+
+    if ($Value -isnot [string]) {
+        throw "$Label must be a string"
+    }
+    if (!$AllowEmpty -and $Value.Length -eq 0) {
+        throw "$Label must not be empty"
+    }
+    if ($Value.Length -gt $MaximumLength) {
+        throw "$Label exceeds the $MaximumLength character limit"
+    }
+    if (
+        $Value -match "\s" -or
+        $Value.IndexOf([char]0) -ge 0 -or
+        $Value.IndexOf([char]34) -ge 0 -or
+        $Value.IndexOf([char]39) -ge 0
+    ) {
+        throw "$Label contains whitespace, NUL, or quotes"
+    }
+    return [string]$Value
+}
+
+function Get-IronInstallerConfiguration {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Program,
+
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("EXE", "MSI")]
+        [string]$ProgramType
+    )
+
+    $RawArguments = $Program.arguments
+    if ($null -eq $RawArguments) {
+        $RawArguments = @()
+    } elseif ($RawArguments -is [string]) {
+        # Backward compatibility for already-staged v2 manifests. Splitting
+        # only on whitespace does not interpret quoting or shell syntax.
+        if ([string]::IsNullOrWhiteSpace($RawArguments)) {
+            $RawArguments = @()
+        } else {
+            $RawArguments = @($RawArguments -split "\s+")
+        }
+    } else {
+        $RawArguments = @($RawArguments | ForEach-Object { $_ })
+    }
+
+    if ($RawArguments.Count -gt $MaxProgramArgumentCount) {
+        throw "Launch arguments exceed the $MaxProgramArgumentCount item limit"
+    }
+    $ValidatedArguments = @()
+    $ArgumentsLength = 0
+    for ($Index = 0; $Index -lt $RawArguments.Count; $Index++) {
+        $Argument = Assert-IronCommandLineValue `
+            -Value $RawArguments[$Index] `
+            -Label ("Launch argument {0}" -f ($Index + 1)) `
+            -MaximumLength $MaxProgramArgumentLength
+        if (
+            $ProgramType -eq "MSI" -and
+            $Argument -match "^[A-Z_][A-Z0-9_.]*="
+        ) {
+            throw "MSI properties must be stored in msi_properties"
+        }
+        $ValidatedArguments += $Argument
+        $ArgumentsLength += $Argument.Length
+    }
+    if ($ValidatedArguments.Count -gt 1) {
+        $ArgumentsLength += $ValidatedArguments.Count - 1
+    }
+    if ($ArgumentsLength -gt $MaxProgramArgumentsLength) {
+        throw "Launch arguments exceed the $MaxProgramArgumentsLength character limit"
+    }
+
+    $RawProperties = $Program.msi_properties
+    if ($null -eq $RawProperties) {
+        $RawProperties = [pscustomobject]@{}
+    }
+    if ($RawProperties -isnot [pscustomobject]) {
+        throw "msi_properties must be a JSON object"
+    }
+    $PropertyEntries = @($RawProperties.PSObject.Properties)
+    if ($PropertyEntries.Count -gt $MaxMsiPropertyCount) {
+        throw "MSI properties exceed the $MaxMsiPropertyCount item limit"
+    }
+    if ($ProgramType -ne "MSI" -and $PropertyEntries.Count -gt 0) {
+        throw "msi_properties are only valid for MSI programs"
+    }
+
+    $ValidatedProperties = @()
+    $SeenPropertyNames = @{}
+    $PropertiesLength = 0
+    foreach ($Property in $PropertyEntries) {
+        $PropertyName = ([string]$Property.Name).ToUpperInvariant()
+        if (
+            $PropertyName.Length -gt $MaxMsiPropertyNameLength -or
+            $PropertyName -cnotmatch "^[A-Z_][A-Z0-9_.]*$"
+        ) {
+            throw "Invalid MSI property name: $($Property.Name)"
+        }
+        if ($SeenPropertyNames.ContainsKey($PropertyName)) {
+            throw "Duplicate MSI property name: $PropertyName"
+        }
+        $SeenPropertyNames[$PropertyName] = $true
+        $PropertyValue = Assert-IronCommandLineValue `
+            -Value $Property.Value `
+            -Label "MSI property $PropertyName value" `
+            -MaximumLength $MaxMsiPropertyValueLength `
+            -AllowEmpty $true
+        $PropertyArgument = "{0}={1}" -f $PropertyName, $PropertyValue
+        $ValidatedProperties += $PropertyArgument
+        $PropertiesLength += $PropertyArgument.Length
+    }
+    if ($ValidatedProperties.Count -gt 1) {
+        $PropertiesLength += $ValidatedProperties.Count - 1
+    }
+    if ($PropertiesLength -gt $MaxMsiPropertiesLength) {
+        throw "MSI properties exceed the $MaxMsiPropertiesLength character limit"
+    }
+
+    return [pscustomobject]@{
+        Arguments = @($ValidatedArguments)
+        MsiProperties = @($ValidatedProperties)
+    }
+}
+
 function Install-IronDeployPrograms {
     # Use a native PowerShell array. Windows PowerShell 5.1 can throw
     # "Argument types do not match" when @() enumerates List[object], which
@@ -340,15 +484,33 @@ function Install-IronDeployPrograms {
 
     foreach ($Program in $Programs) {
         $ProgramName = [string]$Program.name
-        $ProgramArguments = [string]$Program.arguments
-        $ProgramPath = Join-Path $ProgramsDir $ProgramName
         $Stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
-        if ([string]::IsNullOrWhiteSpace($ProgramName)) {
-            Write-Host "Skipping manifest entry without a program name." `
-                -ForegroundColor Yellow
+        $ProgramType = [string]$Program.type
+        if (
+            [string]::IsNullOrWhiteSpace($ProgramName) -or
+            [IO.Path]::GetFileName($ProgramName) -ne $ProgramName -or
+            $ProgramName.IndexOfAny([IO.Path]::GetInvalidFileNameChars()) -ge 0 -or
+            $ProgramName -notmatch "\.(exe|msi)$" -or
+            $ProgramType -notin @("EXE", "MSI") -or
+            !$ProgramName.EndsWith(
+                ".$($ProgramType.ToLowerInvariant())",
+                [StringComparison]::OrdinalIgnoreCase
+            )
+        ) {
+            Write-Host "Skipping manifest entry with an invalid program name or type." `
+                -ForegroundColor Red
+            $Stopwatch.Stop()
+            $Results += [pscustomobject]@{
+                name = $ProgramName
+                status = "failed"
+                exit_code = $null
+                duration_seconds = [int][Math]::Round($Stopwatch.Elapsed.TotalSeconds)
+                error_message = "Invalid program name or type."
+            }
             continue
         }
+        $ProgramPath = Join-Path $ProgramsDir $ProgramName
         if (!(Test-Path -LiteralPath $ProgramPath -PathType Leaf)) {
             Write-Host "Program file not found: $ProgramPath" `
                 -ForegroundColor Yellow
@@ -363,10 +525,28 @@ function Install-IronDeployPrograms {
             continue
         }
 
-        $ArgumentList = @(
-            $ProgramArguments -split "\s+" |
-                Where-Object { ![string]::IsNullOrWhiteSpace($_) }
-        )
+        try {
+            $InstallerConfiguration = Get-IronInstallerConfiguration `
+                -Program $Program `
+                -ProgramType $ProgramType
+            $ArgumentList = @($InstallerConfiguration.Arguments)
+            $MsiPropertyList = @($InstallerConfiguration.MsiProperties)
+        } catch {
+            $Stopwatch.Stop()
+            Write-Host (
+                "{0} has invalid installer configuration: {1}" -f `
+                    $ProgramName,
+                    $_.Exception.Message
+            ) -ForegroundColor Red
+            $Results += [pscustomobject]@{
+                name = $ProgramName
+                status = "failed"
+                exit_code = $null
+                duration_seconds = [int][Math]::Round($Stopwatch.Elapsed.TotalSeconds)
+                error_message = "Invalid installer configuration."
+            }
+            continue
+        }
 
         $ExpectedHash = ([string]$Program.sha256).ToLowerInvariant()
         $ActualHash = ""
@@ -399,16 +579,22 @@ function Install-IronDeployPrograms {
             continue
         }
 
-        Write-Host ("Installing {0} {1}" -f $ProgramName, $ProgramArguments)
+        $ConfigurationText = @($ArgumentList) + @($MsiPropertyList) -join " "
+        Write-Host ("Installing {0} {1}" -f $ProgramName, $ConfigurationText)
         try {
-            if ($ProgramName -match "\.msi$") {
-                $MsiArguments = @("/i", "`"$ProgramPath`"") + $ArgumentList
+            if ($ProgramType -eq "MSI") {
+                $MsiArguments = @(
+                    "/i",
+                    "`"$ProgramPath`""
+                ) + @($ArgumentList) + @($MsiPropertyList)
+                $MsiArgumentLine = $MsiArguments -join " "
                 $Process = Start-Process msiexec.exe `
-                    -ArgumentList $MsiArguments `
+                    -ArgumentList $MsiArgumentLine `
                     -PassThru
             } elseif ($ArgumentList.Count -gt 0) {
+                $ExeArgumentLine = $ArgumentList -join " "
                 $Process = Start-Process $ProgramPath `
-                    -ArgumentList $ArgumentList `
+                    -ArgumentList $ExeArgumentLine `
                     -PassThru
             } else {
                 $Process = Start-Process $ProgramPath -PassThru
