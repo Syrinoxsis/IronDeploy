@@ -53,6 +53,8 @@ class DeploymentDetailApiTests(unittest.TestCase):
                 computer_name="pc00042",
                 serial_number="PF4ABC12",
                 model="ThinkPad T14 Gen 2",
+                manufacturer="LENOVO",
+                system_sku="20XW00A6US",
                 mac_address="AA:BB:CC:DD:EE:FF",
                 ip_address="192.0.2.42",
                 image_name="win11.wim",
@@ -89,6 +91,8 @@ class DeploymentDetailApiTests(unittest.TestCase):
 
             self.assertEqual(result.deployment_id, deployment.id)
             self.assertEqual(result.model, "ThinkPad T14 Gen 2")
+            self.assertEqual(result.manufacturer, "LENOVO")
+            self.assertEqual(result.system_sku, "20XW00A6US")
             self.assertEqual(result.stages[0].stage, "image_apply")
             self.assertEqual(result.programs[0].name, "Agent.msi")
 
@@ -129,6 +133,8 @@ class DeploymentDetailPageTests(unittest.TestCase):
         self.assertIn('id="program-list"', detail_html)
         self.assertIn('id="network-content"', detail_html)
         self.assertIn('id="network-stage-list"', detail_html)
+        self.assertIn('data-field="manufacturer"', detail_html)
+        self.assertIn('data-field="system_sku"', detail_html)
         self.assertIn("Average inbound adapter traffic during WinPE", detail_html)
         self.assertIn("fetch(`/api/deployments/${deploymentId}`", detail_js)
         self.assertIn(
@@ -136,6 +142,14 @@ class DeploymentDetailPageTests(unittest.TestCase):
             detail_js,
         )
         self.assertIn("report.adapters_differ", detail_js)
+        self.assertIn(
+            'setCopyableField("manufacturer", deployment.manufacturer)',
+            detail_js,
+        )
+        self.assertIn(
+            'setCopyableField("system_sku", deployment.system_sku)',
+            detail_js,
+        )
         self.assertIn('detailText("ICMP unavailable")', detail_js)
         self.assertIn(".detail-loading[hidden]", detail_css)
         self.assertIn("#network-content[hidden]", detail_css)

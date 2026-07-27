@@ -72,6 +72,7 @@ from app.deployments import (
     DeploymentStageResponse,
     DomainJoinAcknowledgeResponse,
     DomainJoinProvisionResponse,
+    NetworkStageReport,
     WinPEStageCode,
     as_utc,
     discard_domain_join_blob,
@@ -80,6 +81,7 @@ from app.deployments import (
     to_computer_list_item,
     to_deployment_list_item,
     to_network_diagnostics_response,
+    to_network_stage_response,
     to_deployment_response,
     to_deployment_stage_response,
     update_computer_inventory,
@@ -1380,6 +1382,8 @@ def deploy_begin(
         computer_name=payload.computer_name,
         serial_number=payload.serial_number,
         model=payload.model,
+        manufacturer=payload.manufacturer,
+        system_sku=payload.system_sku,
         mac_address=payload.mac_address,
         ip_address=request.client.host,
         image_name=payload.image_name,
@@ -1572,6 +1576,60 @@ def _apply_network_adapter(summary, adapter, prefix: str) -> None:
         setattr(summary, destination, values.get(source))
 
 
+def _upsert_deployment_network_stage(
+    session: Session,
+    deployment_id: int,
+    payload: NetworkStageReport,
+) -> DeploymentNetworkStage:
+    stage = session.scalar(
+        select(DeploymentNetworkStage).where(
+            DeploymentNetworkStage.deployment_id == deployment_id,
+            DeploymentNetworkStage.stage == payload.stage,
+        )
+    )
+    if stage is None:
+        stage = DeploymentNetworkStage(
+            deployment_id=deployment_id,
+            stage=payload.stage,
+        )
+        session.add(stage)
+    _apply_network_aggregate(stage, payload)
+    return stage
+
+
+@app.put(
+    "/api/deploy/{deployment_id}/network-diagnostics/stages/{stage_name}",
+    response_model=NetworkStageReport,
+)
+def save_deployment_network_stage(
+    deployment_id: int,
+    stage_name: str,
+    payload: NetworkStageReport,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> NetworkStageReport:
+    require_owned_deployment(
+        deployment_id,
+        request,
+        session,
+        "winpe",
+        "postinstall",
+    )
+    if stage_name != payload.stage:
+        raise HTTPException(
+            status_code=400,
+            detail="Network diagnostic stage does not match the URL.",
+        )
+    stage = _upsert_deployment_network_stage(
+        session,
+        deployment_id,
+        payload,
+    )
+    session.commit()
+    session.refresh(stage)
+    return to_network_stage_response(stage)
+
+
 @app.put(
     "/api/deploy/{deployment_id}/network-diagnostics",
     response_model=DeploymentNetworkDiagnosticsResponse,
@@ -1610,25 +1668,20 @@ def save_deployment_network_diagnostics(
     summary.smb_error_message = payload.smb.error_message
     summary.diagnostic_errors = list(payload.diagnostic_errors)
 
-    session.execute(
-        delete(DeploymentNetworkStage).where(
-            DeploymentNetworkStage.deployment_id == deployment_id
-        )
-    )
-    network_stages = []
     for stage_payload in payload.stages:
-        stage = DeploymentNetworkStage(
-            deployment_id=deployment_id,
-            stage=stage_payload.stage,
+        _upsert_deployment_network_stage(
+            session,
+            deployment_id,
+            stage_payload,
         )
-        _apply_network_aggregate(stage, stage_payload)
-        session.add(stage)
-        network_stages.append(stage)
 
     session.commit()
     session.refresh(summary)
-    for stage in network_stages:
-        session.refresh(stage)
+    network_stages = session.scalars(
+        select(DeploymentNetworkStage)
+        .where(DeploymentNetworkStage.deployment_id == deployment_id)
+        .order_by(DeploymentNetworkStage.id)
+    ).all()
     response = to_network_diagnostics_response(summary, network_stages)
     if response is None:
         raise HTTPException(

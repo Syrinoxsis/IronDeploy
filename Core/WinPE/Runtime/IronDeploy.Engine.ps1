@@ -922,6 +922,7 @@ function Start-IronNetworkDiagnostics {
         BytesBefore = $BytesBefore
         BytesAfter = $null
         StageWindows = @{}
+        StageReportsSent = @{}
         SmbSuccess = $null
         SmbAttempts = 0
         SmbDurationMs = $null
@@ -1013,6 +1014,120 @@ function Complete-IronNetworkStageMeasurement {
                 $_.Exception.Message
             )
         }
+    }
+}
+
+function Invoke-IronNetworkReportWithRetry {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Uri,
+        [Parameter(Mandatory = $true)]
+        [string]$Body,
+        [Parameter(Mandatory = $true)]
+        [string]$Description
+    )
+
+    $RetryDelaysSeconds = @(0, 5, 10)
+    for ($Attempt = 1; $Attempt -le $RetryDelaysSeconds.Count; $Attempt++) {
+        $DelaySeconds = $RetryDelaysSeconds[$Attempt - 1]
+        if ($DelaySeconds -gt 0) {
+            Write-IronLog (
+                "[WARN] Retrying {0} in {1} seconds (attempt {2}/3)" -f
+                $Description,
+                $DelaySeconds,
+                $Attempt
+            ) -Level warn
+            Start-Sleep -Seconds $DelaySeconds
+        }
+
+        try {
+            Invoke-IronApiRestMethod `
+                -Uri $Uri `
+                -Method Put `
+                -ContentType "application/json; charset=utf-8" `
+                -Body $Body `
+                -TimeoutSec 10 `
+                -SkipNetworkTiming |
+                Out-Null
+            Write-IronLog (
+                "[OK] Reported {0} (attempt {1}/3)" -f
+                $Description,
+                $Attempt
+            ) -Level ok
+            return $true
+        } catch {
+            Write-IronLog (
+                "[WARN] Failed to report {0} (attempt {1}/3): {2}" -f
+                $Description,
+                $Attempt,
+                $_.Exception.Message
+            ) -Level warn
+        }
+    }
+
+    return $false
+}
+
+function Send-IronNetworkStageDiagnostics {
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("image_apply", "driver_injection", "postinstall_copy")]
+        [string]$Stage
+    )
+
+    $Context = $script:IronNetworkDiagnostics
+    if (
+        $null -eq $Context -or
+        $script:DeploymentId -le 0 -or
+        $Context.StageReportsSent.ContainsKey($Stage) -or
+        -not $Context.StageWindows.ContainsKey($Stage)
+    ) {
+        return
+    }
+
+    $Window = $Context.StageWindows[$Stage]
+    if ($null -eq $Window.CompletedAtUtc) {
+        return
+    }
+
+    try {
+        $LinkSpeedBps = if ($null -ne $Context.SmbAdapter) {
+            $Context.SmbAdapter.LinkSpeedBps
+        } else {
+            $null
+        }
+        $Aggregate = New-IronNetworkAggregate `
+            -Samples @($Context.Samples.ToArray()) `
+            -StartedAt $Window.StartedAtUtc `
+            -CompletedAt $Window.CompletedAtUtc `
+            -BytesBefore $Window.BytesBefore `
+            -BytesAfter $Window.BytesAfter `
+            -LinkSpeedBps $LinkSpeedBps
+        $StageReport = [ordered]@{ stage = $Stage }
+        foreach ($Name in $Aggregate.Keys) {
+            $StageReport[$Name] = $Aggregate[$Name]
+        }
+
+        $Sent = Invoke-IronNetworkReportWithRetry `
+            -Uri (
+                "$($ApiBaseUrl.TrimEnd('/'))/api/deploy/" +
+                "$script:DeploymentId/network-diagnostics/stages/$Stage"
+            ) `
+            -Body ($StageReport | ConvertTo-Json -Depth 5 -Compress) `
+            -Description "network diagnostics for stage '$Stage'"
+        if ($Sent) {
+            $Context.StageReportsSent[$Stage] = $true
+        } else {
+            Add-IronNetworkDiagnosticError (
+                "All attempts to report network diagnostics for stage " +
+                "'$Stage' failed"
+            )
+        }
+    } catch {
+        Add-IronNetworkDiagnosticError (
+            "Failed to prepare network diagnostics for stage '$Stage': " +
+            $_.Exception.Message
+        )
     }
 }
 
@@ -1130,6 +1245,9 @@ function Complete-IronNetworkDiagnostics {
                 if (-not $Context.StageWindows.ContainsKey($StageName)) {
                     continue
                 }
+                if ($Context.StageReportsSent.ContainsKey($StageName)) {
+                    continue
+                }
                 $Window = $Context.StageWindows[$StageName]
                 $Aggregate = New-IronNetworkAggregate `
                     -Samples $PingSamples `
@@ -1176,31 +1294,21 @@ function Complete-IronNetworkDiagnostics {
             $script:DeploymentId -gt 0 -and
             $null -ne $Context.FinalReport
         ) {
-            try {
-                Invoke-IronApiRestMethod `
-                    -Uri (
-                        "$($ApiBaseUrl.TrimEnd('/'))/api/deploy/" +
-                        "$script:DeploymentId/network-diagnostics"
-                    ) `
-                    -Method Put `
-                    -ContentType "application/json; charset=utf-8" `
-                    -Body (
-                        $Context.FinalReport |
-                            ConvertTo-Json -Depth 8 -Compress
-                    ) `
-                    -TimeoutSec 10 `
-                    -SkipNetworkTiming |
-                    Out-Null
-                $Context.ReportSent = $true
-                Write-IronLog (
-                    "[OK] Network diagnostics reported for deployment #{0}" -f
+            $Sent = Invoke-IronNetworkReportWithRetry `
+                -Uri (
+                    "$($ApiBaseUrl.TrimEnd('/'))/api/deploy/" +
+                    "$script:DeploymentId/network-diagnostics"
+                ) `
+                -Body (
+                    $Context.FinalReport |
+                        ConvertTo-Json -Depth 8 -Compress
+                ) `
+                -Description (
+                    "aggregate network diagnostics for deployment #{0}" -f
                     $script:DeploymentId
-                ) -Level ok
-            } catch {
-                Write-IronLog (
-                    "[WARN] Failed to report network diagnostics: {0}" -f
-                    $_.Exception.Message
-                ) -Level warn
+                )
+            if ($Sent) {
+                $Context.ReportSent = $true
             }
         }
     } catch {
@@ -1369,6 +1477,9 @@ function Complete-DeploymentStage {
 
     Complete-IronNetworkStageMeasurement -Stage $Stage
     Send-DeploymentStageEvent -Stage $Stage -Event "complete"
+    if ($Stage -in @("image_apply", "driver_injection", "postinstall_copy")) {
+        Send-IronNetworkStageDiagnostics -Stage $Stage
+    }
     if ($script:CurrentDeploymentStage -eq $Stage) {
         $script:CurrentDeploymentStage = $null
     }
@@ -1697,6 +1808,88 @@ function Test-UsableSystemModel($Model) {
     )
 }
 
+function Test-UsableHardwareIdentityValue($Value) {
+    if ([string]::IsNullOrWhiteSpace([string]$Value)) {
+        return $false
+    }
+
+    $NormalizedValue = ([string]$Value).Trim()
+    return $NormalizedValue -notmatch (
+        "^(To Be Filled By O\.E\.M\.|Default string|Unknown|None|" +
+        "Not Applicable|Not Specified|OEM|INVALID)$"
+    )
+}
+
+# Best-effort manufacturer and System SKU/Product Number. These values are
+# deployment metadata only and never block deployment when WMI omits them.
+function Get-SystemManufacturerAndSku {
+    $Manufacturer = $null
+    $SystemSku = $null
+
+    try {
+        $ComputerSystem = Get-CimInstance `
+            -ClassName Win32_ComputerSystem `
+            -ErrorAction Stop
+        if (Test-UsableHardwareIdentityValue $ComputerSystem.Manufacturer) {
+            $Manufacturer = ([string]$ComputerSystem.Manufacturer).Trim()
+        }
+        if (Test-UsableHardwareIdentityValue $ComputerSystem.SystemSKUNumber) {
+            $SystemSku = ([string]$ComputerSystem.SystemSKUNumber).Trim()
+        }
+    } catch {
+        Write-IronLog (
+            "[WARN] Failed to read manufacturer/System SKU from " +
+            "Win32_ComputerSystem: $($_.Exception.Message)"
+        ) -Level warn
+    }
+
+    if (
+        [string]::IsNullOrWhiteSpace([string]$Manufacturer) -or
+        [string]::IsNullOrWhiteSpace([string]$SystemSku)
+    ) {
+        try {
+            $Product = Get-CimInstance `
+                -ClassName Win32_ComputerSystemProduct `
+                -ErrorAction Stop
+            if (
+                [string]::IsNullOrWhiteSpace([string]$Manufacturer) -and
+                (Test-UsableHardwareIdentityValue $Product.Vendor)
+            ) {
+                $Manufacturer = ([string]$Product.Vendor).Trim()
+            }
+            if (
+                [string]::IsNullOrWhiteSpace([string]$SystemSku) -and
+                (Test-UsableHardwareIdentityValue $Product.SKUNumber)
+            ) {
+                $SystemSku = ([string]$Product.SKUNumber).Trim()
+            }
+        } catch {
+            Write-IronLog (
+                "[WARN] Failed to read fallback manufacturer/System SKU from " +
+                "Win32_ComputerSystemProduct: $($_.Exception.Message)"
+            ) -Level warn
+        }
+    }
+
+    if (
+        -not [string]::IsNullOrWhiteSpace([string]$Manufacturer) -and
+        $Manufacturer.Length -gt 128
+    ) {
+        $Manufacturer = $Manufacturer.Substring(0, 128).Trim()
+    }
+    if (
+        -not [string]::IsNullOrWhiteSpace([string]$SystemSku) -and
+        $SystemSku.Length -gt 128
+    ) {
+        $SystemSku = $SystemSku.Substring(0, 128).Trim()
+    }
+
+    return [pscustomobject]@{
+        Manufacturer = $Manufacturer
+        SystemSku = $SystemSku
+    }
+}
+
 # Lenovo reports the sales article ("20XW00A6US") in Win32_ComputerSystem.Model
 # and the readable name ("ThinkPad T14 Gen 2") in Win32_ComputerSystemProduct.
 # Version, so an article-shaped value is treated as a weaker candidate.
@@ -1807,11 +2000,14 @@ function Get-IronDeployHardwareIdentity {
     $MacAddress = Get-PrimaryMacAddress
     $SerialNumber = Get-SystemSerialNumber
     $Model = Get-SystemModel
+    $ProductIdentity = Get-SystemManufacturerAndSku
 
     return [pscustomobject]@{
         SerialNumber = $SerialNumber
         MacAddress = $MacAddress
         Model = $Model
+        Manufacturer = $ProductIdentity.Manufacturer
+        SystemSku = $ProductIdentity.SystemSku
     }
 }
 
@@ -2113,12 +2309,24 @@ function Invoke-IronDeployment {
     $SerialNumber = $Hardware.SerialNumber
     $MacAddress = $Hardware.MacAddress
     $SystemModel = $Hardware.Model
+    $Manufacturer = $Hardware.Manufacturer
+    $SystemSku = $Hardware.SystemSku
     Write-IronLog "[INFO] System serial number: $SerialNumber" -Level info
     Write-IronLog "[INFO] Primary MAC address: $MacAddress" -Level info
     if ([string]::IsNullOrWhiteSpace([string]$SystemModel)) {
         Write-IronLog "[WARN] Hardware model is unknown" -Level warn
     } else {
         Write-IronLog "[INFO] Hardware model: $SystemModel" -Level info
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$Manufacturer)) {
+        Write-IronLog "[WARN] Hardware manufacturer is unknown" -Level warn
+    } else {
+        Write-IronLog "[INFO] Hardware manufacturer: $Manufacturer" -Level info
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$SystemSku)) {
+        Write-IronLog "[WARN] System SKU/Product Number is unknown" -Level warn
+    } else {
+        Write-IronLog "[INFO] System SKU/Product Number: $SystemSku" -Level info
     }
 
     Write-IronLog "[OK] Selected computer name: $ComputerName" -Level ok
@@ -2138,6 +2346,18 @@ function Invoke-IronDeployment {
             $null
         } else {
             [string]$SystemModel
+        }
+        manufacturer = if (
+            [string]::IsNullOrWhiteSpace([string]$Manufacturer)
+        ) {
+            $null
+        } else {
+            [string]$Manufacturer
+        }
+        system_sku = if ([string]::IsNullOrWhiteSpace([string]$SystemSku)) {
+            $null
+        } else {
+            [string]$SystemSku
         }
         domain_join = [bool]$UseDomainJoinValue
     } | ConvertTo-Json

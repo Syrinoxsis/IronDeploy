@@ -81,6 +81,8 @@ class Deployment(Base):
     computer_name: Mapped[str] = mapped_column(String(63), nullable=False)
     serial_number: Mapped[str | None] = mapped_column(String(128), nullable=True)
     model: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    manufacturer: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    system_sku: Mapped[str | None] = mapped_column(String(128), nullable=True)
     mac_address: Mapped[str] = mapped_column(String(17), nullable=False)
     ip_address: Mapped[str] = mapped_column(String(45), nullable=False)
     image_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -347,6 +349,8 @@ class DeploymentBeginRequest(BaseModel):
     serial_number: str = Field(min_length=1, max_length=128)
     # Optional so WinPE images built before hardware-model reporting keep working.
     model: str | None = Field(default=None, max_length=128)
+    manufacturer: str | None = Field(default=None, max_length=128)
+    system_sku: str | None = Field(default=None, max_length=128)
     mac_address: str
     image_name: str | None = Field(default=None, min_length=5, max_length=255)
     domain_join: bool
@@ -370,6 +374,19 @@ class DeploymentBeginRequest(BaseModel):
     @field_validator("model")
     @classmethod
     def validate_model(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = " ".join(value.split())
+        if not normalized or any(ord(character) < 32 for character in normalized):
+            return None
+        return normalized
+
+    @field_validator("manufacturer", "system_sku")
+    @classmethod
+    def validate_optional_hardware_identity(
+        cls,
+        value: str | None,
+    ) -> str | None:
         if value is None:
             return None
         normalized = " ".join(value.split())
@@ -607,6 +624,8 @@ class DeploymentListItem(BaseModel):
     computer_name: str
     serial_number: str | None
     model: str | None
+    manufacturer: str | None
+    system_sku: str | None
     mac_address: str
     ip_address: str
     image_name: str | None
@@ -810,6 +829,15 @@ def _network_aggregate_response(
     )
 
 
+def to_network_stage_response(
+    stage: DeploymentNetworkStage,
+) -> NetworkStageReport:
+    return NetworkStageReport(
+        stage=stage.stage,
+        **_network_aggregate_response(stage).model_dump(),
+    )
+
+
 def to_network_diagnostics_response(
     summary: DeploymentNetworkSummary | None,
     stages: list[DeploymentNetworkStage] | None = None,
@@ -823,10 +851,7 @@ def to_network_diagnostics_response(
         adapters_differ=summary.adapters_differ,
         overall=_network_aggregate_response(summary),
         stages=[
-            NetworkStageReport(
-                stage=stage.stage,
-                **_network_aggregate_response(stage).model_dump(),
-            )
+            to_network_stage_response(stage)
             for stage in (stages or [])
         ],
         api=NetworkApiReport(
@@ -858,6 +883,8 @@ def to_deployment_list_item(
         computer_name=deployment.computer_name,
         serial_number=deployment.serial_number,
         model=deployment.model,
+        manufacturer=deployment.manufacturer,
+        system_sku=deployment.system_sku,
         mac_address=deployment.mac_address,
         ip_address=deployment.ip_address,
         image_name=deployment.image_name,

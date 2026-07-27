@@ -529,7 +529,9 @@ function renderDeployment(deployment) {
     detailElements.status.className = `detail-status status-${deployment.status}`;
 
     setCopyableField("computer_name", deployment.computer_name);
+    setCopyableField("manufacturer", deployment.manufacturer);
     setCopyableField("model", deployment.model);
+    setCopyableField("system_sku", deployment.system_sku);
     setCopyableField("serial_number", deployment.serial_number);
     setCopyableField("mac_address", deployment.mac_address);
     setCopyableField("ip_address", deployment.ip_address);

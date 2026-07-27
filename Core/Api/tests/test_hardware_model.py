@@ -58,6 +58,8 @@ class HardwareModelRequestTests(unittest.TestCase):
 
     def test_model_is_optional_for_older_winpe_images(self) -> None:
         self.assertIsNone(self.request().model)
+        self.assertIsNone(self.request().manufacturer)
+        self.assertIsNone(self.request().system_sku)
 
     def test_model_whitespace_is_collapsed(self) -> None:
         self.assertEqual(
@@ -73,6 +75,24 @@ class HardwareModelRequestTests(unittest.TestCase):
     def test_model_longer_than_the_column_is_rejected(self) -> None:
         with self.assertRaises(ValidationError):
             self.request(model="X" * 129)
+
+    def test_optional_hardware_identity_is_normalized(self) -> None:
+        request = self.request(
+            manufacturer="  HP\tInc. ",
+            system_sku="  1D2E3EA#ACB \n",
+        )
+        self.assertEqual(request.manufacturer, "HP Inc.")
+        self.assertEqual(request.system_sku, "1D2E3EA#ACB")
+
+    def test_invalid_optional_hardware_identity_becomes_none(self) -> None:
+        for field in ("manufacturer", "system_sku"):
+            with self.subTest(field=field):
+                self.assertIsNone(getattr(self.request(**{field: " \t\n"}), field))
+                self.assertIsNone(
+                    getattr(self.request(**{field: "value\x00"}), field)
+                )
+                with self.assertRaises(ValidationError):
+                    self.request(**{field: "X" * 129})
 
 
 class HardwareModelStorageTests(unittest.TestCase):
@@ -99,6 +119,8 @@ class HardwareModelStorageTests(unittest.TestCase):
             "serial_number": "PF4ABC12",
             "mac_address": "AA:BB:CC:DD:EE:FF",
             "model": "ThinkPad T14 Gen 2",
+            "manufacturer": "LENOVO",
+            "system_sku": "20XW00A6US",
             "domain_join": False,
         }
         payload.update(overrides)
@@ -111,12 +133,16 @@ class HardwareModelStorageTests(unittest.TestCase):
 
             stored = session.get(Deployment, response.deployment_id)
             self.assertEqual(stored.model, "ThinkPad T14 Gen 2")
+            self.assertEqual(stored.manufacturer, "LENOVO")
+            self.assertEqual(stored.system_sku, "20XW00A6US")
 
             deployments = deployment_list(limit=500, session=session)
             self.assertEqual(
                 deployments.items[0].model,
                 "ThinkPad T14 Gen 2",
             )
+            self.assertEqual(deployments.items[0].manufacturer, "LENOVO")
+            self.assertEqual(deployments.items[0].system_sku, "20XW00A6US")
 
             computers = computer_list(limit=500, session=session)
             self.assertEqual(
@@ -178,6 +204,12 @@ class HardwareModelSchemaUpgradeTests(unittest.TestCase):
             with engine.begin() as connection:
                 connection.execute(text("ALTER TABLE deployments DROP COLUMN model"))
                 connection.execute(
+                    text("ALTER TABLE deployments DROP COLUMN manufacturer")
+                )
+                connection.execute(
+                    text("ALTER TABLE deployments DROP COLUMN system_sku")
+                )
+                connection.execute(
                     text("ALTER TABLE computers DROP COLUMN last_model")
                 )
                 connection.execute(
@@ -208,7 +240,11 @@ class HardwareModelSchemaUpgradeTests(unittest.TestCase):
                 for column in inspect(engine).get_columns("computers")
             }
             self.assertIn("model", deployment_columns)
+            self.assertIn("manufacturer", deployment_columns)
+            self.assertIn("system_sku", deployment_columns)
             self.assertIn("last_model", computer_columns)
+            self.assertNotIn("manufacturer", computer_columns)
+            self.assertNotIn("system_sku", computer_columns)
 
             with Session(engine) as session:
                 self.assertIsNone(session.get(Deployment, 7).model)
@@ -229,6 +265,8 @@ class HardwareModelSchemaUpgradeTests(unittest.TestCase):
         end = rebuild.index("DROP TABLE deployments")
         rebuild_sql = rebuild[start:end]
         self.assertEqual(rebuild_sql.count("model"), 3)
+        self.assertEqual(rebuild_sql.count("manufacturer"), 3)
+        self.assertEqual(rebuild_sql.count("system_sku"), 3)
 
 
 class HardwareModelSurfaceTests(unittest.TestCase):
@@ -244,6 +282,13 @@ class HardwareModelSurfaceTests(unittest.TestCase):
         self.assertIn("Win32_ComputerSystem", self.engine)
         self.assertIn("Model = $Model", self.engine)
         self.assertIn("model = if ([string]::IsNullOrWhiteSpace", self.engine)
+
+    def test_engine_reads_and_reports_manufacturer_and_system_sku(self) -> None:
+        self.assertIn("function Get-SystemManufacturerAndSku", self.engine)
+        self.assertIn("ComputerSystem.Manufacturer", self.engine)
+        self.assertIn("ComputerSystem.SystemSKUNumber", self.engine)
+        self.assertIn("manufacturer = if (", self.engine)
+        self.assertIn("system_sku = if (", self.engine)
 
     def test_engine_never_fails_the_deployment_on_a_missing_model(self) -> None:
         start = self.engine.index("function Get-SystemModel")
@@ -301,6 +346,13 @@ class HardwareModelSurfaceTests(unittest.TestCase):
     def test_dashboard_search_covers_the_model(self) -> None:
         self.assertIn("deployment.model,", self.dashboard)
         self.assertIn("computer.last_model,", self.dashboard)
+
+    def test_computer_dashboard_does_not_show_deployment_hardware_fields(self) -> None:
+        start = self.dashboard.index("function renderComputerRows(")
+        end = self.dashboard.index("renderEmptyMessage(", start)
+        computer_rows = self.dashboard[start:end]
+        self.assertNotIn("manufacturer", computer_rows)
+        self.assertNotIn("system_sku", computer_rows)
 
     def test_column_widths_cover_every_column(self) -> None:
         for table, count in (("deployment-table", 14), ("computer-table", 12)):

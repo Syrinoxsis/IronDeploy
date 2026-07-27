@@ -35,11 +35,13 @@ from app.deployments import (
     DeploymentNetworkDiagnosticsRequest,
     DeploymentNetworkStage,
     DeploymentNetworkSummary,
+    NetworkStageReport,
 )
 from app.main import (
     deploy_begin,
     deployment_detail,
     save_deployment_network_diagnostics,
+    save_deployment_network_stage,
 )
 
 
@@ -197,6 +199,67 @@ class NetworkDiagnosticsApiTests(unittest.TestCase):
                 "192.0.2.42",
             )
 
+    def test_stage_report_is_upserted_and_preserved_by_final_report(self) -> None:
+        with Session(self.engine) as session:
+            request = self.deployment_request(session)
+            deployment = deploy_begin(
+                DeploymentBeginRequest(
+                    computer_name="pc00042",
+                    serial_number="PF4ABC12",
+                    model="ThinkPad T14",
+                    mac_address="AA:BB:CC:DD:EE:FF",
+                    domain_join=False,
+                ),
+                request,
+                session,
+            )
+            started_at = datetime.now(timezone.utc) - timedelta(seconds=3)
+            completed_at = datetime.now(timezone.utc)
+            stage_payload = NetworkStageReport(
+                stage="image_apply",
+                **aggregate_payload(
+                    started_at=started_at,
+                    completed_at=completed_at,
+                ),
+            )
+            first = save_deployment_network_stage(
+                deployment.deployment_id,
+                "image_apply",
+                stage_payload,
+                request,
+                session,
+            )
+            updated_payload = stage_payload.model_copy(
+                update={"bytes_received": 24 * 1024 * 1024}
+            )
+            second = save_deployment_network_stage(
+                deployment.deployment_id,
+                "image_apply",
+                updated_payload,
+                request,
+                session,
+            )
+
+            final_payload = self.payload().model_copy(
+                update={"stages": []},
+                deep=True,
+            )
+            final = save_deployment_network_diagnostics(
+                deployment.deployment_id,
+                final_payload,
+                request,
+                session,
+            )
+
+            self.assertEqual(first.stage, "image_apply")
+            self.assertEqual(second.bytes_received, 24 * 1024 * 1024)
+            self.assertEqual(len(final.stages), 1)
+            self.assertEqual(final.stages[0].bytes_received, 24 * 1024 * 1024)
+            self.assertEqual(
+                session.scalar(select(func.count(DeploymentNetworkStage.id))),
+                1,
+            )
+
     def test_ping_counts_must_be_consistent(self) -> None:
         payload = self.payload().model_dump()
         payload["overall"]["ping_lost"] = 99
@@ -230,6 +293,7 @@ foreach ($name in @(
     'Get-IronApiAggregate',
     'Get-IronNetworkPingStatistics',
     'New-IronNetworkAggregate',
+    'Invoke-IronNetworkReportWithRetry',
     'Start-IronPingMonitor',
     'Stop-IronPingMonitor'
 )) {{
@@ -403,6 +467,42 @@ if (
 """
         )
 
+    def test_network_report_retry_delays_are_zero_five_and_ten_seconds(self) -> None:
+        self.assert_powershell(
+            """
+$script:ReportAttempts = 0
+$script:RetryDelays = @()
+function Write-IronLog { param($Message, $Level) }
+function Start-Sleep {
+    param([int]$Seconds)
+    $script:RetryDelays += $Seconds
+}
+function Invoke-IronApiRestMethod {
+    param(
+        $Uri,
+        $Method,
+        $ContentType,
+        $Body,
+        $TimeoutSec,
+        [switch]$SkipNetworkTiming
+    )
+    $script:ReportAttempts++
+    if ($script:ReportAttempts -lt 3) {
+        throw 'temporary failure'
+    }
+}
+$sent = Invoke-IronNetworkReportWithRetry `
+    -Uri 'https://api.test/report' `
+    -Body '{}' `
+    -Description 'test report'
+if (-not $sent) { throw 'Third attempt should succeed' }
+if ($script:ReportAttempts -ne 3) { throw 'Expected exactly three attempts' }
+if (($script:RetryDelays -join ',') -ne '5,10') {
+    throw 'Expected retry delays of 5 and 10 seconds'
+}
+"""
+        )
+
     def test_monitor_uses_no_external_processes(self) -> None:
         engine = ENGINE_PATH.read_text(encoding="utf-8-sig")
         start = engine.index("function Start-IronPingMonitor")
@@ -464,6 +564,7 @@ if (
 
         self.assertIn("Start-IronNetworkStageMeasurement", start_stage)
         self.assertIn("Complete-IronNetworkStageMeasurement", complete_stage)
+        self.assertIn("Send-IronNetworkStageDiagnostics", complete_stage)
         self.assertIn("[Diagnostics.Stopwatch]::StartNew()", smb)
         self.assertIn("Set-IronNetworkSmbResult", smb)
         self.assertIn("& net.exe use", smb)

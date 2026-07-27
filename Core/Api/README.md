@@ -91,14 +91,18 @@ filtering. Click a deployment ID to open `/dashboard/<deployment_id>`, a wide
 detail view with hardware identity, timing, stage history, post-install results,
 errors, and WinPE network diagnostics.
 
-WinPE sends one aggregate network report with
-`PUT /api/deploy/<deployment_id>/network-diagnostics` before it leaves the
-WinPE phase or reports a terminal error. The report contains the SMB and
-IronAPI route adapters, the real SMB connection duration/error, timing for
-existing IronAPI requests, and overall plus per-stage ICMP/inbound-traffic
-statistics. Per-second ping samples remain only in WinPE memory; the database
-stores aggregates for the complete WinPE run and for `image_apply`,
-`driver_injection`, and `postinstall_copy`.
+WinPE sends each completed `image_apply`, `driver_injection`, and
+`postinstall_copy` network aggregate immediately with
+`PUT /api/deploy/<deployment_id>/network-diagnostics/stages/<stage>`. Each
+stage report and the final aggregate report use up to three attempts: the first
+is immediate, then retries wait 5 and 10 seconds. Before WinPE exits or reports
+a terminal error it sends the overall network report with
+`PUT /api/deploy/<deployment_id>/network-diagnostics`. The final report
+contains the SMB and IronAPI route adapters, the real SMB connection
+duration/error, and timing for existing IronAPI requests. A stage that was
+already accepted is not resent in the final report; a stage whose immediate
+report failed remains available as a final-report fallback. Per-second ping
+samples remain only in WinPE memory; the database stores aggregates only.
 
 ### Browser accounts and permissions
 

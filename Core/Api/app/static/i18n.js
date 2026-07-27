@@ -83,6 +83,8 @@
         "Click a value to copy": "Нажмите значение, чтобы скопировать",
         "Computer": "Компьютер",
         "Hardware model": "Модель оборудования",
+        "Manufacturer": "Производитель",
+        "System SKU / Product Number": "System SKU / номер продукта",
         "Serial number": "Серийный номер",
         "MAC address": "MAC-адрес",
         "IP address": "IP-адрес",

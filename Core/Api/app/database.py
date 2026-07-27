@@ -79,6 +79,8 @@ def _upgrade_sqlite_deployment_constraints(target_engine: Engine) -> None:
                 completed_at DATETIME,
                 serial_number VARCHAR(128),
                 model VARCHAR(128),
+                manufacturer VARCHAR(128),
+                system_sku VARCHAR(128),
                 last_error_message TEXT,
                 CONSTRAINT ck_deployments_status
                     CHECK (status IN ('begin', 'completed', 'failed')),
@@ -103,6 +105,8 @@ def _upgrade_sqlite_deployment_constraints(target_engine: Engine) -> None:
                 completed_at,
                 serial_number,
                 model,
+                manufacturer,
+                system_sku,
                 last_error_message
             )
             SELECT
@@ -117,6 +121,8 @@ def _upgrade_sqlite_deployment_constraints(target_engine: Engine) -> None:
                 completed_at,
                 serial_number,
                 model,
+                manufacturer,
+                system_sku,
                 last_error_message
             FROM deployments
             """
@@ -227,6 +233,26 @@ def initialize_database(target_engine: Engine = engine) -> None:
                 text(f"ALTER TABLE {table_name} ADD COLUMN model {model_type}")
             )
         columns.add("model")
+    if "manufacturer" not in columns:
+        manufacturer_type = String(128).compile(dialect=target_engine.dialect)
+        with target_engine.begin() as connection:
+            connection.execute(
+                text(
+                    f"ALTER TABLE {table_name} "
+                    f"ADD COLUMN manufacturer {manufacturer_type}"
+                )
+            )
+        columns.add("manufacturer")
+    if "system_sku" not in columns:
+        system_sku_type = String(128).compile(dialect=target_engine.dialect)
+        with target_engine.begin() as connection:
+            connection.execute(
+                text(
+                    f"ALTER TABLE {table_name} "
+                    f"ADD COLUMN system_sku {system_sku_type}"
+                )
+            )
+        columns.add("system_sku")
 
     computer_table = "computers"
     computer_columns = {
