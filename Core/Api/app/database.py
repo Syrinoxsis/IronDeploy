@@ -1,14 +1,51 @@
-from collections.abc import Generator
+from collections.abc import Callable, Generator
+from contextlib import closing
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
+import sqlite3
 
-from sqlalchemy import String, Text, create_engine, inspect, text
-from sqlalchemy.engine import Engine, make_url
+from sqlalchemy import String, Text, create_engine, event, inspect, text
+from sqlalchemy.engine import Connection, Engine, make_url
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import get_settings
 from app.auth import AuthPermission, AuthSession, AuthUser
 from app.deployments import Base, Deployment, update_computer_inventory
 from app.winpe_auth import WinPEAuthPolicy, WinPEPinAttempt
+
+
+MIGRATION_TABLE = "schema_migrations"
+
+
+class DatabaseMigrationError(RuntimeError):
+    """Raised when database migration cannot complete safely."""
+
+    def __init__(self, message: str, backup_path: Path | None = None) -> None:
+        super().__init__(message)
+        self.backup_path = backup_path
+
+
+@dataclass(frozen=True)
+class Migration:
+    version: int
+    name: str
+    upgrade: Callable[[Connection], None]
+    disable_sqlite_foreign_keys: bool = False
+
+
+@event.listens_for(Engine, "connect")
+def _enable_sqlite_foreign_keys(
+    dbapi_connection: object,
+    _connection_record: object,
+) -> None:
+    if not isinstance(dbapi_connection, sqlite3.Connection):
+        return
+    cursor = dbapi_connection.cursor()
+    try:
+        cursor.execute("PRAGMA foreign_keys=ON")
+    finally:
+        cursor.close()
 
 
 database_url = make_url(get_settings().database_url)
@@ -35,10 +72,10 @@ SessionLocal = sessionmaker(
 )
 
 
-def _deployment_constraints_support_failed(target_engine: Engine) -> bool:
+def _deployment_constraints_support_failed(bind: Connection) -> bool:
     constraints = {
         constraint["name"]: constraint.get("sqltext") or ""
-        for constraint in inspect(target_engine).get_check_constraints(
+        for constraint in inspect(bind).get_check_constraints(
             Deployment.__tablename__
         )
     }
@@ -51,269 +88,145 @@ def _deployment_constraints_support_failed(target_engine: Engine) -> bool:
     )
 
 
-def _deployments_image_name_is_nullable(target_engine: Engine) -> bool:
-    columns = inspect(target_engine).get_columns(Deployment.__tablename__)
+def _deployments_image_name_is_nullable(bind: Connection) -> bool:
+    columns = inspect(bind).get_columns(Deployment.__tablename__)
     for column in columns:
         if column["name"] == "image_name":
             return bool(column.get("nullable", True))
     return True
 
 
-def _upgrade_sqlite_deployment_constraints(target_engine: Engine) -> None:
-    connection = target_engine.raw_connection()
-    cursor = connection.cursor()
-    try:
-        cursor.execute("PRAGMA foreign_keys=OFF")
-        cursor.execute("BEGIN")
-        cursor.execute(
-            """
-            CREATE TABLE deployments_timeout_upgrade (
-                id INTEGER NOT NULL PRIMARY KEY,
-                computer_name VARCHAR(63) NOT NULL,
-                mac_address VARCHAR(17) NOT NULL,
-                ip_address VARCHAR(45) NOT NULL,
-                image_name VARCHAR(255),
-                domain_join BOOLEAN NOT NULL,
-                status VARCHAR(16) NOT NULL,
-                started_at DATETIME NOT NULL,
-                completed_at DATETIME,
-                serial_number VARCHAR(128),
-                model VARCHAR(128),
-                manufacturer VARCHAR(128),
-                system_sku VARCHAR(128),
-                last_error_message TEXT,
-                CONSTRAINT ck_deployments_status
-                    CHECK (status IN ('begin', 'completed', 'failed')),
-                CONSTRAINT ck_deployments_completion CHECK (
-                    (status = 'begin' AND completed_at IS NULL) OR
-                    (status IN ('completed', 'failed') AND completed_at IS NOT NULL)
-                )
+def _upgrade_sqlite_deployment_constraints(connection: Connection) -> None:
+    connection.exec_driver_sql(
+        """
+        CREATE TABLE deployments_timeout_upgrade (
+            id INTEGER NOT NULL PRIMARY KEY,
+            computer_name VARCHAR(63) NOT NULL,
+            mac_address VARCHAR(17) NOT NULL,
+            ip_address VARCHAR(45) NOT NULL,
+            image_name VARCHAR(255),
+            domain_join BOOLEAN NOT NULL,
+            status VARCHAR(16) NOT NULL,
+            started_at DATETIME NOT NULL,
+            completed_at DATETIME,
+            serial_number VARCHAR(128),
+            model VARCHAR(128),
+            manufacturer VARCHAR(128),
+            system_sku VARCHAR(128),
+            last_error_message TEXT,
+            CONSTRAINT ck_deployments_status
+                CHECK (status IN ('begin', 'completed', 'failed')),
+            CONSTRAINT ck_deployments_completion CHECK (
+                (status = 'begin' AND completed_at IS NULL) OR
+                (status IN ('completed', 'failed') AND completed_at IS NOT NULL)
             )
-            """
         )
-        cursor.execute(
-            """
-            INSERT INTO deployments_timeout_upgrade (
-                id,
-                computer_name,
-                mac_address,
-                ip_address,
-                image_name,
-                domain_join,
-                status,
-                started_at,
-                completed_at,
-                serial_number,
-                model,
-                manufacturer,
-                system_sku,
-                last_error_message
-            )
-            SELECT
-                id,
-                computer_name,
-                mac_address,
-                ip_address,
-                image_name,
-                domain_join,
-                status,
-                started_at,
-                completed_at,
-                serial_number,
-                model,
-                manufacturer,
-                system_sku,
-                last_error_message
-            FROM deployments
-            """
+        """
+    )
+    connection.exec_driver_sql(
+        """
+        INSERT INTO deployments_timeout_upgrade (
+            id,
+            computer_name,
+            mac_address,
+            ip_address,
+            image_name,
+            domain_join,
+            status,
+            started_at,
+            completed_at,
+            serial_number,
+            model,
+            manufacturer,
+            system_sku,
+            last_error_message
         )
-        cursor.execute("DROP TABLE deployments")
-        cursor.execute(
-            "ALTER TABLE deployments_timeout_upgrade RENAME TO deployments"
-        )
-        cursor.execute(
-            "CREATE INDEX ix_deployments_status ON deployments (status)"
-        )
-        cursor.execute(
-            "CREATE INDEX ix_deployments_computer_name "
-            "ON deployments (computer_name)"
-        )
-        violations = cursor.execute("PRAGMA foreign_key_check").fetchall()
-        if violations:
-            raise RuntimeError(
-                "SQLite foreign key check failed after deployment schema upgrade"
-            )
-        cursor.execute("COMMIT")
-    except Exception:
-        connection.rollback()
-        raise
-    finally:
-        cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.close()
-        connection.close()
+        SELECT
+            id,
+            computer_name,
+            mac_address,
+            ip_address,
+            image_name,
+            domain_join,
+            status,
+            started_at,
+            completed_at,
+            serial_number,
+            model,
+            manufacturer,
+            system_sku,
+            last_error_message
+        FROM deployments
+        """
+    )
+    connection.exec_driver_sql("DROP TABLE deployments")
+    connection.exec_driver_sql(
+        "ALTER TABLE deployments_timeout_upgrade RENAME TO deployments"
+    )
+    connection.exec_driver_sql(
+        "CREATE INDEX ix_deployments_status ON deployments (status)"
+    )
+    connection.exec_driver_sql(
+        "CREATE INDEX ix_deployments_computer_name "
+        "ON deployments (computer_name)"
+    )
 
 
-def _upgrade_deployment_constraints(target_engine: Engine) -> None:
+def _upgrade_deployment_constraints(connection: Connection) -> None:
     if (
-        _deployment_constraints_support_failed(target_engine) and
-        _deployments_image_name_is_nullable(target_engine)
+        _deployment_constraints_support_failed(connection)
+        and _deployments_image_name_is_nullable(connection)
     ):
         return
 
-    if target_engine.dialect.name == "sqlite":
-        _upgrade_sqlite_deployment_constraints(target_engine)
+    if connection.dialect.name == "sqlite":
+        _upgrade_sqlite_deployment_constraints(connection)
         return
 
-    with target_engine.begin() as connection:
-        connection.execute(
-            text(
-                "ALTER TABLE deployments "
-                "DROP CONSTRAINT ck_deployments_status"
-            )
+    connection.execute(
+        text(
+            "ALTER TABLE deployments "
+            "DROP CONSTRAINT ck_deployments_status"
         )
-        connection.execute(
-            text(
-                "ALTER TABLE deployments "
-                "DROP CONSTRAINT ck_deployments_completion"
-            )
+    )
+    connection.execute(
+        text(
+            "ALTER TABLE deployments "
+            "DROP CONSTRAINT ck_deployments_completion"
         )
-        connection.execute(
-            text(
-                "ALTER TABLE deployments "
-                "ADD CONSTRAINT ck_deployments_status "
-                "CHECK (status IN ('begin', 'completed', 'failed'))"
-            )
+    )
+    connection.execute(
+        text(
+            "ALTER TABLE deployments "
+            "ADD CONSTRAINT ck_deployments_status "
+            "CHECK (status IN ('begin', 'completed', 'failed'))"
         )
-        connection.execute(
-            text(
-                "ALTER TABLE deployments "
-                "ADD CONSTRAINT ck_deployments_completion CHECK ("
-                "(status = 'begin' AND completed_at IS NULL) OR "
-                "(status IN ('completed', 'failed') "
-                "AND completed_at IS NOT NULL))"
-            )
+    )
+    connection.execute(
+        text(
+            "ALTER TABLE deployments "
+            "ADD CONSTRAINT ck_deployments_completion CHECK ("
+            "(status = 'begin' AND completed_at IS NULL) OR "
+            "(status IN ('completed', 'failed') "
+            "AND completed_at IS NOT NULL))"
         )
-        connection.execute(
-            text("ALTER TABLE deployments ALTER COLUMN image_name DROP NOT NULL")
+    )
+    connection.execute(
+        text(
+            "ALTER TABLE deployments "
+            "ALTER COLUMN image_name DROP NOT NULL"
         )
+    )
 
 
-def initialize_database(target_engine: Engine = engine) -> None:
-    Base.metadata.create_all(bind=target_engine)
-
-    table_name = Deployment.__tablename__
-    columns = {
-        column["name"]
-        for column in inspect(target_engine).get_columns(table_name)
-    }
-    if "serial_number" not in columns:
-        serial_type = String(128).compile(dialect=target_engine.dialect)
-        with target_engine.begin() as connection:
-            connection.execute(
-                text(
-                    f"ALTER TABLE {table_name} "
-                    f"ADD COLUMN serial_number {serial_type}"
-                )
-            )
-        columns.add("serial_number")
-    if "last_error_message" not in columns:
-        error_type = Text().compile(dialect=target_engine.dialect)
-        with target_engine.begin() as connection:
-            connection.execute(
-                text(
-                    f"ALTER TABLE {table_name} "
-                    f"ADD COLUMN last_error_message {error_type}"
-                )
-            )
-        columns.add("last_error_message")
-    if "model" not in columns:
-        model_type = String(128).compile(dialect=target_engine.dialect)
-        with target_engine.begin() as connection:
-            connection.execute(
-                text(f"ALTER TABLE {table_name} ADD COLUMN model {model_type}")
-            )
-        columns.add("model")
-    if "manufacturer" not in columns:
-        manufacturer_type = String(128).compile(dialect=target_engine.dialect)
-        with target_engine.begin() as connection:
-            connection.execute(
-                text(
-                    f"ALTER TABLE {table_name} "
-                    f"ADD COLUMN manufacturer {manufacturer_type}"
-                )
-            )
-        columns.add("manufacturer")
-    if "system_sku" not in columns:
-        system_sku_type = String(128).compile(dialect=target_engine.dialect)
-        with target_engine.begin() as connection:
-            connection.execute(
-                text(
-                    f"ALTER TABLE {table_name} "
-                    f"ADD COLUMN system_sku {system_sku_type}"
-                )
-            )
-        columns.add("system_sku")
-
-    computer_table = "computers"
-    computer_columns = {
-        column["name"]
-        for column in inspect(target_engine).get_columns(computer_table)
-    }
-    if "last_model" not in computer_columns:
-        model_type = String(128).compile(dialect=target_engine.dialect)
-        with target_engine.begin() as connection:
-            connection.execute(
-                text(
-                    f"ALTER TABLE {computer_table} "
-                    f"ADD COLUMN last_model {model_type}"
-                )
-            )
-
-    stage_table = "deployment_stages"
-    stage_columns = {
-        column["name"]
-        for column in inspect(target_engine).get_columns(stage_table)
-    }
-    if "error_message" not in stage_columns:
-        error_type = Text().compile(dialect=target_engine.dialect)
-        with target_engine.begin() as connection:
-            connection.execute(
-                text(
-                    f"ALTER TABLE {stage_table} "
-                    f"ADD COLUMN error_message {error_type}"
-                )
-            )
-
-    program_table = "deployment_programs"
-    program_columns = {
-        column["name"]
-        for column in inspect(target_engine).get_columns(program_table)
-    }
-    if "reason" not in program_columns:
-        reason_type = String(32).compile(dialect=target_engine.dialect)
-        with target_engine.begin() as connection:
-            connection.execute(
-                text(
-                    f"ALTER TABLE {program_table} "
-                    f"ADD COLUMN reason {reason_type}"
-                )
-            )
-
-    _upgrade_deployment_constraints(target_engine)
-    _backfill_computer_inventory(target_engine)
-
-
-def _backfill_computer_inventory(target_engine: Engine) -> None:
-    with Session(target_engine) as session:
+def _backfill_computer_inventory(connection: Connection) -> None:
+    with Session(connection) as session:
         deployments = session.scalars(
             text(
                 "SELECT id FROM deployments "
                 "ORDER BY started_at ASC, id ASC"
             )
         ).all()
-        if not deployments:
-            return
-
         for deployment_id in deployments:
             deployment = session.get(Deployment, deployment_id)
             if deployment is None:
@@ -324,6 +237,255 @@ def _backfill_computer_inventory(target_engine: Engine) -> None:
                 observed_at=deployment.started_at,
             )
         session.commit()
+
+
+def _migration_create_schema(connection: Connection) -> None:
+    Base.metadata.create_all(bind=connection)
+
+
+def _migration_add_legacy_columns(connection: Connection) -> None:
+    string_128 = String(128).compile(dialect=connection.dialect)
+    string_32 = String(32).compile(dialect=connection.dialect)
+    text_type = Text().compile(dialect=connection.dialect)
+    additions = {
+        "deployments": (
+            ("serial_number", string_128),
+            ("last_error_message", text_type),
+            ("model", string_128),
+            ("manufacturer", string_128),
+            ("system_sku", string_128),
+        ),
+        "computers": (("last_model", string_128),),
+        "deployment_stages": (("error_message", text_type),),
+        "deployment_programs": (("reason", string_32),),
+    }
+
+    for table_name, columns_to_add in additions.items():
+        existing_columns = {
+            column["name"]
+            for column in inspect(connection).get_columns(table_name)
+        }
+        for column_name, column_type in columns_to_add:
+            if column_name in existing_columns:
+                continue
+            connection.execute(
+                text(
+                    f"ALTER TABLE {table_name} "
+                    f"ADD COLUMN {column_name} {column_type}"
+                )
+            )
+            existing_columns.add(column_name)
+
+
+def _migration_upgrade_constraints_and_inventory(
+    connection: Connection,
+) -> None:
+    _upgrade_deployment_constraints(connection)
+    _backfill_computer_inventory(connection)
+
+
+MIGRATIONS = (
+    Migration(1, "create current schema", _migration_create_schema),
+    Migration(2, "add legacy columns", _migration_add_legacy_columns),
+    Migration(
+        3,
+        "upgrade deployment constraints and inventory",
+        _migration_upgrade_constraints_and_inventory,
+        disable_sqlite_foreign_keys=True,
+    ),
+)
+
+
+def _validate_migration_definitions() -> None:
+    versions = [migration.version for migration in MIGRATIONS]
+    expected = list(range(1, len(MIGRATIONS) + 1))
+    if versions != expected:
+        raise DatabaseMigrationError(
+            "Database migrations must use unique consecutive versions "
+            f"starting at 1; found {versions}."
+        )
+
+
+def _read_applied_versions(target_engine: Engine) -> list[int]:
+    if not inspect(target_engine).has_table(MIGRATION_TABLE):
+        return []
+    with target_engine.connect() as connection:
+        return list(
+            connection.scalars(
+                text(
+                    f"SELECT version FROM {MIGRATION_TABLE} "
+                    "ORDER BY version"
+                )
+            )
+        )
+
+
+def _validate_applied_versions(applied_versions: list[int]) -> None:
+    if not applied_versions:
+        return
+    expected = list(range(1, applied_versions[-1] + 1))
+    latest = MIGRATIONS[-1].version
+    if applied_versions != expected or applied_versions[-1] > latest:
+        raise DatabaseMigrationError(
+            "Database migration history is invalid or newer than this "
+            f"IronAPI build: {applied_versions}."
+        )
+
+
+def _sqlite_database_path(target_engine: Engine) -> Path | None:
+    if target_engine.dialect.name != "sqlite":
+        return None
+    database = target_engine.url.database
+    if not database or database == ":memory:":
+        return None
+    return Path(database).expanduser().resolve()
+
+
+def _create_sqlite_backup(database_path: Path) -> Path:
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    backup_path = database_path.with_name(
+        f"{database_path.name}.{timestamp}.bak"
+    )
+    try:
+        with (
+            closing(sqlite3.connect(str(database_path))) as source,
+            closing(sqlite3.connect(str(backup_path))) as destination,
+        ):
+            source.backup(destination)
+            destination.commit()
+    except Exception as exc:
+        try:
+            backup_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise DatabaseMigrationError(
+            "Failed to create the SQLite migration backup. "
+            f"Database: {database_path}. No migrations were run. "
+            f"Error: {exc}"
+        ) from exc
+    return backup_path
+
+
+def _migration_error(
+    migration: Migration | None,
+    backup_path: Path | None,
+    error: Exception,
+) -> DatabaseMigrationError:
+    if migration is None:
+        label = "database migration transaction"
+    else:
+        label = f"database migration {migration.version} ({migration.name})"
+    backup = str(backup_path) if backup_path is not None else "not available"
+    return DatabaseMigrationError(
+        f"Failed {label}; startup stopped and the transaction was rolled back. "
+        f"Backup: {backup}. Error: {error}",
+        backup_path=backup_path,
+    )
+
+
+def _run_pending_migrations(
+    target_engine: Engine,
+    pending_migrations: tuple[Migration, ...],
+    backup_path: Path | None,
+) -> None:
+    connection = target_engine.connect()
+    disable_foreign_keys = (
+        target_engine.dialect.name == "sqlite"
+        and any(
+            migration.disable_sqlite_foreign_keys
+            for migration in pending_migrations
+        )
+    )
+    active_migration: Migration | None = None
+
+    def apply_pending_migrations() -> None:
+        nonlocal active_migration
+        connection.execute(
+            text(
+                f"CREATE TABLE IF NOT EXISTS {MIGRATION_TABLE} ("
+                "version INTEGER PRIMARY KEY, "
+                "applied_at VARCHAR(32) NOT NULL)"
+            )
+        )
+        for active_migration in pending_migrations:
+            active_migration.upgrade(connection)
+            connection.execute(
+                text(
+                    f"INSERT INTO {MIGRATION_TABLE} "
+                    "(version, applied_at) "
+                    "VALUES (:version, :applied_at)"
+                ),
+                {
+                    "version": active_migration.version,
+                    "applied_at": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+
+        if target_engine.dialect.name == "sqlite":
+            violations = connection.exec_driver_sql(
+                "PRAGMA foreign_key_check"
+            ).fetchall()
+            if violations:
+                raise RuntimeError(
+                    "SQLite foreign key check failed after migrations: "
+                    f"{violations}"
+                )
+
+    try:
+        if disable_foreign_keys:
+            connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
+            connection.commit()
+
+        if target_engine.dialect.name == "sqlite":
+            connection.exec_driver_sql("BEGIN")
+            try:
+                apply_pending_migrations()
+            except Exception:
+                connection.rollback()
+                raise
+            else:
+                connection.commit()
+        else:
+            with connection.begin():
+                apply_pending_migrations()
+    except Exception as exc:
+        raise _migration_error(active_migration, backup_path, exc) from exc
+    finally:
+        if disable_foreign_keys:
+            if connection.in_transaction():
+                connection.rollback()
+            connection.exec_driver_sql("PRAGMA foreign_keys=ON")
+            connection.commit()
+        connection.close()
+
+
+def initialize_database(target_engine: Engine = engine) -> None:
+    _validate_migration_definitions()
+    sqlite_path = _sqlite_database_path(target_engine)
+    sqlite_database_existed = (
+        sqlite_path is not None and sqlite_path.is_file()
+    )
+
+    applied_versions = _read_applied_versions(target_engine)
+    _validate_applied_versions(applied_versions)
+    applied = set(applied_versions)
+    pending_migrations = tuple(
+        migration
+        for migration in MIGRATIONS
+        if migration.version not in applied
+    )
+    if not pending_migrations:
+        return
+
+    backup_path = None
+    if sqlite_database_existed and sqlite_path is not None:
+        backup_path = _create_sqlite_backup(sqlite_path)
+
+    _run_pending_migrations(
+        target_engine,
+        pending_migrations,
+        backup_path,
+    )
 
 
 def get_session() -> Generator[Session, None, None]:

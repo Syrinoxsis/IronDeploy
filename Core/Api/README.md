@@ -16,6 +16,14 @@ IRONAPI_DATABASE_URL=sqlite:///{IRONDEPLOY_ROOT}/Data/irondeploy.db
 For PostgreSQL, install a PostgreSQL SQLAlchemy driver and use a URL such as
 `postgresql+psycopg://user:password@server/database`.
 
+IronAPI applies numbered database migrations in order during startup and
+records completed versions in `schema_migrations`. Pending migrations for a
+file-backed SQLite database first create a timestamped
+`irondeploy.db.<UTC timestamp>.bak` backup beside the database. All pending
+migrations run in one transaction; a failure rolls the transaction back and
+stops startup with the backup path in the error. SQLite connections also
+enable foreign-key enforcement, including configured `ON DELETE` actions.
+
 Each request is written to the console log with its client address, HTTP
 method, endpoint, response status and duration. Rejected requests are logged
 as well.
