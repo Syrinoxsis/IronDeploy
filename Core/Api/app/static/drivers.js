@@ -5,6 +5,7 @@ const elements = {
     vendorName: document.querySelector("#vendor-name"),
     vendorList: document.querySelector("#vendor-list"),
     packageVendor: document.querySelector("#package-vendor"),
+    packageVendorLabel: document.querySelector("#package-vendor-label"),
     packageModel: document.querySelector("#package-model"),
     packageFolder: document.querySelector("#package-folder"),
     folderSummary: document.querySelector("#folder-summary"),
@@ -17,9 +18,13 @@ const elements = {
     emptyState: document.querySelector("#empty-state"),
     packageCount: document.querySelector("#package-count"),
     driversDirectory: document.querySelector("#drivers-directory"),
+    selectedVendorName: document.querySelector("#selected-vendor-name"),
+    renameVendorButton: document.querySelector("#rename-vendor-button"),
+    deleteVendorButton: document.querySelector("#delete-vendor-button"),
 };
 
 let currentListing = { vendors: [], packages: [] };
+let activeVendorName = null;
 let activeUpload = null;
 let messageTimer = null;
 
@@ -103,37 +108,25 @@ function packageUrl(vendor, model, suffix = "") {
 }
 
 function renderVendor(vendor) {
-    const row = document.createElement("div");
-    row.className = "vendor-row";
-    const identity = document.createElement("div");
-    identity.className = "vendor-identity";
+    const row = document.createElement("button");
+    row.className = `vendor-row${vendor.name === activeVendorName ? " is-active" : ""}`;
+    row.type = "button";
+    row.setAttribute("aria-pressed", String(vendor.name === activeVendorName));
+    const main = document.createElement("span");
+    main.className = "vendor-row-main";
+    main.innerHTML =
+        '<svg aria-hidden="true" viewBox="0 0 24 24">' +
+        '<path d="M5 4h14v16H5z"></path>' +
+        '<path d="M9 8h6M9 12h6M9 16h3"></path></svg>';
     const name = document.createElement("span");
     name.className = "vendor-name";
     name.textContent = vendor.name;
     const count = document.createElement("span");
     count.className = "vendor-count";
-    count.textContent = `${vendor.packageCount} ${vendor.packageCount === 1 ? "package" : "packages"}`;
-    identity.append(name, count);
-
-    const actions = document.createElement("div");
-    actions.className = "vendor-actions";
-    const rename = document.createElement("button");
-    rename.className = "icon-text-button";
-    rename.type = "button";
-    rename.textContent = translate("Rename");
-    const remove = document.createElement("button");
-    remove.className = "icon-text-button danger";
-    remove.type = "button";
-    remove.textContent = translate("Delete");
-    actions.append(rename, remove);
-    row.append(identity, actions);
-
-    rename.addEventListener("click", () => {
-        const nextName = window.prompt(translate("New vendor name"), vendor.name);
-        if (nextName === null || nextName === vendor.name) return;
-        renameVendor(vendor.name, nextName);
-    });
-    remove.addEventListener("click", () => deleteVendor(vendor));
+    count.textContent = String(vendor.packageCount);
+    main.append(name);
+    row.append(main, count);
+    row.addEventListener("click", () => selectVendor(vendor.name));
     return row;
 }
 
@@ -144,29 +137,23 @@ function renderPackage(driverPackage) {
     top.className = "package-card-top";
     const identity = document.createElement("div");
     identity.className = "package-identity";
-    const titleRow = document.createElement("div");
-    titleRow.className = "package-title-row";
-    const vendor = document.createElement("span");
-    vendor.className = "vendor-badge";
-    vendor.textContent = driverPackage.vendor;
     const title = document.createElement("h3");
     title.textContent = driverPackage.model;
-    titleRow.append(vendor, title);
     const details = document.createElement("p");
     details.className = "package-details";
     details.textContent =
         `${formatBytes(driverPackage.size)} · ${driverPackage.infCount} INF · ` +
         `${driverPackage.fileCount} files`;
-    identity.append(titleRow, details);
+    identity.append(title, details);
 
     const actions = document.createElement("div");
     actions.className = "package-actions";
     const rename = document.createElement("button");
-    rename.className = "icon-text-button";
+    rename.className = "text-button";
     rename.type = "button";
     rename.textContent = translate("Rename");
     const remove = document.createElement("button");
-    remove.className = "icon-text-button danger";
+    remove.className = "text-button danger";
     remove.type = "button";
     remove.textContent = translate("Delete");
     actions.append(rename, remove);
@@ -185,8 +172,29 @@ function renderPackage(driverPackage) {
     return card;
 }
 
+function selectVendor(name) {
+    if (activeUpload || name === activeVendorName) return;
+    activeVendorName = name;
+    elements.packageModel.value = "";
+    elements.packageFolder.value = "";
+    updateFolderSummary();
+    renderListing();
+}
+
+function activeVendor() {
+    return currentListing.vendors.find(
+        (vendor) => vendor.name === activeVendorName
+    ) || null;
+}
+
 function renderListing() {
-    const selectedVendor = elements.packageVendor.value;
+    const previousVendor = activeVendorName || elements.packageVendor.value;
+    activeVendorName = currentListing.vendors.some(
+        (vendor) => vendor.name === previousVendor
+    )
+        ? previousVendor
+        : (currentListing.vendors[0]?.name || null);
+
     elements.vendorList.replaceChildren(
         ...currentListing.vendors.map(renderVendor)
     );
@@ -194,19 +202,33 @@ function renderListing() {
         new Option(translate("Select vendor"), ""),
         ...currentListing.vendors.map((vendor) => new Option(vendor.name, vendor.name))
     );
-    if (currentListing.vendors.some((vendor) => vendor.name === selectedVendor)) {
-        elements.packageVendor.value = selectedVendor;
-    }
+    elements.packageVendor.value = activeVendorName || "";
 
+    const vendor = activeVendor();
+    const packages = activeVendorName
+        ? currentListing.packages.filter(
+            (driverPackage) => driverPackage.vendor === activeVendorName
+        )
+        : [];
     elements.packageList.replaceChildren(
-        ...currentListing.packages.map(renderPackage)
+        ...packages.map(renderPackage)
     );
-    elements.emptyState.hidden = currentListing.packages.length > 0;
+    elements.selectedVendorName.textContent =
+        activeVendorName || translate("No vendor selected");
+    elements.packageVendorLabel.textContent =
+        activeVendorName || translate("Vendor");
     elements.packageCount.textContent =
-        `${currentListing.packages.length} ` +
-        `${currentListing.packages.length === 1 ? "package" : "packages"}`;
+        `${packages.length} ${translate(packages.length === 1 ? "package" : "packages")}`;
+    elements.emptyState.textContent = activeVendorName
+        ? translate("No driver packages were found.")
+        : translate("Create a vendor to begin.");
+    elements.emptyState.hidden = packages.length > 0;
     elements.driversDirectory.textContent = currentListing.directory || "";
-    elements.uploadButton.disabled = currentListing.vendors.length === 0;
+    elements.renameVendorButton.disabled = !vendor;
+    elements.deleteVendorButton.disabled = !vendor;
+    elements.uploadButton.disabled = !vendor;
+    elements.packageModel.disabled = !vendor;
+    elements.packageFolder.disabled = !vendor;
 }
 
 async function refreshDrivers() {
@@ -238,8 +260,8 @@ async function createVendor(event) {
         });
         elements.vendorName.value = "";
         showMessage(`${name} created.`);
+        activeVendorName = name;
         await refreshDrivers();
-        elements.packageVendor.value = name;
     } catch (error) {
         showMessage(error.message, "error");
     }
@@ -257,6 +279,7 @@ async function renameVendor(name, value) {
             }
         );
         showMessage(`${result.oldName} renamed to ${result.name}.`);
+        if (activeVendorName === name) activeVendorName = result.name;
         await refreshDrivers();
     } catch (error) {
         showMessage(error.message, "error");
@@ -274,6 +297,7 @@ async function deleteVendor(vendor) {
             method: "DELETE",
         });
         showMessage(`${vendor.name} deleted.`);
+        if (activeVendorName === vendor.name) activeVendorName = null;
         await refreshDrivers();
     } catch (error) {
         showMessage(error.message, "error");
@@ -363,10 +387,15 @@ function uploadOneFile(uploadId, item, onProgress) {
 
 function setUploadState(uploading) {
     elements.progressRow.hidden = !uploading;
-    elements.uploadButton.disabled = uploading || currentListing.vendors.length === 0;
+    elements.uploadButton.disabled = uploading || !activeVendor();
     elements.packageVendor.disabled = uploading;
     elements.packageModel.disabled = uploading;
     elements.packageFolder.disabled = uploading;
+    elements.renameVendorButton.disabled = uploading || !activeVendor();
+    elements.deleteVendorButton.disabled = uploading || !activeVendor();
+    elements.vendorList.querySelectorAll(".vendor-row").forEach((row) => {
+        row.disabled = uploading;
+    });
 }
 
 async function uploadPackage() {
@@ -455,6 +484,7 @@ function updateFolderSummary() {
     const files = Array.from(elements.packageFolder.files || []);
     if (!files.length) {
         elements.folderSummary.textContent = translate("No folder selected");
+        elements.folderSummary.hidden = true;
         return;
     }
     const root = (files[0].webkitRelativePath || "").split("/")[0] || "folder";
@@ -462,6 +492,7 @@ function updateFolderSummary() {
     const infCount = files.filter((file) => file.name.toLowerCase().endsWith(".inf")).length;
     elements.folderSummary.textContent =
         `${root} · ${files.length} files · ${infCount} INF · ${formatBytes(size)}`;
+    elements.folderSummary.hidden = false;
 }
 
 elements.vendorForm.addEventListener("submit", createVendor);
@@ -469,5 +500,16 @@ elements.packageFolder.addEventListener("change", updateFolderSummary);
 elements.uploadButton.addEventListener("click", uploadPackage);
 elements.cancelUploadButton.addEventListener("click", cancelUpload);
 elements.refreshButton.addEventListener("click", refreshDrivers);
+elements.renameVendorButton.addEventListener("click", () => {
+    const vendor = activeVendor();
+    if (!vendor) return;
+    const nextName = window.prompt(translate("New vendor name"), vendor.name);
+    if (nextName === null || nextName === vendor.name) return;
+    renameVendor(vendor.name, nextName);
+});
+elements.deleteVendorButton.addEventListener("click", () => {
+    const vendor = activeVendor();
+    if (vendor) deleteVendor(vendor);
+});
 
 refreshDrivers();
