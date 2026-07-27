@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" type="image/png" href="/static/irondeploy-api-icon.png">
+    <title>IronDeploy - Info</title>
+    <link rel="stylesheet" href="/static/dashboard.css">
+    <link rel="stylesheet" href="/static/navigation.css">
+    <link rel="stylesheet" href="/static/info.css">
+    <script src="/static/i18n.js"></script>
+    <script src="/static/navigation.js"></script>
+    <script src="/static/info.js" defer></script>
+</head>
+<body data-page="info">
+    <header class="app-header">
+        <div class="header-inner">
+            <span class="header-page-title">Info</span>
+            <div class="header-actions">
+                <button class="refresh-button" id="refresh-button" type="button">
+                    <svg aria-hidden="true" viewBox="0 0 24 24">
+                        <path d="M20 6v5h-5"></path>
+                        <path d="M19 11a7.5 7.5 0 1 0 .1 3.4"></path>
+                    </svg>
+                    <span>Refresh</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="page-shell info-shell">
+        <section class="page-heading">
+            <h1>System information</h1>
+            <p>Driver upload storage, configured safety limits, and unfinished uploads.</p>
+        </section>
+
+        <section class="notice" id="message-area" hidden></section>
+
+        <div class="info-grid">
+            <section class="info-card storage-card">
+                <div class="info-card-heading">
+                    <div>
+                        <h2>Driver storage</h2>
+                        <p id="drivers-directory"></p>
+                    </div>
+                    <span class="storage-state" id="storage-state"></span>
+                </div>
+                <div class="storage-value" id="free-space">?</div>
+                <div class="storage-caption">free disk space</div>
+                <progress id="storage-progress" max="100" value="0"></progress>
+                <div class="storage-details">
+                    <span id="used-space"></span>
+                    <span id="minimum-free-space"></span>
+                </div>
+            </section>
+
+            <section class="info-card limits-card">
+                <div class="info-card-heading">
+                    <div>
+                        <h2>Driver upload limits</h2>
+                        <p>Configured in SetupWeb. Changes apply after restarting IronAPI.</p>
+                    </div>
+                </div>
+                <dl class="limits-grid">
+                    <div><dt>Files per package</dt><dd id="limit-files">?</dd></div>
+                    <div><dt>Directory depth</dt><dd id="limit-depth">?</dd></div>
+                    <div><dt>Full path length</dt><dd id="limit-path">?</dd></div>
+                    <div><dt>Abandoned after</dt><dd id="limit-ttl">?</dd></div>
+                    <div><dt>Unfinished uploads</dt><dd id="limit-active">?</dd></div>
+                    <div><dt>Minimum free space</dt><dd id="limit-free">?</dd></div>
+                </dl>
+            </section>
+        </div>
+
+        <section class="info-card uploads-card">
+            <div class="info-card-heading uploads-heading">
+                <div>
+                    <h2>Unfinished driver uploads</h2>
+                    <p id="upload-summary">Loading...</p>
+                </div>
+                <button class="danger-button" id="delete-abandoned-button" type="button" disabled>
+                    Delete all abandoned
+                </button>
+            </div>
+            <div class="empty-state" id="empty-state" hidden>
+                There are no unfinished driver uploads.
+            </div>
+            <div class="upload-list" id="upload-list"></div>
+        </section>
+    </main>
+</body>
+</html>

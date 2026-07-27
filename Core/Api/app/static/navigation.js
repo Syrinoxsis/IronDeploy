@@ -48,6 +48,13 @@ const navigationItems = [
         href: "/access-control",
         icon: '<rect x="3" y="11" width="18" height="10" rx="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4M12 15v2"></path>',
     },
+    {
+        page: "info",
+        superadmin: true,
+        label: "Info",
+        href: "/info",
+        icon: '<circle cx="12" cy="12" r="9"></circle><path d="M12 11v6M12 7h.01"></path>',
+    },
 ];
 const navText = (value) => window.IronI18n?.t(value) || value;
 

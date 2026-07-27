@@ -80,6 +80,12 @@ class Settings(BaseModel):
     allowed_client_networks: tuple[IPv4Network | IPv6Network, ...]
     deployment_authorization_timeout_minutes: int = Field(default=10, ge=5, le=30)
     deployment_timeout_minutes: int = Field(default=90, ge=30, le=240)
+    driver_max_files: int = Field(default=25000, ge=1, le=1_000_000)
+    driver_max_depth: int = Field(default=16, ge=1, le=100)
+    driver_max_full_path: int = Field(default=240, ge=64, le=32767)
+    driver_upload_ttl_hours: int = Field(default=24, ge=1, le=8760)
+    driver_max_active_uploads: int = Field(default=3, ge=1, le=100)
+    driver_min_free_space_gib: int = Field(default=25, ge=1, le=10240)
 
     ldap_server: str | None
     ldap_base_dn: str | None
@@ -116,6 +122,20 @@ def get_settings() -> Settings:
         ),
         deployment_timeout_minutes=_get_int_or_default(
             "IRONAPI_DEPLOYMENT_TIMEOUT_MINUTES", 90
+        ),
+        driver_max_files=_get_int_or_default("IRONAPI_DRIVER_MAX_FILES", 25000),
+        driver_max_depth=_get_int_or_default("IRONAPI_DRIVER_MAX_DEPTH", 16),
+        driver_max_full_path=_get_int_or_default(
+            "IRONAPI_DRIVER_MAX_FULL_PATH", 240
+        ),
+        driver_upload_ttl_hours=_get_int_or_default(
+            "IRONAPI_DRIVER_UPLOAD_TTL_HOURS", 24
+        ),
+        driver_max_active_uploads=_get_int_or_default(
+            "IRONAPI_DRIVER_MAX_ACTIVE_UPLOADS", 3
+        ),
+        driver_min_free_space_gib=_get_int_or_default(
+            "IRONAPI_DRIVER_MIN_FREE_SPACE_GIB", 25
         ),
         ldap_server=_get_optional_env("IRONAPI_LDAP_SERVER"),
         ldap_base_dn=_get_optional_env("IRONAPI_LDAP_BASE_DN"),

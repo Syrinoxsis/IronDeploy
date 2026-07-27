@@ -93,6 +93,11 @@ class ClientAccessTests(unittest.TestCase):
             "drivers",
         )
         self.assertEqual(_browser_permission("/api/admin/users"), "superadmin")
+        self.assertEqual(_browser_permission("/info"), "superadmin")
+        self.assertEqual(
+            _browser_permission("/api/info/driver-uploads"),
+            "superadmin",
+        )
 
     def test_winpe_deployment_routes_do_not_require_browser_session(self) -> None:
         self.assertIsNone(_browser_permission("/api/deploy/begin"))

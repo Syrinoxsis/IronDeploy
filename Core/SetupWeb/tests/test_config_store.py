@@ -74,6 +74,29 @@ class AccessModeTests(unittest.TestCase):
                 }
             )
 
+    def test_driver_upload_limits_are_normalized(self) -> None:
+        result = normalize_api(
+            {
+                "IRONAPI_DRIVER_MAX_FILES": "25000",
+                "IRONAPI_DRIVER_MAX_DEPTH": "16",
+                "IRONAPI_DRIVER_MAX_FULL_PATH": "240",
+                "IRONAPI_DRIVER_UPLOAD_TTL_HOURS": "24",
+                "IRONAPI_DRIVER_MAX_ACTIVE_UPLOADS": "3",
+                "IRONAPI_DRIVER_MIN_FREE_SPACE_GIB": "25",
+            }
+        )
+        self.assertEqual(result["IRONAPI_DRIVER_MAX_FILES"], "25000")
+        self.assertEqual(result["IRONAPI_DRIVER_MAX_DEPTH"], "16")
+        self.assertEqual(result["IRONAPI_DRIVER_MAX_FULL_PATH"], "240")
+        self.assertEqual(result["IRONAPI_DRIVER_UPLOAD_TTL_HOURS"], "24")
+        self.assertEqual(result["IRONAPI_DRIVER_MAX_ACTIVE_UPLOADS"], "3")
+        self.assertEqual(result["IRONAPI_DRIVER_MIN_FREE_SPACE_GIB"], "25")
+
+        with self.assertRaisesRegex(ValueError, "IRONAPI_DRIVER_MAX_FILES"):
+            normalize_api({"IRONAPI_DRIVER_MAX_FILES": "0"})
+        with self.assertRaisesRegex(ValueError, "IRONAPI_DRIVER_MAX_FULL_PATH"):
+            normalize_api({"IRONAPI_DRIVER_MAX_FULL_PATH": "63"})
+
     def test_https_proxy_forces_loopback_port_and_secure_cookie(self) -> None:
         result = normalize_api(
             {

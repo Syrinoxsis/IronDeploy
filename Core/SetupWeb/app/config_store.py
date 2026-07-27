@@ -25,6 +25,12 @@ API_NAMES = (
     "IRONAPI_COOKIE_SECURE",
     "IRONAPI_DEPLOYMENT_AUTHORIZATION_TIMEOUT_MINUTES",
     "IRONAPI_DEPLOYMENT_TIMEOUT_MINUTES",
+    "IRONAPI_DRIVER_MAX_FILES",
+    "IRONAPI_DRIVER_MAX_DEPTH",
+    "IRONAPI_DRIVER_MAX_FULL_PATH",
+    "IRONAPI_DRIVER_UPLOAD_TTL_HOURS",
+    "IRONAPI_DRIVER_MAX_ACTIVE_UPLOADS",
+    "IRONAPI_DRIVER_MIN_FREE_SPACE_GIB",
     "IRONAPI_SMB_SHARE_PATH",
     "IRONAPI_SMB_USER",
     "IRONAPI_SMB_PASSWORD",
@@ -600,6 +606,20 @@ def normalize_api(values: dict[str, Any]) -> dict[str, str]:
             "IRONAPI_DEPLOYMENT_TIMEOUT_MINUTES must be from 30 to 240."
         )
     result["IRONAPI_DEPLOYMENT_TIMEOUT_MINUTES"] = str(deployment_timeout)
+
+    driver_integer_ranges = {
+        "IRONAPI_DRIVER_MAX_FILES": (1, 1_000_000),
+        "IRONAPI_DRIVER_MAX_DEPTH": (1, 100),
+        "IRONAPI_DRIVER_MAX_FULL_PATH": (64, 32767),
+        "IRONAPI_DRIVER_UPLOAD_TTL_HOURS": (1, 8760),
+        "IRONAPI_DRIVER_MAX_ACTIVE_UPLOADS": (1, 100),
+        "IRONAPI_DRIVER_MIN_FREE_SPACE_GIB": (1, 10240),
+    }
+    for name, (minimum, maximum) in driver_integer_ranges.items():
+        value = parse_int(result[name], name)
+        if value < minimum or value > maximum:
+            raise ValueError(f"{name} must be from {minimum} to {maximum}.")
+        result[name] = str(value)
 
     cleaned = []
     for item in result["IRONAPI_ALLOWED_CLIENT_NETWORKS"].split(","):

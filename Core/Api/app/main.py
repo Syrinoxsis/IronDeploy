@@ -94,12 +94,16 @@ from app.domain_join import (
 )
 from app.drivers import (
     DriverError,
+    DriverUploadLimits,
     begin_driver_package_upload,
     cancel_driver_package_upload,
     create_vendor,
+    delete_abandoned_driver_upload,
+    delete_all_abandoned_driver_uploads,
     delete_driver_package,
     delete_vendor,
     finalize_driver_package_upload,
+    get_driver_upload_info,
     list_driver_packages,
     rename_driver_package,
     rename_vendor,
@@ -298,6 +302,7 @@ _PAGE_PERMISSIONS = {
     "/images": "images",
     "/programs": "programs",
     "/drivers": "drivers",
+    "/info": "superadmin",
     "/image-config": "image_config",
     "/users": "superadmin",
     "/access-control": "superadmin",
@@ -323,6 +328,8 @@ def _browser_permission(path: str) -> str | None:
         return "programs"
     if path.startswith("/api/drivers"):
         return "drivers"
+    if path.startswith("/api/info"):
+        return "superadmin"
     if path.startswith("/api/image-config") or path.startswith("/api/winpe-build"):
         return "image_config"
     if path.startswith("/api/admin/"):
@@ -459,6 +466,14 @@ def programs_page() -> FileResponse:
 def drivers_page() -> FileResponse:
     return FileResponse(
         STATIC_DIR / "drivers.html",
+        headers={"Cache-Control": "no-cache"},
+    )
+
+
+@app.get("/info", include_in_schema=False)
+def info_page() -> FileResponse:
+    return FileResponse(
+        STATIC_DIR / "info.html",
         headers={"Cache-Control": "no-cache"},
     )
 
@@ -616,6 +631,53 @@ def get_drivers() -> dict:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+def _driver_upload_limits() -> DriverUploadLimits:
+    settings = get_settings()
+    return DriverUploadLimits(
+        max_files=settings.driver_max_files,
+        max_depth=settings.driver_max_depth,
+        max_full_path=settings.driver_max_full_path,
+        upload_ttl_hours=settings.driver_upload_ttl_hours,
+        max_active_uploads=settings.driver_max_active_uploads,
+        min_free_space_gib=settings.driver_min_free_space_gib,
+    )
+
+
+@app.get("/api/info/driver-uploads")
+def get_driver_uploads_info() -> dict:
+    try:
+        return get_driver_upload_info(_driver_upload_limits())
+    except DriverError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.delete("/api/info/driver-uploads/abandoned")
+def remove_all_abandoned_driver_uploads(request: Request) -> JSONResponse:
+    require_image_config_write(request)
+    try:
+        result = delete_all_abandoned_driver_uploads(_driver_upload_limits())
+    except DriverError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return JSONResponse(result)
+
+
+@app.delete("/api/info/driver-uploads/{upload_id}")
+def remove_abandoned_driver_upload(
+    upload_id: str,
+    request: Request,
+) -> JSONResponse:
+    require_image_config_write(request)
+    try:
+        result = delete_abandoned_driver_upload(
+            upload_id,
+            _driver_upload_limits(),
+        )
+    except DriverError as exc:
+        status_code = 404 if "not found" in str(exc).lower() else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+    return JSONResponse(result)
+
+
 @app.post("/api/drivers/vendors")
 async def add_driver_vendor(request: Request) -> JSONResponse:
     require_image_config_write(request)
@@ -663,6 +725,7 @@ async def begin_driver_upload(request: Request) -> JSONResponse:
         result = begin_driver_package_upload(
             payload.get("vendor", ""),
             payload.get("model", ""),
+            limits=_driver_upload_limits(),
         )
     except (AttributeError, TypeError):
         raise HTTPException(
@@ -683,6 +746,7 @@ async def upload_driver_file(upload_id: str, request: Request) -> JSONResponse:
             upload_id,
             unquote(encoded_path),
             request.stream(),
+            limits=_driver_upload_limits(),
         )
     except DriverError as exc:
         status_code = 404 if "upload not found" in str(exc).lower() else 400

@@ -293,6 +293,13 @@ model package becomes visible only after all files arrive and the upload is
 finalized. Empty uploads and folders without an INF file are rejected. Package
 cards show total size, file count, and recursive INF count.
 
+SetupWeb **Additional** configures file-count, directory-depth, final-path,
+unfinished-upload, TTL, and free-space limits. Changes apply after restarting
+IronAPI. Superadmins can open **Info** to see the active limits, free space on
+the `Share\Drivers` volume, and unfinished uploads. An upload becomes
+**abandoned** when its `updatedAt` is older than the configured TTL; it is never
+removed automatically and can be deleted explicitly from the Info page.
+
 The authenticated WinPE catalog contains packages with at least one INF file.
 The deployment GUI presents them in a scrollable third-step tree grouped by
 expandable vendor headings. Packages use mutually exclusive checkboxes:

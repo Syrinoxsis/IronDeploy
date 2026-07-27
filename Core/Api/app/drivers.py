@@ -6,7 +6,8 @@ import json
 import os
 import re
 import shutil
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import RLock
 from typing import Any, AsyncIterator
@@ -30,6 +31,19 @@ _RESERVED_WINDOWS_NAMES = {"CON", "PRN", "AUX", "NUL"} | {
 }
 _UPLOAD_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 _driver_lock = RLock()
+
+
+@dataclass(frozen=True)
+class DriverUploadLimits:
+    max_files: int = 25000
+    max_depth: int = 16
+    max_full_path: int = 240
+    upload_ttl_hours: int = 24
+    max_active_uploads: int = 3
+    min_free_space_gib: int = 25
+
+
+DEFAULT_DRIVER_UPLOAD_LIMITS = DriverUploadLimits()
 
 
 class DriverError(RuntimeError):
@@ -289,6 +303,20 @@ def _uploads_directory(drivers_dir: Path) -> Path:
     return drivers_dir / UPLOADS_DIRECTORY_NAME
 
 
+def _upload_directories(drivers_dir: Path) -> list[Path]:
+    uploads_directory = _uploads_directory(drivers_dir)
+    if not uploads_directory.is_dir():
+        return []
+    try:
+        return [
+            path
+            for path in uploads_directory.iterdir()
+            if path.is_dir() and _UPLOAD_ID_PATTERN.fullmatch(path.name)
+        ]
+    except OSError as exc:
+        raise DriverError(f"Failed to inspect unfinished driver uploads: {exc}") from exc
+
+
 def _upload_directory(upload_id: str, drivers_dir: Path) -> Path:
     if not isinstance(upload_id, str) or not _UPLOAD_ID_PATTERN.fullmatch(upload_id):
         raise DriverError("Invalid driver upload identifier.")
@@ -331,21 +359,79 @@ def _write_upload(upload_directory: Path, payload: dict[str, Any]) -> None:
         raise DriverError(f"Failed to save driver upload state: {exc}") from exc
 
 
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _validate_final_driver_path(
+    path: Path,
+    limits: DriverUploadLimits,
+) -> None:
+    full_path = os.path.abspath(path)
+    if len(full_path) > limits.max_full_path:
+        raise DriverError(
+            "Driver path exceeds the maximum full path length of "
+            f"{limits.max_full_path} characters."
+        )
+
+
+def _validate_uploaded_file_path(
+    safe_path: Path,
+    payload: dict[str, Any],
+    drivers_dir: Path,
+    limits: DriverUploadLimits,
+) -> None:
+    directory_depth = max(len(safe_path.parts) - 1, 0)
+    if directory_depth > limits.max_depth:
+        raise DriverError(
+            "Driver path exceeds the maximum directory depth of "
+            f"{limits.max_depth}."
+        )
+    final_path = (
+        drivers_dir
+        / _safe_vendor_name(payload["vendor"])
+        / _safe_model_name(payload["model"])
+        / safe_path
+    )
+    _validate_final_driver_path(final_path, limits)
+
+
 def begin_driver_package_upload(
     vendor: str,
     model: str,
     drivers_dir: Path = DRIVERS_DIR,
+    limits: DriverUploadLimits = DEFAULT_DRIVER_UPLOAD_LIMITS,
 ) -> dict[str, Any]:
     safe_vendor = _safe_vendor_name(vendor)
     safe_model = _safe_model_name(model)
     upload_id = uuid4().hex
     with _driver_lock:
         vendor_path = _require_directory(drivers_dir, safe_vendor, "Vendor")
+        _validate_final_driver_path(vendor_path / safe_model, limits)
         if _find_child_casefold(vendor_path, safe_model) is not None:
             raise DriverError(
                 f"A package named '{safe_model}' already exists for this vendor."
             )
+        unfinished_uploads = _upload_directories(drivers_dir)
+        if len(unfinished_uploads) >= limits.max_active_uploads:
+            raise DriverError(
+                "The server already has the maximum number of unfinished driver "
+                f"uploads ({limits.max_active_uploads}). Remove an abandoned upload "
+                "from the Info page and try again."
+            )
+        try:
+            free_bytes = shutil.disk_usage(drivers_dir).free
+        except OSError as exc:
+            raise DriverError(f"Failed to check free disk space: {exc}") from exc
+        required_bytes = limits.min_free_space_gib * 1024**3
+        if free_bytes < required_bytes:
+            raise DriverError(
+                f"Free space: {free_bytes / 1024**3:.1f} GiB. "
+                f"Required minimum: {limits.min_free_space_gib} GiB. "
+                "Upload was not started."
+            )
         upload_directory = _uploads_directory(drivers_dir) / upload_id
+        now = _utc_now_iso()
         try:
             (upload_directory / UPLOAD_FILES_DIRECTORY_NAME).mkdir(
                 parents=True, exist_ok=False
@@ -353,12 +439,14 @@ def begin_driver_package_upload(
             _write_upload(
                 upload_directory,
                 {
-                    "version": 1,
+                    "version": 2,
                     "vendor": vendor_path.name,
                     "model": safe_model,
                     "files": {},
                     "size": 0,
                     "infCount": 0,
+                    "createdAt": now,
+                    "updatedAt": now,
                 },
             )
         except Exception:
@@ -376,6 +464,7 @@ async def save_uploaded_driver_file(
     relative_path: str,
     chunks: AsyncIterator[bytes],
     drivers_dir: Path = DRIVERS_DIR,
+    limits: DriverUploadLimits = DEFAULT_DRIVER_UPLOAD_LIMITS,
 ) -> dict[str, Any]:
     safe_path = _safe_relative_path(relative_path)
     upload_directory = _upload_directory(upload_id, drivers_dir)
@@ -386,10 +475,19 @@ async def save_uploaded_driver_file(
 
     with _driver_lock:
         payload = _read_upload(upload_directory)
+        _validate_uploaded_file_path(safe_path, payload, drivers_dir, limits)
         folded_path = safe_path.as_posix().casefold()
         if folded_path in payload["files"]:
             raise DriverError(f"Driver file '{safe_path.as_posix()}' was uploaded twice.")
+        received_file_count = len(payload["files"]) + 1
+        if received_file_count > limits.max_files:
+            raise DriverError(
+                "Driver package contains too many files. "
+                f"Maximum: {limits.max_files}. Received: {received_file_count}."
+            )
         current_size = int(payload.get("size", 0))
+        payload["updatedAt"] = _utc_now_iso()
+        _write_upload(upload_directory, payload)
         try:
             destination.parent.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
@@ -414,6 +512,12 @@ async def save_uploaded_driver_file(
                 raise DriverError(
                     f"Driver file '{safe_path.as_posix()}' was uploaded twice."
                 )
+            received_file_count = len(payload["files"]) + 1
+            if received_file_count > limits.max_files:
+                raise DriverError(
+                    "Driver package contains too many files. "
+                    f"Maximum: {limits.max_files}. Received: {received_file_count}."
+                )
             if int(payload.get("size", 0)) + size > MAX_DRIVER_PACKAGE_SIZE_BYTES:
                 raise DriverError("Driver packages are limited to 20 GiB.")
             os.replace(temporary, destination)
@@ -425,6 +529,7 @@ async def save_uploaded_driver_file(
             payload["size"] = int(payload.get("size", 0)) + size
             if safe_path.suffix.casefold() == ".inf":
                 payload["infCount"] = int(payload.get("infCount", 0)) + 1
+            payload["updatedAt"] = _utc_now_iso()
             _write_upload(upload_directory, payload)
     except OSError as exc:
         try:
@@ -508,3 +613,153 @@ def cancel_driver_package_upload(
         except OSError as exc:
             raise DriverError(f"Failed to cancel the driver upload: {exc}") from exc
     return {"cancelled": True, "uploadId": upload_id}
+
+
+def _parse_upload_time(value: Any, fallback: datetime) -> datetime:
+    if isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed.astimezone(timezone.utc)
+        except ValueError:
+            pass
+    return fallback
+
+
+def _upload_info(
+    upload_directory: Path,
+    limits: DriverUploadLimits,
+    now: datetime,
+) -> dict[str, Any]:
+    try:
+        modified = datetime.fromtimestamp(
+            (upload_directory / UPLOAD_METADATA_NAME).stat().st_mtime,
+            timezone.utc,
+        )
+    except OSError:
+        modified = datetime.fromtimestamp(upload_directory.stat().st_mtime, timezone.utc)
+    try:
+        payload = _read_upload(upload_directory)
+        size = int(payload.get("size", 0))
+        file_count = len(payload["files"])
+    except (DriverError, TypeError, ValueError):
+        return {
+            "uploadId": upload_directory.name,
+            "vendor": "",
+            "model": "",
+            "size": 0,
+            "fileCount": 0,
+            "createdAt": modified.isoformat(),
+            "updatedAt": modified.isoformat(),
+            "status": "invalid",
+        }
+
+    created_at = _parse_upload_time(payload.get("createdAt"), modified)
+    updated_at = _parse_upload_time(payload.get("updatedAt"), modified)
+    abandoned = now - updated_at > timedelta(hours=limits.upload_ttl_hours)
+    return {
+        "uploadId": upload_directory.name,
+        "vendor": payload["vendor"],
+        "model": payload["model"],
+        "size": size,
+        "fileCount": file_count,
+        "createdAt": created_at.isoformat(),
+        "updatedAt": updated_at.isoformat(),
+        "status": "abandoned" if abandoned else "active",
+    }
+
+
+def get_driver_upload_info(
+    limits: DriverUploadLimits = DEFAULT_DRIVER_UPLOAD_LIMITS,
+    drivers_dir: Path = DRIVERS_DIR,
+) -> dict[str, Any]:
+    with _driver_lock:
+        try:
+            drivers_dir.mkdir(parents=True, exist_ok=True)
+            usage = shutil.disk_usage(drivers_dir)
+            now = datetime.now(timezone.utc)
+            uploads = [
+                _upload_info(path, limits, now)
+                for path in _upload_directories(drivers_dir)
+            ]
+        except DriverError:
+            raise
+        except OSError as exc:
+            raise DriverError(f"Failed to inspect driver upload storage: {exc}") from exc
+
+    uploads.sort(
+        key=lambda item: (
+            {"abandoned": 0, "invalid": 1, "active": 2}[item["status"]],
+            item["updatedAt"],
+        )
+    )
+    counts = {
+        "total": len(uploads),
+        "active": sum(item["status"] == "active" for item in uploads),
+        "abandoned": sum(item["status"] == "abandoned" for item in uploads),
+        "invalid": sum(item["status"] == "invalid" for item in uploads),
+    }
+    minimum_free_bytes = limits.min_free_space_gib * 1024**3
+    return {
+        "directory": str(drivers_dir),
+        "storage": {
+            "total": usage.total,
+            "used": usage.used,
+            "free": usage.free,
+            "minimumFree": minimum_free_bytes,
+            "hasMinimumFreeSpace": usage.free >= minimum_free_bytes,
+        },
+        "limits": {
+            "maxFiles": limits.max_files,
+            "maxDepth": limits.max_depth,
+            "maxFullPath": limits.max_full_path,
+            "uploadTtlHours": limits.upload_ttl_hours,
+            "maxActiveUploads": limits.max_active_uploads,
+            "minFreeSpaceGiB": limits.min_free_space_gib,
+        },
+        "counts": counts,
+        "uploads": uploads,
+    }
+
+
+def delete_abandoned_driver_upload(
+    upload_id: str,
+    limits: DriverUploadLimits = DEFAULT_DRIVER_UPLOAD_LIMITS,
+    drivers_dir: Path = DRIVERS_DIR,
+) -> dict[str, Any]:
+    upload_directory = _upload_directory(upload_id, drivers_dir)
+    with _driver_lock:
+        if not upload_directory.is_dir():
+            raise DriverError("Driver upload not found.")
+        info = _upload_info(upload_directory, limits, datetime.now(timezone.utc))
+        if info["status"] not in {"abandoned", "invalid"}:
+            raise DriverError(
+                "Only abandoned or invalid driver uploads can be deleted here."
+            )
+        try:
+            shutil.rmtree(upload_directory)
+        except OSError as exc:
+            raise DriverError(f"Failed to delete the abandoned upload: {exc}") from exc
+    return {"deleted": True, "uploadId": upload_id}
+
+
+def delete_all_abandoned_driver_uploads(
+    limits: DriverUploadLimits = DEFAULT_DRIVER_UPLOAD_LIMITS,
+    drivers_dir: Path = DRIVERS_DIR,
+) -> dict[str, Any]:
+    deleted: list[str] = []
+    with _driver_lock:
+        now = datetime.now(timezone.utc)
+        for upload_directory in _upload_directories(drivers_dir):
+            info = _upload_info(upload_directory, limits, now)
+            if info["status"] != "abandoned":
+                continue
+            try:
+                shutil.rmtree(upload_directory)
+            except OSError as exc:
+                raise DriverError(
+                    f"Failed to delete abandoned upload '{upload_directory.name}': {exc}"
+                ) from exc
+            deleted.append(upload_directory.name)
+    return {"deleted": len(deleted), "uploadIds": deleted}

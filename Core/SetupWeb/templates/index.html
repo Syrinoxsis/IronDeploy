@@ -215,7 +215,7 @@
         <section class="view" id="additional">
           <div class="section-head">
             <h2>Additional settings</h2>
-            <p>Optional tuning for service timeouts and WinPE drive mapping.</p>
+            <p>Optional tuning for service timeouts, driver uploads, and WinPE drive mapping.</p>
           </div>
           <div class="settings-grid">
             <section class="settings-card settings-card-wide">
@@ -227,6 +227,21 @@
                 <label><span class="field-title">LDAP timeout <span class="help" title="Connection timeout in seconds, 1-60. Example: 5.">?</span></span><input data-api="IRONAPI_LDAP_CONNECT_TIMEOUT" inputmode="numeric" /></label>
                 <label><span class="field-title">ODJ timeout <span class="help" title="djoin /provision timeout in seconds, 1-300. Example: 60.">?</span></span><input data-api="IRONAPI_ODJ_PROVISION_TIMEOUT" inputmode="numeric" /></label>
                 <label><span class="field-title">ODJ blob lifetime <span class="help" title="Short provision-to-download lifetime in minutes, 5-1440. Default 5. It is independent of the total deployment timeout.">?</span></span><input data-api="IRONAPI_ODJ_BLOB_MAX_AGE_MINUTES" inputmode="numeric" /></label>
+              </div>
+            </section>
+
+            <section class="settings-card settings-card-wide">
+              <div class="settings-card-head">
+                <h3>Driver upload limits</h3>
+                <p>Safety limits for temporary driver package uploads. Changes take effect after restarting IronAPI.</p>
+              </div>
+              <div class="form-grid two compact-grid">
+                <label><span class="field-title">Maximum files per package <span class="help" title="Maximum number of files in one package, 1-1000000. Recommended: 25000.">?</span></span><input data-api="IRONAPI_DRIVER_MAX_FILES" inputmode="numeric" /></label>
+                <label><span class="field-title">Maximum directory depth <span class="help" title="Maximum nested directory depth inside a package, 1-100. Recommended: 16.">?</span></span><input data-api="IRONAPI_DRIVER_MAX_DEPTH" inputmode="numeric" /></label>
+                <label><span class="field-title">Maximum full path <span class="help" title="Maximum final Windows path length in characters, 64-32767. Recommended: 240.">?</span></span><input data-api="IRONAPI_DRIVER_MAX_FULL_PATH" inputmode="numeric" /></label>
+                <label><span class="field-title">Abandoned upload age <span class="help" title="Hours without activity before an unfinished upload is marked abandoned, 1-8760. Recommended: 24.">?</span></span><input data-api="IRONAPI_DRIVER_UPLOAD_TTL_HOURS" inputmode="numeric" /></label>
+                <label><span class="field-title">Maximum unfinished uploads <span class="help" title="Maximum unfinished driver uploads on the server, 1-100. Recommended: 3.">?</span></span><input data-api="IRONAPI_DRIVER_MAX_ACTIVE_UPLOADS" inputmode="numeric" /></label>
+                <label><span class="field-title">Minimum free disk space <span class="help" title="Free space required on the Share\\Drivers volume before starting an upload, 1-10240 GiB. Recommended: 25.">?</span></span><input data-api="IRONAPI_DRIVER_MIN_FREE_SPACE_GIB" inputmode="numeric" /></label>
               </div>
             </section>
 

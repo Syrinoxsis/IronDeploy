@@ -1,18 +1,25 @@
 import asyncio
+import json
 import shutil
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from app.drivers import (
     DriverError,
+    DriverUploadLimits,
     begin_driver_package_upload,
     cancel_driver_package_upload,
     create_vendor,
+    delete_abandoned_driver_upload,
+    delete_all_abandoned_driver_uploads,
     delete_driver_package,
     delete_vendor,
     finalize_driver_package_upload,
+    get_driver_upload_info,
     list_driver_packages,
     rename_driver_package,
     rename_vendor,
@@ -31,6 +38,7 @@ class DriverManagementTests(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
         self.drivers_dir = self.root / "Drivers"
         self.drivers_dir.mkdir()
+        self.test_limits = DriverUploadLimits(min_free_space_gib=1)
 
     def test_vendor_create_rename_and_delete(self) -> None:
         create_vendor("Lenovo", self.drivers_dir)
@@ -57,7 +65,7 @@ class DriverManagementTests(unittest.TestCase):
     def test_package_upload_preserves_nested_structure_and_counts_inf(self) -> None:
         create_vendor("HP", self.drivers_dir)
         upload = begin_driver_package_upload(
-            "hp", "EliteBook 840 G10", self.drivers_dir
+            "hp", "EliteBook 840 G10", self.drivers_dir, self.test_limits
         )
 
         asyncio.run(
@@ -110,7 +118,7 @@ class DriverManagementTests(unittest.TestCase):
     def test_finalize_requires_an_inf_and_does_not_publish_partial_package(self) -> None:
         create_vendor("Dell", self.drivers_dir)
         upload = begin_driver_package_upload(
-            "Dell", "Latitude 7450", self.drivers_dir
+            "Dell", "Latitude 7450", self.drivers_dir, self.test_limits
         )
         asyncio.run(
             save_uploaded_driver_file(
@@ -132,7 +140,7 @@ class DriverManagementTests(unittest.TestCase):
     def test_upload_rejects_traversal_duplicate_paths_and_size_limit(self) -> None:
         create_vendor("Dell", self.drivers_dir)
         upload = begin_driver_package_upload(
-            "Dell", "OptiPlex", self.drivers_dir
+            "Dell", "OptiPlex", self.drivers_dir, self.test_limits
         )
         for path in (
             "../evil.inf",
@@ -156,7 +164,7 @@ class DriverManagementTests(unittest.TestCase):
     def test_file_upload_rolls_back_when_upload_state_cannot_be_saved(self) -> None:
         create_vendor("HP", self.drivers_dir)
         upload = begin_driver_package_upload(
-            "HP", "EliteDesk", self.drivers_dir
+            "HP", "EliteDesk", self.drivers_dir, self.test_limits
         )
 
         with patch(
@@ -252,6 +260,137 @@ class DriverManagementTests(unittest.TestCase):
         (self.drivers_dir / "HP" / "Model").mkdir()
         with self.assertRaisesRegex(DriverError, "already exists"):
             begin_driver_package_upload("hp", "model", self.drivers_dir)
+
+    def test_upload_enforces_file_depth_and_full_path_limits(self) -> None:
+        create_vendor("Dell", self.drivers_dir)
+        upload = begin_driver_package_upload(
+            "Dell",
+            "Latitude",
+            self.drivers_dir,
+            DriverUploadLimits(max_files=1, min_free_space_gib=1),
+        )
+        asyncio.run(
+            save_uploaded_driver_file(
+                upload["uploadId"],
+                "Network/net.inf",
+                _chunks(b"driver"),
+                self.drivers_dir,
+                DriverUploadLimits(max_files=1),
+            )
+        )
+        with self.assertRaisesRegex(DriverError, "too many files"):
+            asyncio.run(
+                save_uploaded_driver_file(
+                    upload["uploadId"],
+                    "Network/net.cat",
+                    _chunks(b"catalog"),
+                    self.drivers_dir,
+                    DriverUploadLimits(max_files=1),
+                )
+            )
+
+        cancel_driver_package_upload(upload["uploadId"], self.drivers_dir)
+        upload = begin_driver_package_upload(
+            "Dell", "Precision", self.drivers_dir, self.test_limits
+        )
+        with self.assertRaisesRegex(DriverError, "directory depth"):
+            asyncio.run(
+                save_uploaded_driver_file(
+                    upload["uploadId"],
+                    "one/two/driver.inf",
+                    _chunks(b"driver"),
+                    self.drivers_dir,
+                    DriverUploadLimits(max_depth=1),
+                )
+            )
+
+        package_root = self.drivers_dir / "Dell" / "Precision"
+        short_limit = len(str(package_root.absolute())) + 8
+        with self.assertRaisesRegex(DriverError, "full path length"):
+            asyncio.run(
+                save_uploaded_driver_file(
+                    upload["uploadId"],
+                    "a-very-long-driver-name.inf",
+                    _chunks(b"driver"),
+                    self.drivers_dir,
+                    DriverUploadLimits(max_full_path=short_limit),
+                )
+            )
+
+    def test_begin_upload_checks_unfinished_count_and_free_space(self) -> None:
+        create_vendor("HP", self.drivers_dir)
+        limits = DriverUploadLimits(max_active_uploads=1, min_free_space_gib=1)
+        first = begin_driver_package_upload(
+            "HP", "EliteBook", self.drivers_dir, limits
+        )
+        with self.assertRaisesRegex(DriverError, "maximum number"):
+            begin_driver_package_upload(
+                "HP", "EliteDesk", self.drivers_dir, limits
+            )
+        cancel_driver_package_upload(first["uploadId"], self.drivers_dir)
+
+        with patch(
+            "app.drivers.shutil.disk_usage",
+            return_value=SimpleNamespace(free=512 * 1024**2),
+        ):
+            with self.assertRaisesRegex(DriverError, "Required minimum: 1 GiB"):
+                begin_driver_package_upload(
+                    "HP", "ProBook", self.drivers_dir, limits
+                )
+
+    def test_info_lists_and_deletes_only_abandoned_uploads(self) -> None:
+        create_vendor("Lenovo", self.drivers_dir)
+        abandoned = begin_driver_package_upload(
+            "Lenovo", "T14", self.drivers_dir, self.test_limits
+        )
+        active = begin_driver_package_upload(
+            "Lenovo", "X1", self.drivers_dir, self.test_limits
+        )
+        abandoned_metadata = (
+            self.drivers_dir
+            / ".irondeploy-uploads"
+            / abandoned["uploadId"]
+            / "upload.json"
+        )
+        payload = json.loads(abandoned_metadata.read_text(encoding="utf-8"))
+        payload["updatedAt"] = (
+            datetime.now(timezone.utc) - timedelta(hours=25)
+        ).isoformat()
+        abandoned_metadata.write_text(
+            json.dumps(payload),
+            encoding="utf-8",
+        )
+
+        info = get_driver_upload_info(
+            DriverUploadLimits(upload_ttl_hours=24),
+            self.drivers_dir,
+        )
+        self.assertEqual(info["counts"]["active"], 1)
+        self.assertEqual(info["counts"]["abandoned"], 1)
+        statuses = {
+            item["uploadId"]: item["status"] for item in info["uploads"]
+        }
+        self.assertEqual(statuses[abandoned["uploadId"]], "abandoned")
+        self.assertEqual(statuses[active["uploadId"]], "active")
+
+        with self.assertRaisesRegex(DriverError, "Only abandoned"):
+            delete_abandoned_driver_upload(
+                active["uploadId"],
+                DriverUploadLimits(upload_ttl_hours=24),
+                self.drivers_dir,
+            )
+        deleted = delete_all_abandoned_driver_uploads(
+            DriverUploadLimits(upload_ttl_hours=24),
+            self.drivers_dir,
+        )
+        self.assertEqual(deleted["uploadIds"], [abandoned["uploadId"]])
+        self.assertTrue(
+            (
+                self.drivers_dir
+                / ".irondeploy-uploads"
+                / active["uploadId"]
+            ).is_dir()
+        )
 
 
 if __name__ == "__main__":
