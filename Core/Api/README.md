@@ -258,7 +258,8 @@ optional ordered launch-argument array for each one. EXE arguments are opaque:
 values such as `/S`, `--quiet`, `install`, `ALLUSERS=1`, and
 `URL=https://example.test` are accepted without a switch-name whitelist. MSI
 public properties are stored separately in `msi_properties`; an MSI argument
-that uses property syntax such as `ALLUSERS=1` is rejected.
+containing `=` is always rejected. This includes malformed property-like values
+such as `BAD-NAME=1`, `1PROPERTY=1`, and `=VALUE`.
 
 MSI property names are normalized to uppercase and must match
 `^[A-Z_][A-Z0-9_.]*$`; names are not selected from a whitelist. In the first

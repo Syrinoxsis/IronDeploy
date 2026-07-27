@@ -391,9 +391,12 @@ function Get-IronInstallerConfiguration {
             -MaximumLength $MaxProgramArgumentLength
         if (
             $ProgramType -eq "MSI" -and
-            $Argument -match "^[A-Z_][A-Z0-9_.]*="
+            $Argument.IndexOf("=") -ge 0
         ) {
-            throw "MSI properties must be stored in msi_properties"
+            throw (
+                "MSI arguments must not contain '='; " +
+                "store every NAME=VALUE item in msi_properties"
+            )
         }
         $ValidatedArguments += $Argument
         $ArgumentsLength += $Argument.Length

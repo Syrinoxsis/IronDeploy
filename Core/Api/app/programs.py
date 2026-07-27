@@ -40,7 +40,6 @@ MAX_MSI_PROPERTIES_LENGTH = 4096
 MAX_PROGRAM_SIZE_BYTES = 5 * 1024**3
 
 _MSI_PROPERTY_NAME = re.compile(r"^[A-Z_][A-Z0-9_.]*$")
-_MSI_PROPERTY_ARGUMENT = re.compile(r"^[A-Z_][A-Z0-9_.]*=", re.IGNORECASE)
 
 _metadata_lock = RLock()
 
@@ -149,10 +148,10 @@ def validate_program_arguments(
             label=f"Launch argument {index + 1}",
             maximum_length=MAX_ARGUMENT_LENGTH,
         )
-        if is_msi and _MSI_PROPERTY_ARGUMENT.match(argument):
+        if is_msi and "=" in argument:
             raise ProgramError(
-                f"MSI property '{argument.split('=', 1)[0]}' must be stored in "
-                "msi_properties, not arguments."
+                "MSI arguments must not contain '='. Store every NAME=VALUE "
+                "item in msi_properties."
             )
         normalized.append(argument)
         total_length += len(argument)

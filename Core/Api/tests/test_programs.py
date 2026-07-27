@@ -83,11 +83,13 @@ class ProgramArgumentTests(unittest.TestCase):
         self.assertEqual(
             validate_program_arguments(
                 ["/S", "--quiet", "install", "ALLUSERS=1",
-                 "URL=https://example.test"],
+                 "URL=https://example.test", "BAD-NAME=1",
+                 "1PROPERTY=1", "=VALUE"],
                 "EXE",
             ),
             ["/S", "--quiet", "install", "ALLUSERS=1",
-             "URL=https://example.test"],
+             "URL=https://example.test", "BAD-NAME=1",
+             "1PROPERTY=1", "=VALUE"],
         )
         self.assertEqual(validate_program_arguments([], "EXE"), [])
 
@@ -117,8 +119,15 @@ class ProgramArgumentTests(unittest.TestCase):
             validate_program_arguments({"argument": "/S"}, "EXE")
 
     def test_msi_properties_are_separate_and_normalized(self) -> None:
-        with self.assertRaisesRegex(ProgramError, "msi_properties"):
-            validate_program_arguments(["ALLUSERS=1"], "MSI")
+        for argument in (
+            "ALLUSERS=1",
+            "BAD-NAME=1",
+            "1PROPERTY=1",
+            "=VALUE",
+        ):
+            with self.subTest(argument=argument):
+                with self.assertRaisesRegex(ProgramError, "msi_properties"):
+                    validate_program_arguments([argument], "MSI")
         self.assertEqual(
             validate_msi_properties(
                 {"allusers": "1", "reboot": "ReallySuppress"},

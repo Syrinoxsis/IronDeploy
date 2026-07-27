@@ -358,7 +358,7 @@
         "Log": "Журнал",
         "The source program must be an .exe or .msi file.": "Исходный файл должен иметь формат .exe или .msi.",
         "Enter a valid program file name.": "Введите допустимое имя файла программы.",
-        "MSI NAME=VALUE properties belong in the MSI properties section.": "Свойства MSI в формате NAME=VALUE задаются в разделе свойств MSI.",
+        "MSI arguments must not contain '='. Add NAME=VALUE items to the MSI properties section.": "Аргументы MSI не должны содержать «=». Добавляйте элементы NAME=VALUE в раздел свойств MSI.",
         "PIN must contain 6-10 digits.": "PIN должен содержать 6–10 цифр.",
         "WinPE authorization settings saved.": "Настройки авторизации WinPE сохранены.",
         "Invalid username or password.": "Неверное имя пользователя или пароль.",

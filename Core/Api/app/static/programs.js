@@ -29,7 +29,6 @@ const MAX_MSI_PROPERTY_NAME_LENGTH = 72;
 const MAX_MSI_PROPERTY_VALUE_LENGTH = 512;
 const MAX_MSI_PROPERTIES_LENGTH = 4096;
 const MSI_PROPERTY_NAME = /^[A-Z_][A-Z0-9_.]*$/;
-const MSI_PROPERTY_ARGUMENT = /^[A-Z_][A-Z0-9_.]*=/i;
 
 function showMessage(text, type = "success") {
     if (messageTimer) window.clearTimeout(messageTimer);
@@ -115,9 +114,10 @@ function validateArguments(values, programType) {
             `Launch argument ${index + 1}`,
             MAX_ARGUMENT_LENGTH
         );
-        if (programType === "MSI" && MSI_PROPERTY_ARGUMENT.test(value)) {
+        if (programType === "MSI" && value.includes("=")) {
             throw new Error(
-                "MSI NAME=VALUE properties belong in the MSI properties section."
+                "MSI arguments must not contain '='. Add NAME=VALUE items " +
+                "to the MSI properties section."
             );
         }
     });
