@@ -1,13 +1,77 @@
-.driver-management-grid {
-    display: grid;
-    grid-template-columns: minmax(280px, .72fr) minmax(420px, 1.28fr);
-    gap: 18px;
-    margin-bottom: 18px;
+/* Page-scoped theme override — only drivers.html loads this file, so
+   redefining these tokens here does not affect any other page. */
+:root {
+    --ink: #e9e9ed;
+    --muted: rgba(233, 233, 237, .55);
+    --border: color-mix(in srgb, #e9e9ed 14%, transparent);
+    --border-strong: color-mix(in srgb, #e9e9ed 24%, transparent);
+    --surface: #1b1d2b;
+    --surface-muted: #20222f;
+    --surface-hover: color-mix(in srgb, #e9e9ed 6%, transparent);
+    --blue: #9184d9;
+    --blue-dark: #796cbf;
+    --green: oklch(0.72 0.12 152);
+    --red: oklch(0.70 0.16 25);
+    --amber: oklch(0.78 0.12 80);
+    --focus: rgba(145, 132, 217, .28);
+    --shadow: 0 0 0 1px var(--border), 0 10px 26px rgba(0, 0, 0, .45);
 }
 
-.vendor-card,
-.package-upload-card {
-    align-items: stretch;
+html,
+body {
+    background: #161826;
+}
+
+.driver-workspace {
+    display: flex;
+    align-items: flex-start;
+    gap: 20px;
+    margin-bottom: 20px;
+}
+
+.vendor-rail {
+    width: 264px;
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.vendor-rail-head h2 {
+    margin: 0;
+    font-size: 13px;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+
+.vendor-add {
+    display: flex;
+    gap: 6px;
+}
+
+.icon-only-button {
+    width: 34px;
+    height: 34px;
+    flex: none;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--border-strong);
+    border-radius: 7px;
+    color: var(--blue);
+    background: transparent;
+}
+
+.icon-only-button:hover {
+    background: var(--surface-hover);
+}
+
+.icon-only-button svg {
+    width: 15px;
+    height: 15px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
 }
 
 .inline-form,
@@ -20,13 +84,9 @@
     gap: 10px;
 }
 
-.inline-form {
-    flex-wrap: wrap;
-}
-
 .driver-text-input,
 .driver-select {
-    min-height: 40px;
+    min-height: 38px;
     padding: 8px 11px;
     border: 1px solid var(--border);
     border-radius: 8px;
@@ -50,16 +110,25 @@
 .vendor-list {
     display: flex;
     flex-direction: column;
-    gap: 7px;
-    margin-top: 14px;
+    gap: 3px;
 }
 
 .vendor-row {
     justify-content: space-between;
-    padding: 9px 10px;
-    border: 1px solid var(--border);
+    padding: 10px 11px;
+    border: 1px solid transparent;
     border-radius: 8px;
-    background: var(--surface);
+    cursor: pointer;
+    transition: background-color 120ms ease, box-shadow 120ms ease;
+}
+
+.vendor-row:hover {
+    background: var(--surface-hover);
+}
+
+.vendor-row.is-active {
+    background: color-mix(in srgb, var(--blue) 14%, transparent);
+    box-shadow: inset 2px 0 0 var(--blue);
 }
 
 .vendor-identity {
@@ -70,6 +139,7 @@
     display: block;
     overflow: hidden;
     font-weight: 700;
+    font-size: 13.5px;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -89,7 +159,7 @@
 }
 
 .icon-text-button {
-    min-height: 32px;
+    min-height: 30px;
     padding: 0 9px;
     border: 0;
     border-radius: 6px;
@@ -109,6 +179,20 @@
     color: var(--red);
 }
 
+.driver-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+.package-upload-card {
+    width: 100%;
+    margin: 0;
+    align-items: stretch;
+}
+
 .package-upload-controls {
     flex-wrap: wrap;
 }
@@ -120,7 +204,7 @@
 .folder-picker {
     display: inline-flex;
     align-items: center;
-    min-height: 40px;
+    min-height: 38px;
     padding: 0 13px;
     border: 1px solid var(--border);
     border-radius: 8px;
@@ -148,20 +232,25 @@
 }
 
 .driver-package-list {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-    gap: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
 }
 
 .package-card {
-    padding: 15px;
-    border: 1px solid var(--border);
+    padding: 13px 15px;
+    border: 0;
     border-radius: 9px;
-    background: var(--surface);
+    background: var(--surface-muted);
+    box-shadow: 0 0 0 1px var(--border);
+}
+
+.package-card[hidden] {
+    display: none;
 }
 
 .package-card-top {
-    align-items: flex-start;
+    align-items: center;
     justify-content: space-between;
 }
 
@@ -176,14 +265,14 @@
 .package-title-row h3 {
     margin: 0;
     overflow-wrap: anywhere;
-    font-size: 16px;
+    font-size: 15px;
 }
 
 .vendor-badge {
     padding: 3px 7px;
     border-radius: 999px;
-    color: #8bb4fb;
-    background: rgba(76, 139, 245, .16);
+    color: var(--blue);
+    background: color-mix(in srgb, var(--blue) 18%, transparent);
     font-size: 11px;
     font-weight: 750;
 }
@@ -193,7 +282,7 @@
 }
 
 .rename-input {
-    min-height: 36px;
+    min-height: 34px;
     width: min(100%, 300px);
     padding: 6px 9px;
     border: 1px solid var(--blue);
@@ -207,8 +296,12 @@
 }
 
 @media (max-width: 900px) {
-    .driver-management-grid {
-        grid-template-columns: 1fr;
+    .driver-workspace {
+        flex-direction: column;
+    }
+
+    .vendor-rail {
+        width: 100%;
     }
 }
 

@@ -12,6 +12,7 @@
     <script src="/static/i18n.js"></script>
     <script src="/static/navigation.js"></script>
     <script src="/static/drivers.js" defer></script>
+    <script src="/static/drivers-vendor-nav.js" defer></script>
 </head>
 <body data-page="drivers">
     <header class="app-header">
@@ -40,66 +41,69 @@
 
         <section class="notice" id="message-area" hidden></section>
 
-        <div class="driver-management-grid">
-            <section class="upload-card vendor-card" aria-labelledby="vendor-title">
-                <div>
+        <div class="driver-workspace">
+            <aside class="upload-card vendor-rail" aria-labelledby="vendor-title">
+                <div class="vendor-rail-head">
                     <h2 id="vendor-title">Vendors</h2>
-                    <p>Create vendors such as HP, Lenovo, or Dell.</p>
                 </div>
-                <form class="inline-form" id="vendor-form">
+                <form class="vendor-add" id="vendor-form">
                     <input id="vendor-name" class="driver-text-input" type="text"
-                           maxlength="255" placeholder="Vendor name" spellcheck="false">
-                    <button class="secondary-button" type="submit">Add vendor</button>
+                           maxlength="255" placeholder="New vendor" spellcheck="false">
+                    <button class="icon-only-button" type="submit" title="Add vendor" aria-label="Add vendor">
+                        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"></path></svg>
+                    </button>
                 </form>
                 <div class="vendor-list" id="vendor-list"></div>
-            </section>
+            </aside>
 
-            <section class="upload-card package-upload-card" aria-labelledby="package-title">
-                <div>
-                    <h2 id="package-title">Add a driver package</h2>
-                    <p>
-                        Choose a vendor, enter the model, then select the complete
-                        driver folder. Its nested folders are preserved.
-                    </p>
-                </div>
-                <div class="package-upload-controls">
-                    <select id="package-vendor" class="driver-select">
-                        <option value="">Select vendor</option>
-                    </select>
-                    <input id="package-model" class="driver-text-input" type="text"
-                           maxlength="255" placeholder="Model name" spellcheck="false">
-                    <label class="folder-picker">
-                        <span>Choose driver folder</span>
-                        <input id="package-folder" type="file" webkitdirectory directory multiple>
-                    </label>
-                    <span class="folder-summary" id="folder-summary">No folder selected</span>
-                    <button class="primary-button" id="upload-button" type="button">
-                        Upload package
-                    </button>
-                </div>
-                <div class="progress-row" id="upload-progress-row" hidden>
-                    <progress id="upload-progress" max="100" value="0"></progress>
-                    <span id="upload-progress-text">Preparing upload...</span>
-                    <button class="cancel-button" id="cancel-upload-button" type="button">
-                        Cancel upload
-                    </button>
-                </div>
-            </section>
+            <div class="driver-main">
+                <section class="upload-card package-upload-card" aria-labelledby="package-title">
+                    <div>
+                        <h2 id="package-title">Add a driver package</h2>
+                        <p>
+                            Choose a vendor, enter the model, then select the complete
+                            driver folder. Its nested folders are preserved.
+                        </p>
+                    </div>
+                    <div class="package-upload-controls">
+                        <select id="package-vendor" class="driver-select">
+                            <option value="">Select vendor</option>
+                        </select>
+                        <input id="package-model" class="driver-text-input" type="text"
+                               maxlength="255" placeholder="Model name" spellcheck="false">
+                        <label class="folder-picker">
+                            <span>Choose driver folder</span>
+                            <input id="package-folder" type="file" webkitdirectory directory multiple>
+                        </label>
+                        <span class="folder-summary" id="folder-summary">No folder selected</span>
+                        <button class="primary-button" id="upload-button" type="button">
+                            Upload package
+                        </button>
+                    </div>
+                    <div class="progress-row" id="upload-progress-row" hidden>
+                        <progress id="upload-progress" max="100" value="0"></progress>
+                        <span id="upload-progress-text">Preparing upload...</span>
+                        <button class="cancel-button" id="cancel-upload-button" type="button">
+                            Cancel upload
+                        </button>
+                    </div>
+                </section>
+
+                <section class="images-card">
+                    <div class="section-heading">
+                        <div>
+                            <h2>Available driver packages</h2>
+                            <p id="drivers-directory"></p>
+                        </div>
+                        <span id="package-count">0 packages</span>
+                    </div>
+                    <div class="empty-state" id="empty-state" hidden>
+                        No driver packages were found. Create a vendor and upload a driver folder.
+                    </div>
+                    <div class="driver-package-list" id="package-list"></div>
+                </section>
+            </div>
         </div>
-
-        <section class="images-card">
-            <div class="section-heading">
-                <div>
-                    <h2>Available driver packages</h2>
-                    <p id="drivers-directory"></p>
-                </div>
-                <span id="package-count">0 packages</span>
-            </div>
-            <div class="empty-state" id="empty-state" hidden>
-                No driver packages were found. Create a vendor and upload a driver folder.
-            </div>
-            <div class="driver-package-list" id="package-list"></div>
-        </section>
     </main>
 </body>
 </html>
