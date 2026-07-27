@@ -56,7 +56,9 @@ def _sha256_file(path: Path) -> str:
 
 
 def validate_program_arguments(arguments: str) -> str:
-    value = str(arguments)
+    if not isinstance(arguments, str):
+        raise ProgramError("arguments must be a string.")
+    value = arguments
     if any(character in value for character in ("\0", "\r", "\n")):
         raise ProgramError(
             "Launch arguments must not contain NUL, CR, or LF characters."

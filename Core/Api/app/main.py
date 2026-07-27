@@ -586,7 +586,9 @@ async def update_program_arguments(name: str, request: Request) -> JSONResponse:
     require_image_config_write(request)
     try:
         payload = await request.json()
-        arguments = str(payload.get("arguments", ""))
+        arguments = payload.get("arguments", "")
+        if not isinstance(arguments, str):
+            raise ProgramError("arguments must be a string.")
         result = set_program_arguments(name, arguments)
     except (AttributeError, TypeError, ValueError):
         raise HTTPException(status_code=400, detail="arguments must be a string.")

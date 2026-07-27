@@ -88,6 +88,15 @@ class ProgramArgumentTests(unittest.TestCase):
             with self.subTest(arguments=arguments):
                 self.assertEqual(validate_program_arguments(arguments), arguments)
 
+    def test_non_string_arguments_are_rejected(self) -> None:
+        for arguments in (None, 123, ["/S"], {"value": "/S"}):
+            with self.subTest(arguments=arguments):
+                with self.assertRaisesRegex(
+                    ProgramError,
+                    r"^arguments must be a string\.$",
+                ):
+                    validate_program_arguments(arguments)
+
     def test_control_characters_and_excessive_length_are_rejected(self) -> None:
         for arguments in (
             "/S\0ALLUSERS=1",
