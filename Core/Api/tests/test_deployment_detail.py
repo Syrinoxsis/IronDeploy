@@ -133,6 +133,10 @@ class DeploymentDetailPageTests(unittest.TestCase):
         self.assertIn('id="program-list"', detail_html)
         self.assertIn('id="network-content"', detail_html)
         self.assertIn('id="network-stage-list"', detail_html)
+        self.assertIn(
+            'class="deployment-detail-page" data-page="dashboard"',
+            detail_html,
+        )
         self.assertIn('data-field="manufacturer"', detail_html)
         self.assertIn('data-field="system_sku"', detail_html)
         self.assertIn("Average inbound adapter traffic during WinPE", detail_html)
@@ -153,6 +157,35 @@ class DeploymentDetailPageTests(unittest.TestCase):
         self.assertIn('detailText("ICMP unavailable")', detail_js)
         self.assertIn(".detail-loading[hidden]", detail_css)
         self.assertIn("#network-content[hidden]", detail_css)
+        self.assertIn("body.deployment-detail-page", detail_css)
+        self.assertIn("overflow-x: hidden", detail_css)
+
+    def test_dashboard_summary_buttons_are_the_status_filter(self) -> None:
+        dashboard_html = (STATIC_ROOT / "dashboard.html").read_text(
+            encoding="utf-8"
+        )
+        dashboard_js = (STATIC_ROOT / "dashboard.js").read_text(encoding="utf-8")
+
+        for status in ("all", "begin", "completed", "failed"):
+            self.assertIn(f'data-summary-status="{status}"', dashboard_html)
+        self.assertNotIn('id="status-select"', dashboard_html)
+        self.assertNotIn('id="status-tabs"', dashboard_html)
+        self.assertIn(
+            'item.addEventListener("click", () => '
+            "setStatus(item.dataset.summaryStatus))",
+            dashboard_js,
+        )
+
+    def test_dashboard_current_stage_is_a_single_line_summary(self) -> None:
+        dashboard_js = (STATIC_ROOT / "dashboard.js").read_text(encoding="utf-8")
+        dashboard_css = (STATIC_ROOT / "dashboard.css").read_text(encoding="utf-8")
+
+        self.assertIn('current.className = "stage-current"', dashboard_js)
+        self.assertIn("Failed at: ${stageLabel}", dashboard_js)
+        self.assertNotIn("expandedDeployments", dashboard_js)
+        self.assertNotIn("stage-details", dashboard_js)
+        self.assertIn(".stage-current", dashboard_css)
+        self.assertNotIn(".stage-details", dashboard_css)
 
 
 if __name__ == "__main__":

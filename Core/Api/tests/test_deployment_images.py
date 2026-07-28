@@ -19,6 +19,8 @@ from app.deployment_images import (
     set_default_image_index,
 )
 
+STATIC_ROOT = Path(__file__).resolve().parents[1] / "app" / "static"
+
 
 DISM_OUTPUT = """
 Deployment Image Servicing and Management tool
@@ -280,6 +282,16 @@ class DeploymentImageTests(unittest.TestCase):
         self.assertEqual(
             deployment_images.get_conversion_state()["status"], "cancelled"
         )
+
+
+class DeploymentImagePageTests(unittest.TestCase):
+    def test_images_page_uses_dark_page_scope_and_hides_idle_progress(self) -> None:
+        html = (STATIC_ROOT / "images.html").read_text(encoding="utf-8")
+        css = (STATIC_ROOT / "images.css").read_text(encoding="utf-8")
+
+        self.assertIn('class="images-page" data-page="images"', html)
+        self.assertIn(".progress-row[hidden]", css)
+        self.assertIn("body.images-page", css)
 
 
 if __name__ == "__main__":

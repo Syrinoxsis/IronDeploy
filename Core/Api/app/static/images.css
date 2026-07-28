@@ -81,6 +81,7 @@
 .cancel-button:disabled { opacity: .6; cursor: wait; }
 
 .progress-row { display: flex; align-items: center; gap: 14px; margin-top: 16px; }
+.progress-row[hidden] { display: none; }
 .progress-row progress { width: min(100%, 600px); height: 12px; accent-color: var(--blue); }
 .progress-row span { color: var(--muted); font-size: 13px; }
 
@@ -205,4 +206,321 @@
     .conversion-card,
     .image-card-top { align-items: stretch; flex-direction: column; }
     .image-actions { align-items: stretch; flex-direction: column; }
+}
+
+/* Dark operations theme shared with the approved Dashboard direction. */
+html:has(body.images-page) {
+    background: #151925;
+}
+
+body.images-page {
+    --ink: #f4f7fb;
+    --muted: #9aa6b8;
+    --border: #303747;
+    --border-strong: #3a4253;
+    --surface: #151925;
+    --surface-muted: #181d2a;
+    --surface-hover: #1c2231;
+    --nav: #12233a;
+    --blue: #3975f6;
+    --blue-dark: #2f68e5;
+    --green: #36c98a;
+    --red: #ff6569;
+    --amber: #e5ad52;
+    --focus: rgba(122, 104, 255, .3);
+    --shadow: none;
+    min-width: 1120px;
+    min-height: 100vh;
+    color-scheme: dark;
+    background: #151925;
+}
+
+body.images-page .app-header {
+    min-height: 58px;
+    border-bottom: 1px solid var(--border);
+    background: #151925;
+}
+
+body.images-page .header-inner {
+    min-height: 58px;
+}
+
+body.images-page .refresh-button {
+    min-height: 38px;
+    padding-inline: 14px;
+    border-color: var(--border-strong);
+    color: var(--ink);
+    background: transparent;
+}
+
+body.images-page .refresh-button:hover {
+    border-color: #6659bd;
+    background: #202435;
+}
+
+body.images-page .page-shell {
+    max-width: none;
+    padding-block: 24px 48px;
+}
+
+body.images-page .page-heading {
+    width: min(100% - 32px, 1280px);
+    margin: 0 auto 20px;
+}
+
+body.images-page .page-heading h1 {
+    color: var(--ink);
+    font-size: 29px;
+    line-height: 1.15;
+}
+
+body.images-page .page-heading p {
+    margin-top: 7px;
+    color: var(--muted);
+    font-size: 14px;
+}
+
+body.images-page .page-heading code,
+body.images-page .upload-card code,
+body.images-page .empty-state code {
+    color: #bec8d7;
+    background: transparent;
+}
+
+body.images-page .upload-card,
+body.images-page .images-card,
+body.images-page .conversion-card {
+    width: min(100% - 32px, 1280px);
+    margin-bottom: 18px;
+    padding: 20px;
+    border-color: var(--border-strong);
+    border-radius: 9px;
+    background: var(--surface);
+}
+
+body.images-page .upload-card h2,
+body.images-page .images-card h2 {
+    color: var(--ink);
+    font-size: 18px;
+    font-weight: 680;
+}
+
+body.images-page .upload-card p,
+body.images-page .section-heading p,
+body.images-page .image-card-top p {
+    color: var(--muted);
+}
+
+body.images-page .upload-controls {
+    gap: 10px;
+    margin-top: 16px;
+}
+
+body.images-page .upload-controls input {
+    min-height: 42px;
+    padding: 5px;
+    border-style: solid;
+    border-color: var(--border-strong);
+    color: #c6cfdd;
+    background: #171c28;
+}
+
+body.images-page .upload-controls input::file-selector-button {
+    min-height: 30px;
+    margin-right: 10px;
+    padding: 0 12px;
+    border: 1px solid #4a5365;
+    border-radius: 5px;
+    color: var(--ink);
+    background: #202635;
+    font-weight: 620;
+    cursor: pointer;
+}
+
+body.images-page .upload-controls input::file-selector-button:hover {
+    border-color: #7769d7;
+    background: #28263f;
+}
+
+body.images-page .primary-button,
+body.images-page .secondary-button,
+body.images-page .cancel-button,
+body.images-page .quiet-button {
+    min-height: 38px;
+    border-radius: 6px;
+}
+
+body.images-page .primary-button {
+    border-color: #3975f6;
+    background: #3975f6;
+}
+
+body.images-page .primary-button:hover {
+    border-color: #4b82fb;
+    background: #4b82fb;
+}
+
+body.images-page .secondary-button {
+    color: #a99cff;
+    border-color: #6559bd;
+    background: transparent;
+}
+
+body.images-page .secondary-button:hover {
+    color: #c6beff;
+    border-color: #7d70df;
+    background: #242238;
+}
+
+body.images-page .cancel-button {
+    color: var(--red);
+    border-color: rgba(255, 101, 105, .48);
+    background: transparent;
+}
+
+body.images-page .quiet-button:hover {
+    color: var(--ink);
+    background: var(--surface-hover);
+}
+
+body.images-page .progress-row {
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+}
+
+body.images-page .progress-row progress {
+    accent-color: #7769d7;
+}
+
+body.images-page .notice {
+    border-color: var(--border-strong);
+    background: #1b2130;
+    box-shadow: 0 16px 36px rgba(0, 0, 0, .34);
+}
+
+body.images-page .notice.success {
+    color: var(--green);
+    background: #172b28;
+}
+
+body.images-page .notice.error {
+    color: var(--red);
+    background: #2a1d26;
+}
+
+body.images-page .section-heading {
+    align-items: center;
+}
+
+body.images-page .section-heading > span {
+    color: #aeb8c8;
+}
+
+body.images-page .image-list {
+    gap: 10px;
+    margin-top: 16px;
+}
+
+body.images-page .image-card {
+    padding: 18px;
+    border-color: var(--border);
+    border-radius: 8px;
+    background: #171c28;
+}
+
+body.images-page .image-card:hover {
+    border-color: #454e60;
+    background: #191f2c;
+}
+
+body.images-page .image-title-row h3 {
+    color: var(--ink);
+    font-weight: 680;
+}
+
+body.images-page .format-badge.wim {
+    color: var(--green);
+    background: rgba(54, 201, 138, .12);
+}
+
+body.images-page .format-badge.esd {
+    color: var(--amber);
+    background: rgba(229, 173, 82, .12);
+}
+
+body.images-page .index-area {
+    margin-top: 16px;
+    padding-top: 14px;
+    border-color: var(--border);
+}
+
+body.images-page .index-area label {
+    gap: 8px;
+    padding: 12px;
+    color: var(--ink);
+    background: #141925;
+}
+
+body.images-page .index-area label > span {
+    color: #aeb8c8;
+}
+
+body.images-page .index-area select,
+body.images-page .rename-input {
+    border-color: var(--border-strong);
+    color: var(--ink);
+    background: #1a202d;
+    box-shadow: none;
+}
+
+body.images-page .index-area select {
+    min-height: 42px;
+    border-left: 3px solid #7769d7;
+}
+
+body.images-page .index-area select:hover,
+body.images-page .index-area select:focus,
+body.images-page .rename-input:focus {
+    border-color: #7769d7;
+    box-shadow: 0 0 0 3px rgba(119, 105, 215, .2);
+}
+
+body.images-page .empty-state {
+    color: var(--muted);
+    background: #171c28;
+}
+
+body.images-page .conversion-card {
+    border-left-color: #7769d7;
+}
+
+body.images-page .status-pill.running {
+    color: #a99cff;
+    background: rgba(119, 105, 215, .16);
+}
+
+body.images-page .status-pill.succeeded {
+    color: var(--green);
+    background: rgba(54, 201, 138, .12);
+}
+
+body.images-page .status-pill.failed,
+body.images-page .inspection-error {
+    color: var(--red);
+    background: rgba(255, 101, 105, .1);
+}
+
+body.images-page .decision-overlay {
+    background: rgba(4, 8, 15, .72);
+}
+
+body.images-page .decision-dialog {
+    border-color: var(--border-strong);
+    background: #171c28;
+    box-shadow: 0 24px 70px rgba(0, 0, 0, .5);
+}
+
+body.images-page .decision-dialog .decision-help {
+    color: var(--amber);
+    background: rgba(229, 173, 82, .1);
 }

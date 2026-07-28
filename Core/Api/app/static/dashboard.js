@@ -16,13 +16,11 @@ const STAGE_LABELS = {
 const VIEW_META = {
     deployments: {
         title: "Deployments",
-        subtitle: "Windows deployment journal and WinPE status",
         empty: "No deployments yet",
         filteredEmpty: "No deployments match the current filters",
     },
     computers: {
         title: "Computers",
-        subtitle: "Hardware seen by IronDeploy across all deployments",
         empty: "No computers yet",
         filteredEmpty: "No computers match the current search",
     },
@@ -45,15 +43,13 @@ const state = {
     status: "all",
     search: "",
     lastUpdated: null,
-    expandedDeployments: new Set(),
     expandedProgramDeployments: new Set(),
 };
 
 const elements = {
     refreshButton: document.querySelector("#refresh-button"),
     updatedAt: document.querySelector("#updated-at"),
-    pageTitle: document.querySelector("#page-title"),
-    pageSubtitle: document.querySelector("#page-subtitle"),
+    headerPageTitle: document.querySelector(".header-page-title"),
     viewTabs: [...document.querySelectorAll(".view-tab")],
     deploymentSummary: document.querySelector("#deployment-summary"),
     totalCount: document.querySelector("#total-count"),
@@ -61,10 +57,6 @@ const elements = {
     completedCount: document.querySelector("#completed-count"),
     failedCount: document.querySelector("#failed-count"),
     searchInput: document.querySelector("#search-input"),
-    statusSelect: document.querySelector("#status-select"),
-    statusSelectWrap: document.querySelector("#status-select-wrap"),
-    statusTabsWrap: document.querySelector("#status-tabs"),
-    statusTabs: [...document.querySelectorAll(".status-tab")],
     summaryItems: [...document.querySelectorAll(".summary-item")],
     tableRegion: document.querySelector("#table-region"),
     table: document.querySelector("#table-region table"),
@@ -120,16 +112,16 @@ function createCell(value, className = "") {
     return cell;
 }
 
-function createDeploymentLinkCell(deploymentId) {
+function createDeploymentLinkCell(deploymentId, computerName) {
     const cell = document.createElement("td");
-    cell.className = "deployment-id mono";
-    cell.dataset.copyValue = String(deploymentId);
+    cell.className = "deployment-primary";
+    cell.dataset.copyValue = computerName || String(deploymentId);
     const link = document.createElement("a");
     link.className = "deployment-detail-link";
     link.href = `/dashboard/${deploymentId}`;
     link.title = `Open deployment #${deploymentId}`;
     const label = document.createElement("span");
-    label.textContent = `#${deploymentId}`;
+    label.textContent = computerName || `#${deploymentId}`;
     const arrow = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     arrow.setAttribute("viewBox", "0 0 24 24");
     arrow.setAttribute("aria-hidden", "true");
@@ -267,8 +259,12 @@ function createSerialNumberCell(value) {
     );
     if (value) {
         const serialNumber = String(value);
-        cell.textContent = serialNumber.match(/.{1,10}/g).join("\n");
+        cell.textContent =
+            serialNumber.length > 18
+                ? `${serialNumber.slice(0, 7)}…${serialNumber.slice(-8)}`
+                : serialNumber;
         cell.dataset.copyValue = serialNumber;
+        cell.title = `${serialNumber}\nClick to copy`;
     }
     return cell;
 }
@@ -357,11 +353,20 @@ function createStagesCell(deployment) {
     const cell = document.createElement("td");
     cell.className = "stages-cell";
     const stages = deployment.stages ?? [];
+    const current = document.createElement("span");
+    current.className = "stage-current";
 
     if (stages.length === 0) {
-        cell.textContent = deployment.last_error_message || "No stage data";
-        cell.dataset.copyValue = cell.textContent;
-        cell.classList.add(deployment.last_error_message ? "error-cell" : "muted-value");
+        const hasError = Boolean(deployment.last_error_message);
+        current.classList.add(
+            hasError ? "stage-current-failed" : "stage-current-pending",
+        );
+        current.textContent = hasError
+            ? "Deployment failed"
+            : "Waiting for stage data";
+        cell.dataset.copyValue = current.textContent;
+        cell.title = "Open deployment details for the full history";
+        cell.append(current);
         return cell;
     }
 
@@ -369,69 +374,34 @@ function createStagesCell(deployment) {
         [...stages].reverse().find((stage) => stage.status === "running") ??
         [...stages].reverse().find((stage) => stage.status === "failed") ??
         stages.at(-1);
-    const details = document.createElement("details");
-    details.className = `stage-details stage-details-${currentStage.status}`;
-    details.open = state.expandedDeployments.has(deployment.deployment_id);
-    details.addEventListener("toggle", () => {
-        if (details.open) {
-            state.expandedDeployments.add(deployment.deployment_id);
-        } else {
-            state.expandedDeployments.delete(deployment.deployment_id);
-        }
-    });
+    const stageLabel = STAGE_LABELS[currentStage.stage] ?? currentStage.stage;
 
-    const summary = document.createElement("summary");
-    const summaryText = document.createElement("span");
-    summaryText.className = "stage-summary-text";
-
-    const summaryLabel = document.createElement("strong");
-    summaryLabel.textContent = STAGE_LABELS[currentStage.stage] ?? currentStage.stage;
-    if (currentStage.status === "failed") {
-        summaryLabel.textContent += " - failed";
-    }
-    summaryText.append(summaryLabel, createDuration(currentStage, "stage-summary-duration"));
-    summary.append(summaryText);
-
-    const timeline = document.createElement("ol");
-    timeline.className = "stage-timeline";
-    for (const stage of stages) {
-        const item = document.createElement("li");
-        item.className = `stage-item stage-${stage.status}`;
-
+    if (deployment.status === "completed") {
+        current.classList.add("stage-current-completed");
+        current.textContent = "Completed";
+    } else if (deployment.status === "failed" || currentStage.status === "failed") {
+        current.classList.add("stage-current-failed");
+        current.textContent = `Failed at: ${stageLabel}`;
+    } else {
+        current.classList.add("stage-current-running");
         const label = document.createElement("span");
-        label.className = "stage-label";
-        label.textContent = STAGE_LABELS[stage.stage] ?? stage.stage;
-
-        const result = createDuration(stage, "stage-result");
-        if (stage.status === "failed") {
-            result.textContent = `Failed - ${result.textContent}`;
-        } else if (stage.status === "running") {
-            result.textContent = `Running - ${result.textContent}`;
-        }
-
-        item.append(label, result);
-        const error = createErrorBlock(stage.error_message);
-        if (error) {
-            item.append(error);
-        }
-        timeline.append(item);
+        label.className = "stage-current-label";
+        label.textContent = stageLabel;
+        current.append(
+            label,
+            createDuration(currentStage, "stage-current-duration"),
+        );
     }
 
-    const deploymentError = createErrorBlock(deployment.last_error_message);
-    details.append(summary, timeline);
-    if (deploymentError) {
-        details.append(deploymentError);
-    }
-    cell.append(details);
+    cell.dataset.copyValue = current.textContent;
+    cell.title = "Open deployment details for the full history";
+    cell.append(current);
     return cell;
 }
 
 function renderLiveDurations() {
     for (const duration of document.querySelectorAll("[data-started-at]")) {
         duration.textContent = formatDuration(duration.dataset.startedAt);
-        if (duration.classList.contains("stage-result")) {
-            duration.textContent = `Running - ${duration.textContent}`;
-        }
     }
 }
 
@@ -510,20 +480,14 @@ function filteredComputers() {
 
 function renderDeploymentRows() {
     createHeader([
-        "ID",
         "Computer",
-        "Serial",
         "Model",
-        "MAC",
-        "IP",
+        "Serial",
         "Image",
-        "Domain",
         "Status",
-        "Stages / error",
-        "Post-install software",
-        "Total time",
+        "Current stage",
+        "Duration",
         "Started",
-        "Finished",
     ]);
     elements.rows.replaceChildren();
     const deployments = filteredDeployments();
@@ -535,20 +499,17 @@ function renderDeploymentRows() {
     for (const deployment of deployments) {
         const row = document.createElement("tr");
         row.append(
-            createDeploymentLinkCell(deployment.deployment_id),
-            createCell(deployment.computer_name, "computer-name"),
-            createSerialNumberCell(deployment.serial_number),
+            createDeploymentLinkCell(
+                deployment.deployment_id,
+                deployment.computer_name,
+            ),
             createCell(deployment.model, deployment.model ? "" : "muted-value"),
-            createCell(deployment.mac_address, "mono"),
-            createCell(deployment.ip_address, "mono"),
+            createSerialNumberCell(deployment.serial_number),
             createCell(deployment.image_name, deployment.image_name ? "" : "muted-value"),
-            createCell(formatBoolean(deployment.domain_join)),
             createStatusCell(deployment.status),
             createStagesCell(deployment),
-            createProgramsCell(deployment),
             createDeploymentDurationCell(deployment),
             createCell(formatDate(deployment.started_at)),
-            createCell(formatDate(deployment.completed_at), deployment.completed_at ? "" : "muted-value"),
         );
         elements.rows.append(row);
     }
@@ -618,11 +579,8 @@ function renderRows() {
     const meta = VIEW_META[state.view];
     elements.table.classList.toggle("deployment-table", state.view === "deployments");
     elements.table.classList.toggle("computer-table", state.view === "computers");
-    elements.pageTitle.textContent = meta.title;
-    elements.pageSubtitle.textContent = meta.subtitle;
+    elements.headerPageTitle.textContent = meta.title;
     elements.deploymentSummary.hidden = state.view !== "deployments";
-    elements.statusSelectWrap.hidden = state.view !== "deployments";
-    elements.statusTabsWrap.hidden = state.view !== "deployments";
 
     if (state.view === "deployments") {
         renderDeploymentRows();
@@ -633,13 +591,6 @@ function renderRows() {
 
 function setStatus(status) {
     state.status = status;
-    elements.statusSelect.value = status;
-
-    for (const tab of elements.statusTabs) {
-        const active = tab.dataset.status === status;
-        tab.classList.toggle("is-active", active);
-        tab.setAttribute("aria-pressed", String(active));
-    }
 
     for (const item of elements.summaryItems) {
         const active = item.dataset.summaryStatus === status;
@@ -749,12 +700,6 @@ elements.searchInput.addEventListener("keydown", (event) => {
         renderRows();
     }
 });
-elements.statusSelect.addEventListener("change", (event) => {
-    setStatus(event.target.value);
-});
-for (const tab of elements.statusTabs) {
-    tab.addEventListener("click", () => setStatus(tab.dataset.status));
-}
 for (const item of elements.summaryItems) {
     item.addEventListener("click", () => setStatus(item.dataset.summaryStatus));
 }
