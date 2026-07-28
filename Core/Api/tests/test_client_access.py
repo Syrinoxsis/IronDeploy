@@ -20,6 +20,8 @@ os.environ.setdefault("IRONAPI_ODJ_PROVISION_TIMEOUT", "60")
 import unittest
 import asyncio
 from datetime import datetime, timedelta, timezone
+from ipaddress import IPv4Network
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from sqlalchemy import create_engine
@@ -72,10 +74,18 @@ class ClientAccessTests(unittest.TestCase):
         self.assertTrue(is_client_allowed("::1"))
 
     def test_configured_network_is_allowed(self) -> None:
-        self.assertTrue(is_client_allowed("192.0.2.94"))
+        settings = SimpleNamespace(
+            allowed_client_networks=(IPv4Network("192.0.2.0/24"),)
+        )
+        with patch("app.main.get_settings", return_value=settings):
+            self.assertTrue(is_client_allowed("192.0.2.94"))
 
     def test_unconfigured_network_is_rejected(self) -> None:
-        self.assertFalse(is_client_allowed("203.0.113.10"))
+        settings = SimpleNamespace(
+            allowed_client_networks=(IPv4Network("192.0.2.0/24"),)
+        )
+        with patch("app.main.get_settings", return_value=settings):
+            self.assertFalse(is_client_allowed("203.0.113.10"))
 
     def test_invalid_or_missing_address_is_rejected(self) -> None:
         self.assertFalse(is_client_allowed(None))

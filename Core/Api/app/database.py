@@ -5,14 +5,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 import sqlite3
 
-from sqlalchemy import String, Text, create_engine, event, inspect, text
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.engine import Connection, Engine, make_url
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import get_settings
-from app.auth import AuthPermission, AuthSession, AuthUser
-from app.deployments import Base, Deployment, update_computer_inventory
-from app.winpe_auth import WinPEAuthPolicy, WinPEPinAttempt
+from app.deployments import Deployment, update_computer_inventory
+from app.sqlite_migration_0001 import SQLITE_MIGRATION_0001
 
 
 MIGRATION_TABLE = "schema_migrations"
@@ -31,7 +30,6 @@ class Migration:
     version: int
     name: str
     upgrade: Callable[[Connection], None]
-    disable_sqlite_foreign_keys: bool = False
 
 
 @event.listens_for(Engine, "connect")
@@ -49,16 +47,17 @@ def _enable_sqlite_foreign_keys(
 
 
 database_url = make_url(get_settings().database_url)
-
-if database_url.get_backend_name() == "sqlite":
-    if database_url.database and database_url.database != ":memory:":
-        Path(database_url.database).expanduser().resolve().parent.mkdir(
-            parents=True,
-            exist_ok=True,
-        )
-    connect_args = {"check_same_thread": False}
-else:
-    connect_args = {}
+if database_url.get_backend_name() != "sqlite":
+    raise DatabaseMigrationError(
+        "IronAPI currently supports SQLite databases only; "
+        f"configured dialect: {database_url.get_backend_name()}."
+    )
+if database_url.database and database_url.database != ":memory:":
+    Path(database_url.database).expanduser().resolve().parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+connect_args = {"check_same_thread": False, "timeout": 30}
 
 engine = create_engine(
     database_url,
@@ -73,18 +72,19 @@ SessionLocal = sessionmaker(
 
 
 def _deployment_constraints_support_failed(bind: Connection) -> bool:
-    constraints = {
-        constraint["name"]: constraint.get("sqltext") or ""
-        for constraint in inspect(bind).get_check_constraints(
-            Deployment.__tablename__
-        )
-    }
-    return all(
-        "'failed'" in constraints.get(name, "").lower()
-        for name in (
-            "ck_deployments_status",
-            "ck_deployments_completion",
-        )
+    table_sql = (
+        bind.exec_driver_sql(
+            "SELECT sql FROM sqlite_master "
+            "WHERE type = 'table' AND name = ?",
+            (Deployment.__tablename__,),
+        ).scalar_one_or_none()
+        or ""
+    )
+    normalized = table_sql.lower()
+    return (
+        "ck_deployments_status" in normalized
+        and "ck_deployments_completion" in normalized
+        and normalized.count("'failed'") >= 2
     )
 
 
@@ -179,44 +179,7 @@ def _upgrade_deployment_constraints(connection: Connection) -> None:
     ):
         return
 
-    if connection.dialect.name == "sqlite":
-        _upgrade_sqlite_deployment_constraints(connection)
-        return
-
-    connection.execute(
-        text(
-            "ALTER TABLE deployments "
-            "DROP CONSTRAINT ck_deployments_status"
-        )
-    )
-    connection.execute(
-        text(
-            "ALTER TABLE deployments "
-            "DROP CONSTRAINT ck_deployments_completion"
-        )
-    )
-    connection.execute(
-        text(
-            "ALTER TABLE deployments "
-            "ADD CONSTRAINT ck_deployments_status "
-            "CHECK (status IN ('begin', 'completed', 'failed'))"
-        )
-    )
-    connection.execute(
-        text(
-            "ALTER TABLE deployments "
-            "ADD CONSTRAINT ck_deployments_completion CHECK ("
-            "(status = 'begin' AND completed_at IS NULL) OR "
-            "(status IN ('completed', 'failed') "
-            "AND completed_at IS NOT NULL))"
-        )
-    )
-    connection.execute(
-        text(
-            "ALTER TABLE deployments "
-            "ALTER COLUMN image_name DROP NOT NULL"
-        )
-    )
+    _upgrade_sqlite_deployment_constraints(connection)
 
 
 def _backfill_computer_inventory(connection: Connection) -> None:
@@ -240,24 +203,22 @@ def _backfill_computer_inventory(connection: Connection) -> None:
 
 
 def _migration_create_schema(connection: Connection) -> None:
-    Base.metadata.create_all(bind=connection)
+    for statement in SQLITE_MIGRATION_0001:
+        connection.exec_driver_sql(statement)
 
 
 def _migration_add_legacy_columns(connection: Connection) -> None:
-    string_128 = String(128).compile(dialect=connection.dialect)
-    string_32 = String(32).compile(dialect=connection.dialect)
-    text_type = Text().compile(dialect=connection.dialect)
     additions = {
         "deployments": (
-            ("serial_number", string_128),
-            ("last_error_message", text_type),
-            ("model", string_128),
-            ("manufacturer", string_128),
-            ("system_sku", string_128),
+            ("serial_number", "VARCHAR(128)"),
+            ("last_error_message", "TEXT"),
+            ("model", "VARCHAR(128)"),
+            ("manufacturer", "VARCHAR(128)"),
+            ("system_sku", "VARCHAR(128)"),
         ),
-        "computers": (("last_model", string_128),),
-        "deployment_stages": (("error_message", text_type),),
-        "deployment_programs": (("reason", string_32),),
+        "computers": (("last_model", "VARCHAR(128)"),),
+        "deployment_stages": (("error_message", "TEXT"),),
+        "deployment_programs": (("reason", "VARCHAR(32)"),),
     }
 
     for table_name, columns_to_add in additions.items():
@@ -291,7 +252,6 @@ MIGRATIONS = (
         3,
         "upgrade deployment constraints and inventory",
         _migration_upgrade_constraints_and_inventory,
-        disable_sqlite_foreign_keys=True,
     ),
 )
 
@@ -306,18 +266,17 @@ def _validate_migration_definitions() -> None:
         )
 
 
-def _read_applied_versions(target_engine: Engine) -> list[int]:
-    if not inspect(target_engine).has_table(MIGRATION_TABLE):
+def _read_applied_versions(connection: Connection) -> list[int]:
+    if not inspect(connection).has_table(MIGRATION_TABLE):
         return []
-    with target_engine.connect() as connection:
-        return list(
-            connection.scalars(
-                text(
-                    f"SELECT version FROM {MIGRATION_TABLE} "
-                    "ORDER BY version"
-                )
+    return list(
+        connection.scalars(
+            text(
+                f"SELECT version FROM {MIGRATION_TABLE} "
+                "ORDER BY version"
             )
         )
+    )
 
 
 def _validate_applied_versions(applied_versions: list[int]) -> None:
@@ -333,12 +292,43 @@ def _validate_applied_versions(applied_versions: list[int]) -> None:
 
 
 def _sqlite_database_path(target_engine: Engine) -> Path | None:
-    if target_engine.dialect.name != "sqlite":
-        return None
     database = target_engine.url.database
     if not database or database == ":memory:":
         return None
     return Path(database).expanduser().resolve()
+
+
+def _validate_sqlite_engine(target_engine: Engine) -> None:
+    if target_engine.dialect.name != "sqlite":
+        raise DatabaseMigrationError(
+            "IronAPI currently supports SQLite databases only; "
+            f"configured dialect: {target_engine.dialect.name}."
+        )
+
+
+def _check_sqlite_file(database_path: Path, pragma: str) -> None:
+    try:
+        with closing(
+            sqlite3.connect(
+                f"{database_path.as_uri()}?mode=ro",
+                uri=True,
+                timeout=30,
+            )
+        ) as connection:
+            results = [
+                row[0]
+                for row in connection.execute(f"PRAGMA {pragma}").fetchall()
+            ]
+    except Exception as exc:
+        raise DatabaseMigrationError(
+            f"Could not verify SQLite database {database_path} "
+            f"with PRAGMA {pragma}: {exc}"
+        ) from exc
+    if results != ["ok"]:
+        raise DatabaseMigrationError(
+            f"SQLite PRAGMA {pragma} failed for {database_path}: {results}. "
+            "No migrations were run."
+        )
 
 
 def _create_sqlite_backup(database_path: Path) -> Path:
@@ -353,6 +343,7 @@ def _create_sqlite_backup(database_path: Path) -> Path:
         ):
             source.backup(destination)
             destination.commit()
+        _check_sqlite_file(backup_path, "integrity_check")
     except Exception as exc:
         try:
             backup_path.unlink(missing_ok=True)
@@ -385,28 +376,15 @@ def _migration_error(
 
 def _run_pending_migrations(
     target_engine: Engine,
-    pending_migrations: tuple[Migration, ...],
     backup_path: Path | None,
 ) -> None:
     connection = target_engine.connect()
-    disable_foreign_keys = (
-        target_engine.dialect.name == "sqlite"
-        and any(
-            migration.disable_sqlite_foreign_keys
-            for migration in pending_migrations
-        )
-    )
     active_migration: Migration | None = None
 
-    def apply_pending_migrations() -> None:
+    def apply_pending_migrations(
+        pending_migrations: tuple[Migration, ...],
+    ) -> None:
         nonlocal active_migration
-        connection.execute(
-            text(
-                f"CREATE TABLE IF NOT EXISTS {MIGRATION_TABLE} ("
-                "version INTEGER PRIMARY KEY, "
-                "applied_at VARCHAR(32) NOT NULL)"
-            )
-        )
         for active_migration in pending_migrations:
             active_migration.upgrade(connection)
             connection.execute(
@@ -421,52 +399,68 @@ def _run_pending_migrations(
                 },
             )
 
-        if target_engine.dialect.name == "sqlite":
-            violations = connection.exec_driver_sql(
-                "PRAGMA foreign_key_check"
-            ).fetchall()
-            if violations:
-                raise RuntimeError(
-                    "SQLite foreign key check failed after migrations: "
-                    f"{violations}"
-                )
+        violations = connection.exec_driver_sql(
+            "PRAGMA foreign_key_check"
+        ).fetchall()
+        if violations:
+            raise RuntimeError(
+                "SQLite foreign key check failed after migrations: "
+                f"{violations}"
+            )
 
     try:
-        if disable_foreign_keys:
-            connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
-            connection.commit()
-
-        if target_engine.dialect.name == "sqlite":
-            connection.exec_driver_sql("BEGIN")
-            try:
-                apply_pending_migrations()
-            except Exception:
-                connection.rollback()
-                raise
-            else:
-                connection.commit()
+        # This must happen outside the transaction; SQLite ignores changes to
+        # foreign_keys while a transaction is active.
+        connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
+        connection.commit()
+        connection.exec_driver_sql("PRAGMA busy_timeout=30000")
+        connection.exec_driver_sql("BEGIN IMMEDIATE")
+        try:
+            connection.execute(
+                text(
+                    f"CREATE TABLE IF NOT EXISTS {MIGRATION_TABLE} ("
+                    "version INTEGER PRIMARY KEY, "
+                    "applied_at VARCHAR(32) NOT NULL)"
+                )
+            )
+            # The history must be read only after BEGIN IMMEDIATE acquired the
+            # writer lock. Another startup may have migrated while we waited.
+            applied_versions = _read_applied_versions(connection)
+            _validate_applied_versions(applied_versions)
+            applied = set(applied_versions)
+            pending_migrations = tuple(
+                migration
+                for migration in MIGRATIONS
+                if migration.version not in applied
+            )
+            apply_pending_migrations(pending_migrations)
+        except Exception:
+            connection.rollback()
+            raise
         else:
-            with connection.begin():
-                apply_pending_migrations()
+            connection.commit()
     except Exception as exc:
         raise _migration_error(active_migration, backup_path, exc) from exc
     finally:
-        if disable_foreign_keys:
-            if connection.in_transaction():
-                connection.rollback()
+        if connection.in_transaction():
+            connection.rollback()
+        try:
             connection.exec_driver_sql("PRAGMA foreign_keys=ON")
             connection.commit()
-        connection.close()
+        finally:
+            connection.close()
 
 
 def initialize_database(target_engine: Engine = engine) -> None:
+    _validate_sqlite_engine(target_engine)
     _validate_migration_definitions()
     sqlite_path = _sqlite_database_path(target_engine)
     sqlite_database_existed = (
         sqlite_path is not None and sqlite_path.is_file()
     )
 
-    applied_versions = _read_applied_versions(target_engine)
+    with target_engine.connect() as connection:
+        applied_versions = _read_applied_versions(connection)
     _validate_applied_versions(applied_versions)
     applied = set(applied_versions)
     pending_migrations = tuple(
@@ -479,11 +473,11 @@ def initialize_database(target_engine: Engine = engine) -> None:
 
     backup_path = None
     if sqlite_database_existed and sqlite_path is not None:
+        _check_sqlite_file(sqlite_path, "quick_check")
         backup_path = _create_sqlite_backup(sqlite_path)
 
     _run_pending_migrations(
         target_engine,
-        pending_migrations,
         backup_path,
     )
 
