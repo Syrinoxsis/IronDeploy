@@ -5,16 +5,30 @@ FastAPI service for IronDeploy automation.
 Requests are accepted from loopback and CIDRs listed in
 `IRONAPI_ALLOWED_CLIENT_NETWORKS`. Other clients receive `403 Forbidden`.
 
-Deployment state is stored through SQLAlchemy. The default database is
-`..\Data\irondeploy.db` (SQLite). Set `IRONAPI_DATABASE_URL` to use another
-SQLAlchemy-supported database:
+Deployment state is stored in `..\Data\irondeploy.db` by default. IronAPI
+currently supports SQLite only; startup rejects other database dialects:
 
 ```dotenv
 IRONAPI_DATABASE_URL=sqlite:///{IRONDEPLOY_ROOT}/Data/irondeploy.db
 ```
 
-For PostgreSQL, install a PostgreSQL SQLAlchemy driver and use a URL such as
-`postgresql+psycopg://user:password@server/database`.
+IronAPI applies numbered database migrations in order during startup and
+records completed versions in `schema_migrations`. Pending migrations for a
+file-backed SQLite database first create a timestamped
+`irondeploy.db.<UTC timestamp>.bak` backup beside the database. Before that,
+the source database must pass `PRAGMA quick_check`; the completed backup must
+pass `PRAGMA integrity_check`. All pending migrations run under a SQLite
+writer lock in one transaction; a failure rolls the transaction back and
+stops startup with the backup path in the error. SQLite connections also
+enable foreign-key enforcement, including configured `ON DELETE` actions.
+
+To restore after a failed migration, stop IronAPI, keep the failed database
+for investigation, copy the backup named in the startup error over
+`irondeploy.db`, and start IronAPI again. Verify the restored copy with
+`PRAGMA integrity_check` before putting it back into service. Backup files are
+not deleted automatically. After confirming the upgraded database and keeping
+the backups required by your retention policy, remove older
+`irondeploy.db.*.bak` files manually.
 
 Each request is written to the console log with its client address, HTTP
 method, endpoint, response status and duration. Rejected requests are logged
