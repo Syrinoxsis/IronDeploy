@@ -8,8 +8,8 @@ SetupWeb:
   ``$EnableSetupLocalAdmin``) consumed by
   ``ServerTemplates/PostInstall/postinstall.ps1``.
 * ``ServerTemplates/Unattend/unattend-win11-template.xml`` — the Windows
-  ``<TimeZone>`` and the ``localadmin`` local account (its name and plain-text
-  password).
+  regional and language settings plus the ``localadmin`` local account (its
+  name and plain-text password).
 
 Writes are line/element targeted so unrelated values (for example the SMB
 password inside ``deploy.config.ps1``) are preserved, and every changed file is
@@ -109,6 +109,73 @@ DEFAULT_TIME_ZONE = "Central Asia Standard Time"
 DEFAULT_LOCAL_ADMIN_NAME = "localadmin"
 
 _ADMIN_NAME_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,20}$")
+UI_LANGUAGES: tuple[tuple[str, str], ...] = (
+    ("ar-SA", "Arabic"),
+    ("az-Latn-AZ", "Azerbaijani (Latin)"),
+    ("bg-BG", "Bulgarian"),
+    ("cs-CZ", "Czech"),
+    ("da-DK", "Danish"),
+    ("de-DE", "German"),
+    ("el-GR", "Greek"),
+    ("en-GB", "English (United Kingdom)"),
+    ("en-US", "English (United States)"),
+    ("es-ES", "Spanish"),
+    ("et-EE", "Estonian"),
+    ("fi-FI", "Finnish"),
+    ("fr-FR", "French"),
+    ("he-IL", "Hebrew"),
+    ("hu-HU", "Hungarian"),
+    ("it-IT", "Italian"),
+    ("ja-JP", "Japanese"),
+    ("kk-KZ", "Kazakh"),
+    ("ko-KR", "Korean"),
+    ("lt-LT", "Lithuanian"),
+    ("lv-LV", "Latvian"),
+    ("nb-NO", "Norwegian"),
+    ("nl-NL", "Dutch"),
+    ("pl-PL", "Polish"),
+    ("pt-BR", "Portuguese (Brazil)"),
+    ("pt-PT", "Portuguese (Portugal)"),
+    ("ro-RO", "Romanian"),
+    ("ru-RU", "Russian"),
+    ("sk-SK", "Slovak"),
+    ("sl-SI", "Slovenian"),
+    ("sr-Latn-RS", "Serbian (Latin)"),
+    ("sv-SE", "Swedish"),
+    ("th-TH", "Thai"),
+    ("tr-TR", "Turkish"),
+    ("uk-UA", "Ukrainian"),
+    ("vi-VN", "Vietnamese"),
+    ("zh-CN", "Chinese (Simplified)"),
+    ("zh-TW", "Chinese (Traditional)"),
+)
+
+LOCALES: tuple[tuple[str, str], ...] = UI_LANGUAGES + (
+    ("az-Cyrl-AZ", "Azerbaijani (Cyrillic)"),
+    ("be-BY", "Belarusian"),
+    ("en-AU", "English (Australia)"),
+    ("en-CA", "English (Canada)"),
+    ("es-MX", "Spanish (Mexico)"),
+    ("fa-IR", "Persian"),
+    ("fr-CA", "French (Canada)"),
+    ("hi-IN", "Hindi"),
+    ("hy-AM", "Armenian"),
+    ("id-ID", "Indonesian"),
+    ("ka-GE", "Georgian"),
+    ("ky-KG", "Kyrgyz"),
+    ("ru-KZ", "Russian (Kazakhstan)"),
+    ("sr-Cyrl-RS", "Serbian (Cyrillic)"),
+    ("tg-Cyrl-TJ", "Tajik (Cyrillic)"),
+    ("tk-TM", "Turkmen"),
+    ("ur-PK", "Urdu"),
+    ("uz-Cyrl-UZ", "Uzbek (Cyrillic)"),
+    ("uz-Latn-UZ", "Uzbek (Latin)"),
+)
+
+KEYBOARD_LAYOUTS: tuple[tuple[str, str], ...] = LOCALES
+UI_LANGUAGE_IDS = {item[0] for item in UI_LANGUAGES}
+LOCALE_IDS = {item[0] for item in LOCALES}
+KEYBOARD_LAYOUT_IDS = {item[0] for item in KEYBOARD_LAYOUTS}
 
 
 class ImageConfigError(ValueError):
@@ -224,6 +291,12 @@ def _has_real_password(value: str | None) -> bool:
 def _read_unattend(paths: ImagePaths) -> dict[str, Any]:
     source = _unattend_source(paths)
     time_zone = DEFAULT_TIME_ZONE
+    regional = {
+        "inputLocale": "ru-RU",
+        "systemLocale": "ru-RU",
+        "uiLanguage": "ru-RU",
+        "userLocale": "ru-RU",
+    }
     admin_name = DEFAULT_LOCAL_ADMIN_NAME
     has_password = False
     has_builtin_password = False
@@ -232,6 +305,19 @@ def _read_unattend(paths: ImagePaths) -> dict[str, Any]:
         tz_match = re.search(r"<TimeZone>(.*?)</TimeZone>", content, re.DOTALL)
         if tz_match:
             time_zone = tz_match.group(1).strip()
+        for element_name, field_name in (
+            ("InputLocale", "inputLocale"),
+            ("SystemLocale", "systemLocale"),
+            ("UILanguage", "uiLanguage"),
+            ("UserLocale", "userLocale"),
+        ):
+            match = re.search(
+                rf"<{element_name}>(.*?)</{element_name}>",
+                content,
+                re.DOTALL,
+            )
+            if match and match.group(1).strip():
+                regional[field_name] = match.group(1).strip()
         block = _local_account_block(content)
         if block:
             name_match = re.search(r"<Name>(.*?)</Name>", block, re.DOTALL)
@@ -253,6 +339,7 @@ def _read_unattend(paths: ImagePaths) -> dict[str, Any]:
             has_builtin_password = _has_real_password(builtin_match.group(1))
     return {
         "timeZone": time_zone,
+        **regional,
         "localAdminName": admin_name,
         "hasLocalAdminPassword": has_password,
         "hasBuiltInAdministratorPassword": has_builtin_password,
@@ -332,6 +419,10 @@ def _set_builtin_administrator_password(content: str, password: str) -> str:
 def _save_unattend(
     paths: ImagePaths,
     time_zone: str,
+    input_locale: str,
+    system_locale: str,
+    ui_language: str,
+    user_locale: str,
     admin_name: str,
     password: str | None,
     builtin_password: str | None,
@@ -356,6 +447,24 @@ def _save_unattend(
         content,
         flags=re.DOTALL,
     )
+    for element_name, value in (
+        ("InputLocale", input_locale),
+        ("SystemLocale", system_locale),
+        ("UILanguage", ui_language),
+        ("UserLocale", user_locale),
+    ):
+        pattern = rf"<{element_name}>.*?</{element_name}>"
+        if not re.search(pattern, content, re.DOTALL):
+            raise ImageConfigError(
+                f"Unattend template does not contain a {element_name} element."
+            )
+        content = re.sub(
+            pattern,
+            f"<{element_name}>{escape(value)}</{element_name}>",
+            content,
+            count=1,
+            flags=re.DOTALL,
+        )
 
     block = _local_account_block(content)
     if block is None:
@@ -494,6 +603,10 @@ def load_image_config(paths: ImagePaths | None = None) -> dict[str, Any]:
             winpe.get("EnableGuiImageApplyProgress", "true")
         ),
         "timeZone": unattend["timeZone"],
+        "inputLocale": unattend["inputLocale"],
+        "systemLocale": unattend["systemLocale"],
+        "uiLanguage": unattend["uiLanguage"],
+        "userLocale": unattend["userLocale"],
         "hasLocalAdminPassword": unattend["hasLocalAdminPassword"],
         "hasBuiltInAdministratorPassword": unattend[
             "hasBuiltInAdministratorPassword"
@@ -501,6 +614,18 @@ def load_image_config(paths: ImagePaths | None = None) -> dict[str, Any]:
         "timeZones": [
             {"id": item[0], "offset": item[1], "label": item[2]}
             for item in TIME_ZONES
+        ],
+        "uiLanguages": [
+            {"id": item[0], "label": item[1]}
+            for item in sorted(UI_LANGUAGES, key=lambda item: item[1])
+        ],
+        "locales": [
+            {"id": item[0], "label": item[1]}
+            for item in sorted(LOCALES, key=lambda item: item[1])
+        ],
+        "keyboardLayouts": [
+            {"id": item[0], "label": item[1]}
+            for item in sorted(KEYBOARD_LAYOUTS, key=lambda item: item[1])
         ],
         "files": {
             "winpeConfig": str(paths.winpe_config),
@@ -531,6 +656,23 @@ def save_image_config(
         raise ImageConfigError(
             "Time zone must be selected from the supported Windows time zone list."
         )
+
+    current_unattend = _read_unattend(paths)
+    input_locale = _validate_input_locale(
+        payload.get("inputLocale", current_unattend["inputLocale"])
+    )
+    system_locale = _validate_locale(
+        payload.get("systemLocale", current_unattend["systemLocale"]),
+        "System locale",
+    )
+    ui_language = _validate_locale(
+        payload.get("uiLanguage", current_unattend["uiLanguage"]),
+        "UI language",
+    )
+    user_locale = _validate_locale(
+        payload.get("userLocale", current_unattend["userLocale"]),
+        "User locale",
+    )
 
     enable_builtin = _normalize_bool(payload.get("enableBuiltInAdministrator"))
     if "enableSetupLocalAdmin" in payload:
@@ -567,7 +709,15 @@ def save_image_config(
     if backup:
         backups.append(backup)
     backup = _save_unattend(
-        paths, time_zone, admin_name, password, builtin_password
+        paths,
+        time_zone,
+        input_locale,
+        system_locale,
+        ui_language,
+        user_locale,
+        admin_name,
+        password,
+        builtin_password,
     )
     if backup:
         backups.append(backup)
@@ -588,3 +738,27 @@ def _validate_optional_password(raw: Any, label: str) -> str | None:
     if len(password) < 8:
         raise ImageConfigError(f"{label} password must be at least 8 characters.")
     return password
+
+
+def _validate_locale(raw: Any, label: str) -> str:
+    value = str(raw).strip()
+    allowed = UI_LANGUAGE_IDS if label == "UI language" else LOCALE_IDS
+    if value not in allowed:
+        raise ImageConfigError(f"{label} must be selected from the supported list.")
+    return value
+
+
+def _validate_input_locale(raw: Any) -> str:
+    value = str(raw).strip()
+    layouts = [item.strip() for item in value.split(";") if item.strip()]
+    if not layouts:
+        raise ImageConfigError("Select at least one keyboard layout.")
+    if len(layouts) > 8:
+        raise ImageConfigError("No more than 8 keyboard layouts can be selected.")
+    if len(layouts) != len(set(layouts)):
+        raise ImageConfigError("The same keyboard layout cannot be selected twice.")
+    if any(item not in KEYBOARD_LAYOUT_IDS for item in layouts):
+        raise ImageConfigError(
+            "Every keyboard layout must be selected from the supported list."
+        )
+    return ";".join(layouts)

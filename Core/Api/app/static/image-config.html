@@ -156,10 +156,51 @@
             <fieldset class="settings-panel" data-settings-panel="regional" hidden>
                 <legend>Regional &amp; language</legend>
                 <p class="fieldset-help">
-                    Configure Windows regional defaults written into the unattend
-                    template. Additional language options can be added here later.
+                    Configure Windows language, keyboard, regional, and time zone
+                    defaults written into the unattend template.
                 </p>
                 <div class="field-grid">
+                    <label class="field">
+                        <span class="field-label">Windows display language</span>
+                        <select id="uiLanguage" name="uiLanguage"></select>
+                        <span class="field-hint">
+                            The corresponding language pack must be present in the
+                            selected Windows image.
+                        </span>
+                    </label>
+                    <div class="field">
+                        <span class="field-label" id="keyboard-layout-label">
+                            Keyboard layouts
+                        </span>
+                        <div class="keyboard-picker">
+                            <select id="keyboardLayoutChoice"
+                                    aria-labelledby="keyboard-layout-label"></select>
+                            <button class="keyboard-add-button"
+                                    id="addKeyboardLayout" type="button">
+                                Add layout
+                            </button>
+                        </div>
+                        <div class="keyboard-layout-list" id="keyboardLayoutList"
+                             aria-live="polite"></div>
+                        <span class="field-hint">
+                            Add up to 8 layouts. The first layout is the default;
+                            use the arrows to change the order.
+                        </span>
+                    </div>
+                    <label class="field">
+                        <span class="field-label">System locale</span>
+                        <select id="systemLocale" name="systemLocale"></select>
+                        <span class="field-hint">
+                            Language used by non-Unicode programs.
+                        </span>
+                    </label>
+                    <label class="field">
+                        <span class="field-label">User locale</span>
+                        <select id="userLocale" name="userLocale"></select>
+                        <span class="field-hint">
+                            Default formats for dates, numbers, and currency.
+                        </span>
+                    </label>
                     <label class="field wide">
                         <span class="field-label">Windows time zone</span>
                         <select id="timeZone" name="timeZone"></select>

@@ -11,6 +11,12 @@ const elements = {
     ),
     builtInAdministratorPassword: document.querySelector("#builtInAdministratorPassword"),
     timeZone: document.querySelector("#timeZone"),
+    keyboardLayoutChoice: document.querySelector("#keyboardLayoutChoice"),
+    addKeyboardLayout: document.querySelector("#addKeyboardLayout"),
+    keyboardLayoutList: document.querySelector("#keyboardLayoutList"),
+    systemLocale: document.querySelector("#systemLocale"),
+    uiLanguage: document.querySelector("#uiLanguage"),
+    userLocale: document.querySelector("#userLocale"),
     passwordStatus: document.querySelector("#password-status"),
     builtinPasswordStatus: document.querySelector("#builtin-password-status"),
     builtinPasswordWarning: document.querySelector("#builtin-password-warning"),
@@ -28,6 +34,8 @@ const elements = {
 };
 
 let pendingBuildTarget = null;
+let keyboardLayoutChoices = [];
+let selectedKeyboardLayouts = [];
 
 function showSettingsCategory(category) {
     for (const panel of elements.settingsPanels) {
@@ -84,6 +92,87 @@ function renderTimeZones(timeZones, selected) {
     }
 }
 
+function renderChoices(element, choices, selected) {
+    element.replaceChildren(
+        ...choices.map((choice) => {
+            const option = document.createElement("option");
+            option.value = choice.id;
+            option.textContent = `${choice.label} (${choice.id})`;
+            return option;
+        })
+    );
+    if (selected) {
+        element.value = selected;
+    }
+}
+
+function keyboardLayoutLabel(id) {
+    const choice = keyboardLayoutChoices.find((item) => item.id === id);
+    return choice ? `${choice.label} (${choice.id})` : id;
+}
+
+function renderKeyboardLayouts() {
+    const available = keyboardLayoutChoices.filter(
+        (choice) => !selectedKeyboardLayouts.includes(choice.id)
+    );
+    renderChoices(elements.keyboardLayoutChoice, available);
+    elements.keyboardLayoutChoice.disabled = available.length === 0;
+    elements.addKeyboardLayout.disabled =
+        available.length === 0 || selectedKeyboardLayouts.length >= 8;
+
+    elements.keyboardLayoutList.replaceChildren(
+        ...selectedKeyboardLayouts.map((layout, index) => {
+            const row = document.createElement("div");
+            row.className = "keyboard-layout-row";
+
+            const name = document.createElement("span");
+            name.className = "keyboard-layout-name";
+            name.textContent = keyboardLayoutLabel(layout);
+            row.append(name);
+
+            if (index === 0) {
+                const badge = document.createElement("span");
+                badge.className = "keyboard-default-badge";
+                badge.textContent = window.IronI18n?.t("Default") || "Default";
+                row.append(badge);
+            }
+
+            const actions = document.createElement("div");
+            actions.className = "keyboard-layout-actions";
+            for (const [action, text, title, disabled] of [
+                ["up", "↑", "Move up", index === 0],
+                ["down", "↓", "Move down", index === selectedKeyboardLayouts.length - 1],
+                ["remove", "×", "Remove", selectedKeyboardLayouts.length === 1],
+            ]) {
+                const button = document.createElement("button");
+                button.type = "button";
+                button.className = `keyboard-action-button ${action}`;
+                button.dataset.action = action;
+                button.dataset.index = String(index);
+                button.textContent = text;
+                button.title = window.IronI18n?.t(title) || title;
+                button.setAttribute("aria-label", button.title);
+                button.disabled = disabled;
+                actions.append(button);
+            }
+            row.append(actions);
+            return row;
+        })
+    );
+}
+
+function setKeyboardLayouts(choices, value) {
+    keyboardLayoutChoices = choices;
+    selectedKeyboardLayouts = String(value || "")
+        .split(";")
+        .map((item) => item.trim())
+        .filter((item) => keyboardLayoutChoices.some((choice) => choice.id === item));
+    if (!selectedKeyboardLayouts.length && keyboardLayoutChoices.length) {
+        selectedKeyboardLayouts = [keyboardLayoutChoices[0].id];
+    }
+    renderKeyboardLayouts();
+}
+
 function updateBuiltinWarning() {
     // Warn (non-blocking) when the built-in admin is being enabled without a
     // password on record and none entered this session.
@@ -96,6 +185,10 @@ function updateBuiltinWarning() {
 
 function renderConfig(config) {
     renderTimeZones(config.timeZones || [], config.timeZone);
+    setKeyboardLayouts(config.keyboardLayouts || [], config.inputLocale);
+    renderChoices(elements.systemLocale, config.locales || [], config.systemLocale);
+    renderChoices(elements.uiLanguage, config.uiLanguages || [], config.uiLanguage);
+    renderChoices(elements.userLocale, config.locales || [], config.userLocale);
     elements.localAdminName.value = config.localAdminName || "";
     elements.enableBuiltInAdministrator.checked = Boolean(
         config.enableBuiltInAdministrator
@@ -148,6 +241,10 @@ async function save() {
             enableGuiImageApplyProgress:
                 elements.enableGuiImageApplyProgress.checked,
             timeZone: elements.timeZone.value,
+            inputLocale: selectedKeyboardLayouts.join(";"),
+            systemLocale: elements.systemLocale.value,
+            uiLanguage: elements.uiLanguage.value,
+            userLocale: elements.userLocale.value,
         };
         const result = await apiFetch("/api/image-config", {
             method: "POST",
@@ -214,6 +311,37 @@ function requestBuild(target) {
 
 elements.enableBuiltInAdministrator.addEventListener("change", updateBuiltinWarning);
 elements.builtInAdministratorPassword.addEventListener("input", updateBuiltinWarning);
+elements.addKeyboardLayout.addEventListener("click", () => {
+    const layout = elements.keyboardLayoutChoice.value;
+    if (
+        layout &&
+        selectedKeyboardLayouts.length < 8 &&
+        !selectedKeyboardLayouts.includes(layout)
+    ) {
+        selectedKeyboardLayouts.push(layout);
+        renderKeyboardLayouts();
+    }
+});
+elements.keyboardLayoutList.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-action]");
+    if (!button) return;
+    const index = Number(button.dataset.index);
+    if (!Number.isInteger(index) || !selectedKeyboardLayouts[index]) return;
+
+    if (button.dataset.action === "remove" && selectedKeyboardLayouts.length > 1) {
+        selectedKeyboardLayouts.splice(index, 1);
+    } else if (button.dataset.action === "up" && index > 0) {
+        [selectedKeyboardLayouts[index - 1], selectedKeyboardLayouts[index]] =
+            [selectedKeyboardLayouts[index], selectedKeyboardLayouts[index - 1]];
+    } else if (
+        button.dataset.action === "down" &&
+        index < selectedKeyboardLayouts.length - 1
+    ) {
+        [selectedKeyboardLayouts[index + 1], selectedKeyboardLayouts[index]] =
+            [selectedKeyboardLayouts[index], selectedKeyboardLayouts[index + 1]];
+    }
+    renderKeyboardLayouts();
+});
 elements.settingsCategory.addEventListener("change", () => {
     showSettingsCategory(elements.settingsCategory.value);
 });

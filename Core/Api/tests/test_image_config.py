@@ -47,9 +47,16 @@ class ImageConfigTests(unittest.TestCase):
         self.assertTrue(config["enableSetupLocalAdmin"])
         self.assertTrue(config["enableGuiImageApplyProgress"])
         self.assertEqual(config["timeZone"], "Central Asia Standard Time")
+        self.assertEqual(config["inputLocale"], "ru-RU")
+        self.assertEqual(config["systemLocale"], "ru-RU")
+        self.assertEqual(config["uiLanguage"], "ru-RU")
+        self.assertEqual(config["userLocale"], "ru-RU")
         self.assertFalse(config["hasLocalAdminPassword"])
         self.assertFalse(config["hasBuiltInAdministratorPassword"])
         self.assertTrue(len(config["timeZones"]) > 50)
+        self.assertTrue(len(config["uiLanguages"]) > 30)
+        self.assertTrue(len(config["locales"]) > 50)
+        self.assertTrue(len(config["keyboardLayouts"]) > 50)
 
     def test_builtin_administrator_password_is_injected_and_reread(self) -> None:
         # No AdministratorPassword element exists in the template by default.
@@ -108,6 +115,10 @@ class ImageConfigTests(unittest.TestCase):
                 "enableSetupLocalAdmin": False,
                 "enableGuiImageApplyProgress": False,
                 "timeZone": "Russian Standard Time",
+                "inputLocale": "kk-KZ;ru-RU;en-US",
+                "systemLocale": "kk-KZ",
+                "uiLanguage": "en-US",
+                "userLocale": "ru-KZ",
             },
             self.paths,
         )
@@ -128,11 +139,42 @@ class ImageConfigTests(unittest.TestCase):
         self.assertEqual(
             unattend.count("<TimeZone>Russian Standard Time</TimeZone>"), 2
         )
+        self.assertIn(
+            "<InputLocale>kk-KZ;ru-RU;en-US</InputLocale>",
+            unattend,
+        )
+        self.assertIn("<SystemLocale>kk-KZ</SystemLocale>", unattend)
+        self.assertIn("<UILanguage>en-US</UILanguage>", unattend)
+        self.assertIn("<UserLocale>ru-KZ</UserLocale>", unattend)
 
         config = result["config"]
         self.assertEqual(config["localAdminName"], "deployadmin")
         self.assertFalse(config["enableGuiImageApplyProgress"])
         self.assertTrue(config["hasLocalAdminPassword"])
+        self.assertEqual(config["inputLocale"], "kk-KZ;ru-RU;en-US")
+        self.assertEqual(config["systemLocale"], "kk-KZ")
+        self.assertEqual(config["uiLanguage"], "en-US")
+        self.assertEqual(config["userLocale"], "ru-KZ")
+
+    def test_missing_regional_fields_preserve_existing_values(self) -> None:
+        unattend = self.paths.unattend.read_text(encoding="utf-8-sig")
+        unattend = unattend.replace(
+            "<InputLocale>ru-RU</InputLocale>",
+            "<InputLocale>en-US</InputLocale>",
+        ).replace(
+            "<UserLocale>ru-RU</UserLocale>",
+            "<UserLocale>kk-KZ</UserLocale>",
+        )
+        self.paths.unattend.write_text(unattend, encoding="utf-8")
+
+        save_image_config(
+            {"localAdminName": "localadmin", "timeZone": "UTC"},
+            self.paths,
+        )
+
+        config = load_image_config(self.paths)
+        self.assertEqual(config["inputLocale"], "en-US")
+        self.assertEqual(config["userLocale"], "kk-KZ")
 
     def test_legacy_disable_setting_is_read_and_migrated(self) -> None:
         legacy = self.paths.winpe_config.read_text(encoding="utf-8-sig").replace(
@@ -191,6 +233,21 @@ class ImageConfigTests(unittest.TestCase):
         cases = [
             {"localAdminName": "bad name", "timeZone": "UTC"},
             {"localAdminName": "ok", "timeZone": "Not/A/Zone"},
+            {
+                "localAdminName": "ok",
+                "timeZone": "UTC",
+                "uiLanguage": "not a locale",
+            },
+            {
+                "localAdminName": "ok",
+                "timeZone": "UTC",
+                "inputLocale": "not-a-layout",
+            },
+            {
+                "localAdminName": "ok",
+                "timeZone": "UTC",
+                "inputLocale": "ru-RU;ru-RU",
+            },
             {"localAdminName": "ok", "timeZone": "UTC", "localAdminPassword": "short"},
             {
                 "localAdminName": "ok",
