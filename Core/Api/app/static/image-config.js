@@ -1,14 +1,15 @@
 const elements = {
     form: document.querySelector("#image-form"),
+    refreshButton: document.querySelector("#refresh-button"),
     saveButton: document.querySelector("#save-button"),
+    dirtyState: document.querySelector("#dirty-state"),
+    dirtyMessage: document.querySelector("#dirty-message"),
     message: document.querySelector("#message-area"),
     localAdminName: document.querySelector("#localAdminName"),
     localAdminPassword: document.querySelector("#localAdminPassword"),
     enableBuiltInAdministrator: document.querySelector("#enableBuiltInAdministrator"),
     enableSetupLocalAdmin: document.querySelector("#enableSetupLocalAdmin"),
-    enableGuiImageApplyProgress: document.querySelector(
-        "#enableGuiImageApplyProgress"
-    ),
+    enableGuiImageApplyProgress: document.querySelector("#enableGuiImageApplyProgress"),
     builtInAdministratorPassword: document.querySelector("#builtInAdministratorPassword"),
     timeZone: document.querySelector("#timeZone"),
     keyboardLayoutChoice: document.querySelector("#keyboardLayoutChoice"),
@@ -25,8 +26,11 @@ const elements = {
     buildIsoButton: document.querySelector("#build-iso-button"),
     buildState: document.querySelector("#build-state"),
     buildLog: document.querySelector("#build-log"),
-    settingsCategory: document.querySelector("#settings-category"),
-    settingsPanels: [...document.querySelectorAll("[data-settings-panel]")],
+    settingsLeaves: [...document.querySelectorAll("[data-settings-view]")],
+    settingsViewPanels: [...document.querySelectorAll("[data-settings-view-panel]")],
+    settingsGroupToggles: [
+        ...document.querySelectorAll("[data-settings-group-toggle]"),
+    ],
     buildConfirmation: document.querySelector("#build-confirmation"),
     buildConfirmationMessage: document.querySelector("#build-confirmation-message"),
     confirmBuildButton: document.querySelector("#confirm-build-button"),
@@ -36,11 +40,32 @@ const elements = {
 let pendingBuildTarget = null;
 let keyboardLayoutChoices = [];
 let selectedKeyboardLayouts = [];
+let isDirty = false;
 
-function showSettingsCategory(category) {
-    for (const panel of elements.settingsPanels) {
-        panel.hidden = panel.dataset.settingsPanel !== category;
+function showSettingsView(view) {
+    for (const leaf of elements.settingsLeaves) {
+        const active = leaf.dataset.settingsView === view;
+        leaf.classList.toggle("is-active", active);
+        if (active) {
+            leaf.setAttribute("aria-current", "page");
+        } else {
+            leaf.removeAttribute("aria-current");
+        }
     }
+    for (const panel of elements.settingsViewPanels) {
+        panel.hidden = panel.dataset.settingsViewPanel !== view;
+    }
+}
+
+function setDirty(dirty) {
+    isDirty = dirty;
+    elements.dirtyState.classList.toggle("is-dirty", dirty);
+    elements.dirtyState.classList.toggle("is-clean", !dirty);
+    elements.dirtyState.textContent = dirty ? "Unsaved changes" : "All changes saved";
+    elements.dirtyMessage.textContent = dirty
+        ? "Save before rebuilding the WinPE image."
+        : "Settings match the saved configuration.";
+    elements.saveButton.disabled = !dirty;
 }
 
 function showMessage(text, type = "success") {
@@ -60,8 +85,6 @@ async function apiFetch(url, options = {}) {
         headers.set("content-type", "application/json");
     }
     if (options.method && options.method !== "GET") {
-        // Custom header the server requires on writes; a cross-site form cannot
-        // set it, so this blocks CSRF against the settings endpoint.
         headers.set("x-requested-with", "IronDeploy");
     }
     const response = await fetch(url, { ...options, headers });
@@ -87,9 +110,7 @@ function renderTimeZones(timeZones, selected) {
             return option;
         })
     );
-    if (selected) {
-        elements.timeZone.value = selected;
-    }
+    if (selected) elements.timeZone.value = selected;
 }
 
 function renderChoices(element, choices, selected) {
@@ -101,9 +122,7 @@ function renderChoices(element, choices, selected) {
             return option;
         })
     );
-    if (selected) {
-        element.value = selected;
-    }
+    if (selected) element.value = selected;
 }
 
 function keyboardLayoutLabel(id) {
@@ -174,8 +193,6 @@ function setKeyboardLayouts(choices, value) {
 }
 
 function updateBuiltinWarning() {
-    // Warn (non-blocking) when the built-in admin is being enabled without a
-    // password on record and none entered this session.
     const needsPassword =
         elements.enableBuiltInAdministrator.checked &&
         !elements.builtInAdministratorPassword.dataset.hasPassword &&
@@ -199,26 +216,28 @@ function renderConfig(config) {
     );
     elements.localAdminPassword.value = "";
     elements.passwordStatus.textContent = config.hasLocalAdminPassword
-        ? "A password is saved. Leave blank to keep it, or enter a new one (min 8 characters)."
-        : "No custom password set yet. Enter one (min 8 characters); stored as plain text in the unattend template.";
+        ? "A password is saved. Leave blank to keep it or enter a new one."
+        : "No password is saved. Enter at least 8 characters.";
     elements.builtInAdministratorPassword.value = "";
     elements.builtInAdministratorPassword.dataset.hasPassword = config
         .hasBuiltInAdministratorPassword
         ? "1"
         : "";
     elements.builtinPasswordStatus.textContent = config.hasBuiltInAdministratorPassword
-        ? "A password is saved. Leave blank to keep it, or enter a new one (min 8 characters)."
-        : "No password set yet. Applied by Windows Setup when the built-in Administrator is enabled (min 8 characters).";
+        ? "A password is saved. Leave blank to keep it or enter a new one."
+        : "No password is saved. Enter at least 8 characters.";
     updateBuiltinWarning();
-    elements.filesNote.textContent = [
-        `${config.files.winpeConfig}${config.files.winpeConfigExists ? "" : " (created on save)"}`,
-        `${config.files.unattend}${config.files.unattendExists ? "" : " (created on save)"}`,
-    ].join("  •  ");
+    elements.filesNote.textContent = "";
+    setDirty(false);
 }
 
 async function load() {
     try {
-        renderConfig(await apiFetch("/api/image-config"));
+        const config = await apiFetch("/api/image-config");
+        elements.form.querySelectorAll("input, select").forEach((field) => {
+            field.disabled = false;
+        });
+        renderConfig(config);
     } catch (error) {
         elements.saveButton.disabled = true;
         elements.form.querySelectorAll("input, select").forEach((field) => {
@@ -238,8 +257,7 @@ async function save() {
             builtInAdministratorPassword: elements.builtInAdministratorPassword.value,
             enableBuiltInAdministrator: elements.enableBuiltInAdministrator.checked,
             enableSetupLocalAdmin: elements.enableSetupLocalAdmin.checked,
-            enableGuiImageApplyProgress:
-                elements.enableGuiImageApplyProgress.checked,
+            enableGuiImageApplyProgress: elements.enableGuiImageApplyProgress.checked,
             timeZone: elements.timeZone.value,
             inputLocale: selectedKeyboardLayouts.join(";"),
             systemLocale: elements.systemLocale.value,
@@ -258,7 +276,7 @@ async function save() {
     } catch (error) {
         showMessage(error.message, "error");
     } finally {
-        elements.saveButton.disabled = false;
+        elements.saveButton.disabled = !isDirty;
     }
 }
 
@@ -281,13 +299,25 @@ async function refreshBuildState() {
     }
 }
 
+async function refreshAll() {
+    clearMessage();
+    elements.refreshButton.disabled = true;
+    elements.refreshButton.classList.add("is-loading");
+    try {
+        await Promise.all([load(), refreshBuildState()]);
+    } finally {
+        elements.refreshButton.disabled = false;
+        elements.refreshButton.classList.remove("is-loading");
+    }
+}
+
 async function startBuild(target) {
     elements.buildWimButton.disabled = true;
     elements.buildIsoButton.disabled = true;
     try {
-        renderBuildState(await apiFetch(`/api/winpe-build/${target}`, {
-            method: "POST",
-        }));
+        renderBuildState(
+            await apiFetch(`/api/winpe-build/${target}`, { method: "POST" })
+        );
     } catch (error) {
         elements.buildState.className = "build-state failed";
         elements.buildState.textContent = error.message;
@@ -309,8 +339,15 @@ function requestBuild(target) {
     elements.confirmBuildButton.focus();
 }
 
+function markFormDirty(event) {
+    if (event.target !== elements.keyboardLayoutChoice) setDirty(true);
+}
+
+elements.form.addEventListener("input", markFormDirty);
+elements.form.addEventListener("change", markFormDirty);
 elements.enableBuiltInAdministrator.addEventListener("change", updateBuiltinWarning);
 elements.builtInAdministratorPassword.addEventListener("input", updateBuiltinWarning);
+
 elements.addKeyboardLayout.addEventListener("click", () => {
     const layout = elements.keyboardLayoutChoice.value;
     if (
@@ -320,39 +357,56 @@ elements.addKeyboardLayout.addEventListener("click", () => {
     ) {
         selectedKeyboardLayouts.push(layout);
         renderKeyboardLayouts();
+        setDirty(true);
     }
 });
+
 elements.keyboardLayoutList.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-action]");
     if (!button) return;
     const index = Number(button.dataset.index);
     if (!Number.isInteger(index) || !selectedKeyboardLayouts[index]) return;
 
+    let changed = false;
     if (button.dataset.action === "remove" && selectedKeyboardLayouts.length > 1) {
         selectedKeyboardLayouts.splice(index, 1);
+        changed = true;
     } else if (button.dataset.action === "up" && index > 0) {
         [selectedKeyboardLayouts[index - 1], selectedKeyboardLayouts[index]] =
             [selectedKeyboardLayouts[index], selectedKeyboardLayouts[index - 1]];
+        changed = true;
     } else if (
         button.dataset.action === "down" &&
         index < selectedKeyboardLayouts.length - 1
     ) {
         [selectedKeyboardLayouts[index + 1], selectedKeyboardLayouts[index]] =
             [selectedKeyboardLayouts[index], selectedKeyboardLayouts[index + 1]];
+        changed = true;
     }
     renderKeyboardLayouts();
-});
-elements.settingsCategory.addEventListener("change", () => {
-    showSettingsCategory(elements.settingsCategory.value);
+    if (changed) setDirty(true);
 });
 
-elements.saveButton.addEventListener("click", () => {
-    save();
+for (const leaf of elements.settingsLeaves) {
+    leaf.addEventListener("click", () => showSettingsView(leaf.dataset.settingsView));
+}
+
+for (const toggle of elements.settingsGroupToggles) {
+    toggle.addEventListener("click", () => {
+        const group = toggle.closest(".settings-nav-group");
+        const collapsed = group.classList.toggle("is-collapsed");
+        toggle.setAttribute("aria-expanded", String(!collapsed));
+    });
+}
+
+elements.refreshButton.addEventListener("click", () => {
+    if (isDirty && !window.confirm("Discard unsaved changes?")) return;
+    refreshAll();
 });
 
 elements.form.addEventListener("submit", (event) => {
     event.preventDefault();
-    save();
+    if (isDirty) save();
 });
 
 elements.buildWimButton.addEventListener("click", () => requestBuild("wim"));
@@ -372,7 +426,7 @@ document.addEventListener("keydown", (event) => {
     }
 });
 
-load();
-showSettingsCategory(elements.settingsCategory.value);
-refreshBuildState();
+showSettingsView("setup-account");
+setDirty(false);
+refreshAll();
 window.setInterval(refreshBuildState, 3000);

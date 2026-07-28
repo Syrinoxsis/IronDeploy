@@ -37,6 +37,8 @@ from app.winpe_build import (
     start_winpe_build,
 )
 
+STATIC_ROOT = Path(__file__).resolve().parents[1] / "app" / "static"
+
 
 def make_request(host="127.0.0.1", headers=None):
     header_map = {"host": "127.0.0.1:8000"}
@@ -147,6 +149,44 @@ class WinPEBuildStateTests(unittest.TestCase):
             message = _build_failure_message("Iso", 1, log_path)
 
         self.assertEqual(message, "Iso build failed: publication failed")
+
+
+class ImageConfigPageTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.html = (STATIC_ROOT / "image-config.html").read_text(encoding="utf-8")
+        cls.css = (STATIC_ROOT / "image-config.css").read_text(encoding="utf-8")
+        cls.javascript = (STATIC_ROOT / "image-config.js").read_text(encoding="utf-8")
+
+    def test_uses_nested_settings_workspace(self) -> None:
+        self.assertIn('class="image-config-page"', self.html)
+        for view in (
+            "setup-account",
+            "builtin-account",
+            "language",
+            "keyboard-layouts",
+            "locale-time",
+            "image-progress",
+        ):
+            self.assertIn(f'data-settings-view="{view}"', self.html)
+            self.assertIn(f'data-settings-view-panel="{view}"', self.html)
+        self.assertIn("grid-template-columns:", self.css)
+        self.assertIn(".settings-workspace", self.css)
+        self.assertIn(".settings-actions", self.css)
+
+    def test_action_rail_keeps_only_primary_operations_visible(self) -> None:
+        self.assertIn('id="save-button"', self.html)
+        self.assertIn('id="build-wim-button"', self.html)
+        self.assertIn('id="build-iso-button"', self.html)
+        self.assertNotIn("SID -500", self.html)
+        self.assertNotIn("settings-category", self.html)
+        self.assertNotIn(r"WinPE\Runtime", self.html)
+
+    def test_navigation_and_dirty_state_are_interactive(self) -> None:
+        self.assertIn("function showSettingsView(view)", self.javascript)
+        self.assertIn("function setDirty(dirty)", self.javascript)
+        self.assertIn("function refreshAll()", self.javascript)
+        self.assertNotIn("settingsCategory", self.javascript)
 
 
 if __name__ == "__main__":
