@@ -118,107 +118,235 @@ async function loadUsersPage() {
     list.replaceChildren(...cards);
 }
 
+const accessElements = adminPage === "access-control" ? {
+    tabs: [...document.querySelectorAll("[data-access-tab]")],
+    panels: [...document.querySelectorAll("[data-access-panel]")],
+    refresh: document.querySelector("#access-refresh"),
+    save: document.querySelector("#access-save-button"),
+    dirtyState: document.querySelector("#access-dirty-state"),
+    dirtyCopy: document.querySelector("#access-dirty-copy"),
+    currentPolicySection: document.querySelector("#current-policy-section"),
+    currentPolicy: document.querySelector("#current-policy"),
+    permissionNote: document.querySelector("#permission-note"),
+    userSelect: document.querySelector("#access-user-select"),
+    selectedUserState: document.querySelector("#selected-user-state"),
+    permissionList: document.querySelector("#access-list"),
+    pin: document.querySelector("#winpe-pin"),
+    pinEditor: document.querySelector("#pin-editor"),
+    pinStatus: document.querySelector("#winpe-pin-status"),
+    authModes: [...document.querySelectorAll('input[name="winpe-auth-mode"]')],
+} : null;
+
+let accessTab = "authorization";
+let authorizationDirty = false;
+let permissionsDirty = false;
+let currentPolicy = null;
+let regularUsers = [];
+let permissionEntries = [];
+let selectedUserId = null;
+let permissionCheckboxes = [];
+
+const permissionDescriptions = {
+    dashboard: "View deployments and computer inventory.",
+    images: "Manage Windows deployment images.",
+    programs: "Manage post-install software.",
+    drivers: "Manage driver packages.",
+    image_config: "Change deployed Windows defaults.",
+    deploy: "Authorize one WinPE deployment at a time.",
+};
+
+const permissionIcons = {
+    dashboard: '<path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z"></path>',
+    images: '<path d="M4 5h16v14H4z"></path><path d="M4 9h16M8 15h4"></path>',
+    programs: '<path d="M12 3v10"></path><path d="m8 9 4 4 4-4"></path><rect x="4" y="16" width="16" height="5" rx="1"></rect>',
+    drivers: '<path d="M5 4h14v16H5z"></path><path d="M9 8h6M9 12h6M9 16h3"></path>',
+    image_config: '<circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3V2.8h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1z"></path>',
+    deploy: '<rect x="4" y="10" width="16" height="11" rx="2"></rect><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3"></path>',
+};
+
+function policyLabel(mode) {
+    return {
+        account: "Username and password",
+        pin: "PIN code",
+        none: "No operator authorization",
+    }[mode] || "Not configured";
+}
+
+function renderAccessRail() {
+    const dirty = accessTab === "authorization" ? authorizationDirty : permissionsDirty;
+    accessElements.dirtyState.classList.toggle("is-dirty", dirty);
+    accessElements.dirtyState.classList.toggle("is-clean", !dirty);
+    accessElements.dirtyState.textContent = dirty
+        ? adminText("Unsaved changes")
+        : adminText("All changes saved");
+    accessElements.dirtyCopy.textContent = dirty
+        ? adminText("You have unsaved changes.")
+        : adminText("Settings match the saved configuration.");
+    accessElements.save.disabled = !dirty;
+    accessElements.save.textContent = adminText(
+        accessTab === "authorization" ? "Save authorization" : "Save access"
+    );
+    accessElements.currentPolicySection.hidden = accessTab !== "authorization";
+    accessElements.permissionNote.hidden = accessTab !== "permissions";
+}
+
+function setAccessDirty(kind, dirty) {
+    if (kind === "authorization") authorizationDirty = dirty;
+    else permissionsDirty = dirty;
+    renderAccessRail();
+}
+
+function showAccessTab(tab) {
+    accessTab = tab;
+    for (const button of accessElements.tabs) {
+        const active = button.dataset.accessTab === tab;
+        button.classList.toggle("is-active", active);
+        if (active) button.setAttribute("aria-current", "page");
+        else button.removeAttribute("aria-current");
+    }
+    for (const panel of accessElements.panels) {
+        panel.hidden = panel.dataset.accessPanel !== tab;
+    }
+    renderAccessRail();
+}
+
+function updatePinEditor() {
+    const selected = accessElements.authModes.find((item) => item.checked);
+    accessElements.pinEditor.hidden = selected?.value !== "pin";
+}
+
+function syncExclusiveDeploymentAccess(changed = null) {
+    const deploymentCheckbox = permissionCheckboxes.find(
+        (item) => item.value === "deploy"
+    );
+    if (!deploymentCheckbox) return;
+    const browserCheckboxes = permissionCheckboxes.filter(
+        (item) => item !== deploymentCheckbox
+    );
+    if (changed === deploymentCheckbox && deploymentCheckbox.checked) {
+        browserCheckboxes.forEach((item) => { item.checked = false; });
+    } else if (changed && changed.checked && changed !== deploymentCheckbox) {
+        deploymentCheckbox.checked = false;
+    }
+    const deploymentOnly = deploymentCheckbox.checked;
+    browserCheckboxes.forEach((item) => { item.disabled = deploymentOnly; });
+    deploymentCheckbox.disabled = false;
+}
+
+function renderSelectedUser() {
+    const user = regularUsers.find((item) => String(item.id) === String(selectedUserId));
+    if (!user) {
+        accessElements.selectedUserState.textContent = "";
+        accessElements.permissionList.replaceChildren();
+        permissionCheckboxes = [];
+        return;
+    }
+
+    accessElements.userSelect.value = String(user.id);
+    accessElements.selectedUserState.classList.toggle("is-blocked", !user.active);
+    accessElements.selectedUserState.textContent = adminText(
+        user.active ? "Active account" : "Blocked account"
+    );
+
+    permissionCheckboxes = permissionEntries.map(([permission, label]) => {
+        const row = document.createElement("label");
+        row.className = `permission-row${permission === "deploy" ? " deploy-only" : ""}`;
+
+        const icon = document.createElement("span");
+        icon.className = "permission-icon";
+        icon.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${permissionIcons[permission] || ""}</svg>`;
+
+        const copy = document.createElement("span");
+        copy.className = "permission-copy";
+        const strong = document.createElement("strong");
+        strong.textContent = adminText(label);
+        const small = document.createElement("small");
+        small.textContent = adminText(permissionDescriptions[permission] || "");
+        copy.append(strong, small);
+
+        const control = document.createElement("span");
+        control.className = "permission-switch";
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.value = permission;
+        checkbox.checked = user.permissions.includes(permission);
+        checkbox.setAttribute("aria-label", adminText(label));
+        const track = document.createElement("span");
+        track.className = "permission-switch-track";
+        track.setAttribute("aria-hidden", "true");
+        control.append(checkbox, track);
+
+        checkbox.addEventListener("change", () => {
+            syncExclusiveDeploymentAccess(checkbox);
+            setAccessDirty("permissions", true);
+        });
+        row.append(icon, copy, control);
+        return { row, checkbox };
+    });
+
+    accessElements.permissionList.replaceChildren(
+        ...permissionCheckboxes.map((item) => item.row),
+        Object.assign(document.createElement("p"), {
+            className: "permission-exclusivity",
+            textContent: adminText(
+                "WinPE deployment only cannot be combined with page access."
+            ),
+        })
+    );
+    permissionCheckboxes = permissionCheckboxes.map((item) => item.checkbox);
+    syncExclusiveDeploymentAccess();
+    setAccessDirty("permissions", false);
+}
+
 async function loadAccessPage() {
     const payload = await adminFetch("/api/admin/users");
-    const regularUsers = payload.users.filter((user) => !user.superadmin);
-    const permissionEntries = Object.entries(payload.permissions);
-    const cards = regularUsers.map((user) => {
-        const card = document.createElement("article");
-        card.className = "access-row";
-        const head = document.createElement("div");
-        head.className = "access-user-head";
-        head.append(userIdentity(user));
-        const save = document.createElement("button");
-        save.className = "auth-primary";
-        save.type = "button";
-        save.textContent = adminText("Save access");
-        head.append(save);
-        const grid = document.createElement("div");
-        grid.className = "permission-grid";
-        const checkboxes = permissionEntries.map(([permission, label]) => {
-            const option = document.createElement("label");
-            option.className = "permission-option";
-            const checkbox = document.createElement("input");
-            checkbox.type = "checkbox";
-            checkbox.value = permission;
-            checkbox.checked = user.permissions.includes(permission);
-            const copy = document.createElement("span");
-            const strong = document.createElement("strong");
-            strong.textContent = adminText(label);
-            const small = document.createElement("small");
-            small.textContent = permission === "deploy"
-                ? "Allows WinPE login for one deployment at a time; cannot be combined with any other access."
-                : `Allows the ${label} page and its backend API.`;
-            copy.append(strong, small);
-            option.append(checkbox, copy);
-            grid.append(option);
-            return checkbox;
-        });
-        const deploymentCheckbox = checkboxes.find((item) => item.value === "deploy");
-        const syncExclusiveDeploymentAccess = (changed = null) => {
-            if (!deploymentCheckbox) return;
-            const browserCheckboxes = checkboxes.filter((item) => item !== deploymentCheckbox);
-            if (changed === deploymentCheckbox && deploymentCheckbox.checked) {
-                browserCheckboxes.forEach((item) => { item.checked = false; });
-            } else if (changed && changed.checked && changed !== deploymentCheckbox) {
-                deploymentCheckbox.checked = false;
-            }
-            const deploymentOnly = deploymentCheckbox.checked;
-            browserCheckboxes.forEach((item) => { item.disabled = deploymentOnly; });
-            deploymentCheckbox.disabled = browserCheckboxes.some((item) => item.checked);
-        };
-        checkboxes.forEach((checkbox) => {
-            checkbox.addEventListener("change", () => syncExclusiveDeploymentAccess(checkbox));
-        });
-        syncExclusiveDeploymentAccess();
-        save.addEventListener("click", async () => {
-            save.disabled = true;
-            try {
-                await adminFetch(`/api/admin/users/${user.id}/permissions`, {
-                    method: "PUT",
-                    body: JSON.stringify({
-                        permissions: checkboxes.filter((item) => item.checked).map((item) => item.value),
-                    }),
-                });
-                showToast(`Access for ${user.username} saved. Active sessions were closed.`);
-            } catch (error) { showToast(error.message, "error"); }
-            finally { save.disabled = false; }
-        });
-        card.append(head, grid);
-        return card;
-    });
-    const list = document.querySelector("#access-list");
-    if (cards.length) list.replaceChildren(...cards);
-    else {
+    regularUsers = payload.users.filter((user) => !user.superadmin);
+    permissionEntries = Object.entries(payload.permissions);
+    const previousUserId = selectedUserId;
+    selectedUserId = regularUsers.some(
+        (user) => String(user.id) === String(previousUserId)
+    ) ? previousUserId : regularUsers[0]?.id ?? null;
+
+    accessElements.userSelect.replaceChildren(
+        ...regularUsers.map((user) => {
+            const option = document.createElement("option");
+            option.value = String(user.id);
+            option.textContent = user.username;
+            return option;
+        })
+    );
+    accessElements.userSelect.disabled = regularUsers.length === 0;
+    if (!regularUsers.length) {
         const empty = document.createElement("div");
         empty.className = "admin-empty";
         empty.textContent = adminText("Create a regular user first.");
-        list.replaceChildren(empty);
+        accessElements.permissionList.replaceChildren(empty);
+        return;
     }
+    renderSelectedUser();
 }
 
 async function loadWinPEAuth() {
-    const policy = await adminFetch("/api/admin/winpe-auth");
-    const selected = document.querySelector(
-        `input[name="winpe-auth-mode"][value="${policy.mode}"]`
+    currentPolicy = await adminFetch("/api/admin/winpe-auth");
+    const selected = accessElements.authModes.find(
+        (item) => item.value === currentPolicy.mode
     );
     if (selected) selected.checked = true;
-    document.querySelector("#winpe-pin-status").textContent = adminText(
-        policy.pinConfigured ? "PIN is configured" : "PIN is not configured"
+    accessElements.pin.value = "";
+    accessElements.pinStatus.textContent = adminText(
+        currentPolicy.pinConfigured ? "Configured" : "Not configured"
     );
-    document.querySelector("#winpe-pin").placeholder = adminText(
-        "Leave blank to keep the configured PIN"
-    );
+    accessElements.currentPolicy.textContent = adminText(policyLabel(currentPolicy.mode));
+    updatePinEditor();
+    setAccessDirty("authorization", false);
 }
 
 async function saveWinPEAuth() {
-    const save = document.querySelector("#save-winpe-auth");
-    const selected = document.querySelector('input[name="winpe-auth-mode"]:checked');
-    const pin = document.querySelector("#winpe-pin");
+    const selected = accessElements.authModes.find((item) => item.checked);
     if (!selected) return;
-    if (pin.value && !/^[0-9]{6,10}$/.test(pin.value)) {
+    if (accessElements.pin.value && !/^[0-9]{6,10}$/.test(accessElements.pin.value)) {
         showToast(adminText("PIN must contain 6-10 digits."), "error");
-        pin.focus();
+        accessElements.pin.focus();
         return;
     }
     if (
@@ -229,19 +357,62 @@ async function saveWinPEAuth() {
     ) {
         return;
     }
-    save.disabled = true;
+    accessElements.save.disabled = true;
     try {
         await adminFetch("/api/admin/winpe-auth", {
             method: "PUT",
-            body: JSON.stringify({ mode: selected.value, pin: pin.value || null }),
+            body: JSON.stringify({
+                mode: selected.value,
+                pin: accessElements.pin.value || null,
+            }),
         });
-        pin.value = "";
         showToast(adminText("WinPE authorization settings saved."));
         await loadWinPEAuth();
     } catch (error) {
         showToast(error.message, "error");
     } finally {
-        save.disabled = false;
+        renderAccessRail();
+    }
+}
+
+async function saveSelectedUserAccess() {
+    const user = regularUsers.find((item) => String(item.id) === String(selectedUserId));
+    if (!user) return;
+    accessElements.save.disabled = true;
+    try {
+        const permissions = permissionCheckboxes
+            .filter((item) => item.checked)
+            .map((item) => item.value);
+        await adminFetch(`/api/admin/users/${user.id}/permissions`, {
+            method: "PUT",
+            body: JSON.stringify({ permissions }),
+        });
+        user.permissions = permissions;
+        setAccessDirty("permissions", false);
+        showToast(`Access for ${user.username} saved. Active sessions were closed.`);
+    } catch (error) {
+        showToast(error.message, "error");
+    } finally {
+        renderAccessRail();
+    }
+}
+
+async function refreshAccessControl() {
+    if (
+        (authorizationDirty || permissionsDirty) &&
+        !window.confirm(adminText("Discard unsaved changes?"))
+    ) {
+        return;
+    }
+    accessElements.refresh.disabled = true;
+    accessElements.refresh.classList.add("is-loading");
+    try {
+        await Promise.all([loadWinPEAuth(), loadAccessPage()]);
+    } catch (error) {
+        showToast(error.message, "error");
+    } finally {
+        accessElements.refresh.disabled = false;
+        accessElements.refresh.classList.remove("is-loading");
     }
 }
 
@@ -263,7 +434,34 @@ if (adminPage === "users") {
     });
     loadUsersPage().catch((error) => showToast(error.message, "error"));
 } else if (adminPage === "access-control") {
-    document.querySelector("#save-winpe-auth").addEventListener("click", saveWinPEAuth);
-    loadWinPEAuth().catch((error) => showToast(error.message, "error"));
-    loadAccessPage().catch((error) => showToast(error.message, "error"));
+    for (const tab of accessElements.tabs) {
+        tab.addEventListener("click", () => showAccessTab(tab.dataset.accessTab));
+    }
+    for (const mode of accessElements.authModes) {
+        mode.addEventListener("change", () => {
+            updatePinEditor();
+            setAccessDirty("authorization", true);
+        });
+    }
+    accessElements.pin.addEventListener("input", () => {
+        setAccessDirty("authorization", true);
+    });
+    accessElements.userSelect.addEventListener("change", () => {
+        if (
+            permissionsDirty &&
+            !window.confirm(adminText("Discard unsaved changes?"))
+        ) {
+            accessElements.userSelect.value = String(selectedUserId);
+            return;
+        }
+        selectedUserId = accessElements.userSelect.value;
+        renderSelectedUser();
+    });
+    accessElements.save.addEventListener("click", () => {
+        if (accessTab === "authorization") saveWinPEAuth();
+        else saveSelectedUserAccess();
+    });
+    accessElements.refresh.addEventListener("click", refreshAccessControl);
+    showAccessTab("authorization");
+    refreshAccessControl();
 }
