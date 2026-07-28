@@ -13,7 +13,7 @@
     <script src="/static/navigation.js"></script>
     <script src="/static/programs.js" defer></script>
 </head>
-<body data-page="programs">
+<body class="images-page programs-page" data-page="programs">
     <header class="app-header">
         <div class="header-inner">
             <span class="header-page-title">Post-install software</span>
@@ -32,12 +32,6 @@
     <main class="page-shell">
         <section class="page-heading">
             <h1>Post-install software</h1>
-            <p>
-                Upload <code>.exe</code> and <code>.msi</code> installers into
-                <code>Share\Programs</code>. WinPE offers them as checkboxes
-                before deployment, and the selected programs are installed
-                with their launch arguments during Windows setup.
-            </p>
         </section>
 
         <section class="notice" id="message-area" hidden></section>
@@ -45,12 +39,14 @@
         <section class="upload-card" aria-labelledby="upload-title">
             <div>
                 <h2 id="upload-title">Add a program</h2>
-                <p>
-                    Program files can be up to 5 GiB. Launch arguments are optional.
-                    Enter the arguments exactly as they should be passed to the
-                    installer, for example
-                    <code>/qn /norestart ALLUSERS=1</code>.
-                </p>
+                <details class="program-upload-note">
+                    <summary>Note</summary>
+                    <ul>
+                        <li><code>.exe</code> and <code>.msi</code>, up to 5 GiB.</li>
+                        <li>The file name and launch arguments are optional.</li>
+                        <li>Arguments are passed exactly as entered.</li>
+                    </ul>
+                </details>
             </div>
             <div class="upload-controls program-upload-controls">
                 <input id="program-file" type="file" accept=".exe,.msi">

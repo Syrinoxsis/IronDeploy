@@ -20,6 +20,8 @@ from app.programs import (
     validate_program_arguments,
 )
 
+STATIC_ROOT = Path(__file__).resolve().parents[1] / "app" / "static"
+
 
 async def _chunks(*parts: bytes):
     for part in parts:
@@ -346,6 +348,21 @@ class ProgramManagementTests(unittest.TestCase):
 
         self.assertTrue((self.programs_dir / "before.msi").is_file())
         self.assertFalse((self.programs_dir / "after.msi").exists())
+
+
+class ProgramPageTests(unittest.TestCase):
+    def test_programs_page_matches_images_width_and_uses_compact_note(self) -> None:
+        page = (STATIC_ROOT / "programs.html").read_text(encoding="utf-8")
+        styles = (STATIC_ROOT / "programs.css").read_text(encoding="utf-8")
+
+        self.assertIn(
+            'class="images-page programs-page" data-page="programs"',
+            page,
+        )
+        self.assertIn('<details class="program-upload-note">', page)
+        self.assertIn("<summary>Note</summary>", page)
+        self.assertNotIn("Upload <code>.exe</code>", page)
+        self.assertIn("width: min(100% - 32px, 1280px)", styles)
 
 
 if __name__ == "__main__":

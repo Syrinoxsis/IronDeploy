@@ -181,11 +181,20 @@ class DeploymentDetailPageTests(unittest.TestCase):
         dashboard_css = (STATIC_ROOT / "dashboard.css").read_text(encoding="utf-8")
 
         self.assertIn('current.className = "stage-current"', dashboard_js)
-        self.assertIn("Failed at: ${stageLabel}", dashboard_js)
+        self.assertIn("current.textContent = stageLabel", dashboard_js)
         self.assertNotIn("expandedDeployments", dashboard_js)
         self.assertNotIn("stage-details", dashboard_js)
         self.assertIn(".stage-current", dashboard_css)
         self.assertNotIn(".stage-details", dashboard_css)
+
+    def test_dashboard_shows_the_deployment_ip_address(self) -> None:
+        dashboard_js = (STATIC_ROOT / "dashboard.js").read_text(encoding="utf-8")
+        start = dashboard_js.index("function renderDeploymentRows(")
+        end = dashboard_js.index("renderEmptyMessage(", start)
+        deployment_rows = dashboard_js[start:end]
+
+        self.assertIn('"IP",', deployment_rows)
+        self.assertIn("deployment.ip_address", deployment_rows)
 
 
 if __name__ == "__main__":

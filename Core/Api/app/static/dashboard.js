@@ -381,7 +381,7 @@ function createStagesCell(deployment) {
         current.textContent = "Completed";
     } else if (deployment.status === "failed" || currentStage.status === "failed") {
         current.classList.add("stage-current-failed");
-        current.textContent = `Failed at: ${stageLabel}`;
+        current.textContent = stageLabel;
     } else {
         current.classList.add("stage-current-running");
         const label = document.createElement("span");
@@ -483,6 +483,7 @@ function renderDeploymentRows() {
         "Computer",
         "Model",
         "Serial",
+        "IP",
         "Image",
         "Status",
         "Current stage",
@@ -505,6 +506,10 @@ function renderDeploymentRows() {
             ),
             createCell(deployment.model, deployment.model ? "" : "muted-value"),
             createSerialNumberCell(deployment.serial_number),
+            createCell(
+                deployment.ip_address,
+                deployment.ip_address ? "mono" : "mono muted-value",
+            ),
             createCell(deployment.image_name, deployment.image_name ? "" : "muted-value"),
             createStatusCell(deployment.status),
             createStagesCell(deployment),
