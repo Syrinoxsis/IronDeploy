@@ -309,65 +309,86 @@ function renderNetworkDiagnostics(report) {
         detailFormatLinkSpeed(report.smb_adapter?.link_speed_bps);
     detailElements.networkApiLinkSpeed.textContent =
         detailFormatLinkSpeed(report.api_adapter?.link_speed_bps);
-    detailElements.networkAdapterRouteNote.textContent = detailText(
-        report.adapters_differ ? "Different adapter" : "Same adapter",
-    );
+    detailElements.networkAdapterRouteNote.textContent =
+        report.adapters_differ === null
+            ? "-"
+            : detailText(
+                report.adapters_differ ? "Different adapter" : "Same adapter",
+            );
     detailElements.networkPingTarget.textContent = report.ping_target || "-";
 
     const overall = report.overall;
-    detailElements.networkIcmpStatus.textContent = networkIcmpLabel(overall);
-    setNetworkValueState(
-        detailElements.networkIcmpStatus,
-        networkIcmpState(overall),
-    );
-    detailElements.networkPingCounts.textContent =
-        `${overall.ping_sent} / ${overall.ping_received} / ${overall.ping_lost}`;
-    detailElements.networkPingLoss.textContent =
-        overall.icmp_status === "available"
-            ? detailFormatPercent(overall.loss_percentage)
-            : "-";
-    detailElements.networkRtt.textContent = detailFormatRtt(overall);
-    detailElements.networkSpikes.textContent = String(overall.latency_spikes);
-    detailElements.networkInboundRate.textContent =
-        overall.average_inbound_mbps === null
-            ? "-"
-            : `${detailFormatNumber(overall.average_inbound_mbps, 2)} MB/s`;
-    detailElements.networkReceivedBytes.textContent =
-        detailFormatBytes(overall.bytes_received);
-    detailElements.networkLinkUse.textContent =
-        detailFormatPercent(overall.link_utilization_percent);
-    detailElements.networkDuration.textContent =
-        detailFormatDurationSeconds(overall.duration_seconds);
+    if (overall) {
+        detailElements.networkIcmpStatus.textContent = networkIcmpLabel(overall);
+        setNetworkValueState(
+            detailElements.networkIcmpStatus,
+            networkIcmpState(overall),
+        );
+        detailElements.networkPingCounts.textContent =
+            `${overall.ping_sent} / ${overall.ping_received} / ${overall.ping_lost}`;
+        detailElements.networkPingLoss.textContent =
+            overall.icmp_status === "available"
+                ? detailFormatPercent(overall.loss_percentage)
+                : "-";
+        detailElements.networkRtt.textContent = detailFormatRtt(overall);
+        detailElements.networkSpikes.textContent = String(overall.latency_spikes);
+        detailElements.networkInboundRate.textContent =
+            overall.average_inbound_mbps === null
+                ? "-"
+                : `${detailFormatNumber(overall.average_inbound_mbps, 2)} MB/s`;
+        detailElements.networkReceivedBytes.textContent =
+            detailFormatBytes(overall.bytes_received);
+        detailElements.networkLinkUse.textContent =
+            detailFormatPercent(overall.link_utilization_percent);
+        detailElements.networkDuration.textContent =
+            detailFormatDurationSeconds(overall.duration_seconds);
+    } else {
+        detailElements.networkIcmpStatus.textContent = "-";
+        setNetworkValueState(detailElements.networkIcmpStatus, null);
+        detailElements.networkPingCounts.textContent = "-";
+        detailElements.networkPingLoss.textContent = "-";
+        detailElements.networkRtt.textContent = "-";
+        detailElements.networkSpikes.textContent = "-";
+        detailElements.networkInboundRate.textContent = "-";
+        detailElements.networkReceivedBytes.textContent = "-";
+        detailElements.networkLinkUse.textContent = "-";
+        detailElements.networkDuration.textContent = "-";
+    }
 
-    detailElements.networkApiRequests.textContent =
-        `${report.api.request_count} ${detailText(
-            report.api.request_count === 1 ? "request" : "requests",
-        )}`;
-    detailElements.networkApiErrors.textContent = String(report.api.error_count);
-    detailElements.networkApiRtt.textContent = detailFormatRtt(
-        report.api,
-        ["min_ms", "avg_ms", "max_ms"],
-    );
+    const api = report.api;
+    detailElements.networkApiRequests.textContent = api
+        ? `${api.request_count} ${detailText(
+            api.request_count === 1 ? "request" : "requests",
+        )}`
+        : "-";
+    detailElements.networkApiErrors.textContent =
+        api ? String(api.error_count) : "-";
+    detailElements.networkApiRtt.textContent =
+        api ? detailFormatRtt(api, ["min_ms", "avg_ms", "max_ms"]) : "-";
 
-    const smbStatus = report.smb.success === true
+    const smb = report.smb;
+    const smbStatus = smb?.success === true
         ? detailText("Connected")
-        : report.smb.success === false
+        : smb?.success === false
             ? detailText("Failed")
-            : detailText("Not measured");
+            : smb
+                ? detailText("Not measured")
+                : "-";
     detailElements.networkSmbStatus.textContent = smbStatus;
     setNetworkValueState(
         detailElements.networkSmbStatus,
-        report.smb.success === true
+        smb?.success === true
             ? "ok"
-            : report.smb.success === false
+            : smb?.success === false
                 ? "error"
                 : null,
     );
-    detailElements.networkSmbAttempts.textContent = String(report.smb.attempts);
+    detailElements.networkSmbAttempts.textContent =
+        smb ? String(smb.attempts) : "-";
     detailElements.networkSmbDuration.textContent =
-        detailFormatMilliseconds(report.smb.duration_ms);
-    detailElements.networkSmbError.hidden = !report.smb.error_message;
-    detailElements.networkSmbError.textContent = report.smb.error_message || "";
+        smb ? detailFormatMilliseconds(smb.duration_ms) : "-";
+    detailElements.networkSmbError.hidden = !smb?.error_message;
+    detailElements.networkSmbError.textContent = smb?.error_message || "";
 
     renderNetworkStages(report.stages || []);
 

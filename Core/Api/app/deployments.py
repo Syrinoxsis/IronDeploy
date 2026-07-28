@@ -604,8 +604,18 @@ class DeploymentNetworkDiagnosticsRequest(BaseModel):
         return self
 
 
-class DeploymentNetworkDiagnosticsResponse(DeploymentNetworkDiagnosticsRequest):
-    pass
+class DeploymentNetworkDiagnosticsResponse(BaseModel):
+    """A complete final report or partial reports from completed stages."""
+
+    ping_target: str | None = Field(default=None, max_length=255)
+    smb_adapter: NetworkAdapterReport | None = None
+    api_adapter: NetworkAdapterReport | None = None
+    adapters_differ: bool | None = None
+    overall: NetworkAggregateReport | None = None
+    stages: list[NetworkStageReport] = Field(default_factory=list, max_length=3)
+    api: NetworkApiReport | None = None
+    smb: NetworkSmbReport | None = None
+    diagnostic_errors: list[str] = Field(default_factory=list, max_length=100)
 
 
 class DomainJoinProvisionResponse(BaseModel):
@@ -842,18 +852,21 @@ def to_network_diagnostics_response(
     summary: DeploymentNetworkSummary | None,
     stages: list[DeploymentNetworkStage] | None = None,
 ) -> DeploymentNetworkDiagnosticsResponse | None:
+    stage_reports = [
+        to_network_stage_response(stage)
+        for stage in (stages or [])
+    ]
     if summary is None:
-        return None
+        if not stage_reports:
+            return None
+        return DeploymentNetworkDiagnosticsResponse(stages=stage_reports)
     return DeploymentNetworkDiagnosticsResponse(
         ping_target=summary.ping_target,
         smb_adapter=_network_adapter_response(summary, "smb"),
         api_adapter=_network_adapter_response(summary, "api"),
         adapters_differ=summary.adapters_differ,
         overall=_network_aggregate_response(summary),
-        stages=[
-            to_network_stage_response(stage)
-            for stage in (stages or [])
-        ],
+        stages=stage_reports,
         api=NetworkApiReport(
             request_count=summary.api_request_count,
             error_count=summary.api_error_count,

@@ -240,6 +240,21 @@ class NetworkDiagnosticsApiTests(unittest.TestCase):
                 session,
             )
 
+            partial = deployment_detail(deployment.deployment_id, session)
+            self.assertIsNotNone(partial.network_diagnostics)
+            self.assertIsNone(partial.network_diagnostics.overall)
+            self.assertIsNone(partial.network_diagnostics.api)
+            self.assertIsNone(partial.network_diagnostics.smb)
+            self.assertEqual(len(partial.network_diagnostics.stages), 1)
+            self.assertEqual(
+                partial.network_diagnostics.stages[0].stage,
+                "image_apply",
+            )
+            self.assertEqual(
+                partial.network_diagnostics.stages[0].bytes_received,
+                24 * 1024 * 1024,
+            )
+
             final_payload = self.payload().model_copy(
                 update={"stages": []},
                 deep=True,
