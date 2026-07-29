@@ -56,3 +56,8 @@ htmlcov/
 .idea/
 .vscode/
 *.log
+
+# Local design and browser QA artifacts
+/.codex/
+/Core/Api/.qa/
+/design-qa*.md
