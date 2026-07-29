@@ -90,6 +90,10 @@ function normalizedText(value) {
     return String(value ?? "").toLocaleLowerCase("ru-RU");
 }
 
+function dashboardText(value) {
+    return window.IronI18n?.t(value) || value;
+}
+
 function createHeader(labels) {
     elements.head.replaceChildren();
     for (const label of labels) {
@@ -259,12 +263,34 @@ function createSerialNumberCell(value) {
     );
     if (value) {
         const serialNumber = String(value);
-        cell.textContent =
-            serialNumber.length > 18
-                ? `${serialNumber.slice(0, 7)}…${serialNumber.slice(-8)}`
-                : serialNumber;
+        cell.replaceChildren();
+        if (serialNumber.length > 18) {
+            const preview = document.createElement("span");
+            preview.className = "serial-preview";
+
+            const start = document.createElement("span");
+            start.textContent = serialNumber.slice(0, 7);
+
+            const marker = document.createElement("span");
+            marker.className = "serial-overflow-marker";
+            marker.textContent = "…";
+            const hiddenCount = serialNumber.length - 12;
+            marker.title = `${hiddenCount} ${dashboardText("characters hidden")}`;
+
+            const end = document.createElement("span");
+            end.textContent = serialNumber.slice(-5);
+            preview.append(start, marker, end);
+            cell.append(preview);
+        } else {
+            cell.textContent = serialNumber;
+        }
         cell.dataset.copyValue = serialNumber;
-        cell.title = `${serialNumber}\nClick to copy`;
+        cell.title = `${serialNumber}\n${dashboardText("Click to copy")}`;
+        cell.setAttribute(
+            "aria-label",
+            `${dashboardText("Serial number")}: ${serialNumber}. ` +
+                dashboardText("Click to copy"),
+        );
     }
     return cell;
 }

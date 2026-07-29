@@ -196,6 +196,15 @@ class DeploymentDetailPageTests(unittest.TestCase):
         self.assertIn('"IP",', deployment_rows)
         self.assertIn("deployment.ip_address", deployment_rows)
 
+    def test_long_serial_numbers_have_an_explicit_overflow_marker(self) -> None:
+        dashboard_js = (STATIC_ROOT / "dashboard.js").read_text(encoding="utf-8")
+        dashboard_css = (STATIC_ROOT / "dashboard.css").read_text(encoding="utf-8")
+
+        self.assertIn('marker.className = "serial-overflow-marker"', dashboard_js)
+        self.assertIn('marker.textContent = "…"', dashboard_js)
+        self.assertIn('dashboardText("characters hidden")', dashboard_js)
+        self.assertIn(".serial-overflow-marker", dashboard_css)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -33,6 +33,7 @@ from app.main import (
 from app.winpe_build import (
     WinPEBuildError,
     _build_failure_message,
+    _last_build_starts,
     get_winpe_build_state,
     start_winpe_build,
 )
@@ -122,6 +123,33 @@ class WinPEBuildEndpointTests(unittest.TestCase):
 
 
 class WinPEBuildStateTests(unittest.TestCase):
+    def test_last_build_starts_are_restored_from_log_names(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            log_directory = Path(temporary_directory)
+            for name in (
+                "winpe-wim-20260728T090000Z.log",
+                "winpe-wim-20260729T110500Z.log",
+                "winpe-iso-20260727T081500Z.log",
+                "winpe-iso-invalid.log",
+            ):
+                (log_directory / name).touch()
+
+            with patch("app.winpe_build.BUILD_LOG_DIR", log_directory):
+                starts = _last_build_starts()
+
+        self.assertEqual(starts["wim"], "2026-07-29T11:05:00+00:00")
+        self.assertEqual(starts["iso"], "2026-07-27T08:15:00+00:00")
+
+    def test_last_build_starts_are_empty_without_logs(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            with patch(
+                "app.winpe_build.BUILD_LOG_DIR", Path(temporary_directory)
+            ):
+                self.assertEqual(
+                    _last_build_starts(),
+                    {"wim": None, "iso": None},
+                )
+
     def test_missing_elevation_is_persisted_as_failed_state(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             build_script = Path(temporary_directory) / "build.ps1"
@@ -157,6 +185,7 @@ class ImageConfigPageTests(unittest.TestCase):
         cls.html = (STATIC_ROOT / "image-config.html").read_text(encoding="utf-8")
         cls.css = (STATIC_ROOT / "image-config.css").read_text(encoding="utf-8")
         cls.javascript = (STATIC_ROOT / "image-config.js").read_text(encoding="utf-8")
+        cls.i18n = (STATIC_ROOT / "i18n.js").read_text(encoding="utf-8")
 
     def test_uses_nested_settings_workspace(self) -> None:
         self.assertIn('class="image-config-page"', self.html)
@@ -178,6 +207,8 @@ class ImageConfigPageTests(unittest.TestCase):
         self.assertIn('id="save-button"', self.html)
         self.assertIn('id="build-wim-button"', self.html)
         self.assertIn('id="build-iso-button"', self.html)
+        self.assertIn('id="last-wim-build"', self.html)
+        self.assertIn('id="last-iso-build"', self.html)
         self.assertNotIn("SID -500", self.html)
         self.assertNotIn("settings-category", self.html)
         self.assertNotIn(r"WinPE\Runtime", self.html)
@@ -187,6 +218,19 @@ class ImageConfigPageTests(unittest.TestCase):
         self.assertIn("function setDirty(dirty)", self.javascript)
         self.assertIn("function refreshAll()", self.javascript)
         self.assertNotIn("settingsCategory", self.javascript)
+
+    def test_redesigned_workspace_has_russian_localization(self) -> None:
+        for text in (
+            '"Locale & time zone": "Регион и часовой пояс"',
+            '"Image apply progress": "Применение образа"',
+            '"All changes saved": "Все изменения сохранены"',
+            '"Available layout": "Доступная раскладка"',
+            '"No WinPE build has been started since IronAPI launched.": '
+            '"После запуска IronAPI сборка WinPE ещё не запускалась."',
+        ):
+            self.assertIn(text, self.i18n)
+        self.assertIn("function localizedLocaleLabel(choice)", self.javascript)
+        self.assertIn("translated(zone.label)", self.javascript)
 
 
 if __name__ == "__main__":

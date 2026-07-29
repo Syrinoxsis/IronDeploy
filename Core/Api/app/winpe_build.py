@@ -36,6 +36,29 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _last_build_starts() -> dict[str, str | None]:
+    result: dict[str, str | None] = {"wim": None, "iso": None}
+    for target in result:
+        latest: datetime | None = None
+        try:
+            candidates = BUILD_LOG_DIR.glob(f"winpe-{target}-*.log")
+            for path in candidates:
+                timestamp = path.stem.removeprefix(f"winpe-{target}-")
+                try:
+                    started_at = datetime.strptime(
+                        timestamp, "%Y%m%dT%H%M%SZ"
+                    ).replace(tzinfo=timezone.utc)
+                except ValueError:
+                    continue
+                if latest is None or started_at > latest:
+                    latest = started_at
+        except OSError:
+            continue
+        if latest is not None:
+            result[target] = latest.isoformat()
+    return result
+
+
 def _is_elevated() -> bool:
     try:
         return bool(ctypes.windll.shell32.IsUserAnAdmin())
@@ -45,7 +68,9 @@ def _is_elevated() -> bool:
 
 def get_winpe_build_state() -> dict[str, Any]:
     with _state_lock:
-        return dict(_state)
+        state = dict(_state)
+    state["lastStartedAt"] = _last_build_starts()
+    return state
 
 
 def _raise_start_error(target: str | None, message: str) -> None:

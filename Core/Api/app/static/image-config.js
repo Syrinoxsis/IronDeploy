@@ -26,6 +26,8 @@ const elements = {
     buildIsoButton: document.querySelector("#build-iso-button"),
     buildState: document.querySelector("#build-state"),
     buildLog: document.querySelector("#build-log"),
+    lastWimBuild: document.querySelector("#last-wim-build"),
+    lastIsoBuild: document.querySelector("#last-iso-build"),
     settingsLeaves: [...document.querySelectorAll("[data-settings-view]")],
     settingsViewPanels: [...document.querySelectorAll("[data-settings-view-panel]")],
     settingsGroupToggles: [
@@ -41,6 +43,24 @@ let pendingBuildTarget = null;
 let keyboardLayoutChoices = [];
 let selectedKeyboardLayouts = [];
 let isDirty = false;
+
+function translated(text) {
+    return window.IronI18n?.t(text) || text;
+}
+
+function localizedLocaleLabel(choice) {
+    const language = window.IronI18n?.language;
+    if (!language || language === "en" || typeof Intl.DisplayNames !== "function") {
+        return translated(choice.label);
+    }
+    try {
+        const label = new Intl.DisplayNames([language], { type: "language" }).of(choice.id);
+        if (label) return label[0].toUpperCase() + label.slice(1);
+    } catch {
+        // Fall back to the label returned by the API.
+    }
+    return translated(choice.label);
+}
 
 function showSettingsView(view) {
     for (const leaf of elements.settingsLeaves) {
@@ -106,7 +126,10 @@ function renderTimeZones(timeZones, selected) {
         ...timeZones.map((zone) => {
             const option = document.createElement("option");
             option.value = zone.id;
-            option.textContent = `${zone.offset} - ${zone.id} (${zone.label})`;
+            const label = translated(zone.label);
+            option.textContent = window.IronI18n?.language === "ru"
+                ? `${zone.offset} — ${label} (${zone.id})`
+                : `${zone.offset} - ${zone.id} (${label})`;
             return option;
         })
     );
@@ -118,7 +141,7 @@ function renderChoices(element, choices, selected) {
         ...choices.map((choice) => {
             const option = document.createElement("option");
             option.value = choice.id;
-            option.textContent = `${choice.label} (${choice.id})`;
+            option.textContent = `${localizedLocaleLabel(choice)} (${choice.id})`;
             return option;
         })
     );
@@ -127,7 +150,7 @@ function renderChoices(element, choices, selected) {
 
 function keyboardLayoutLabel(id) {
     const choice = keyboardLayoutChoices.find((item) => item.id === id);
-    return choice ? `${choice.label} (${choice.id})` : id;
+    return choice ? `${localizedLocaleLabel(choice)} (${choice.id})` : id;
 }
 
 function renderKeyboardLayouts() {
@@ -288,6 +311,16 @@ function renderBuildState(state) {
     elements.buildState.textContent = state.message || "Build status unavailable.";
     elements.buildLog.hidden = !state.logPath;
     elements.buildLog.textContent = state.logPath ? `Log: ${state.logPath}` : "";
+    const locale = window.IronI18n?.language === "ru" ? "ru-RU" : "en-US";
+    const formatStartedAt = (value) => {
+        if (!value) return translated("Never");
+        const date = new Date(value);
+        return Number.isNaN(date.getTime())
+            ? translated("Unknown")
+            : date.toLocaleString(locale);
+    };
+    elements.lastWimBuild.textContent = formatStartedAt(state.lastStartedAt?.wim);
+    elements.lastIsoBuild.textContent = formatStartedAt(state.lastStartedAt?.iso);
 }
 
 async function refreshBuildState() {

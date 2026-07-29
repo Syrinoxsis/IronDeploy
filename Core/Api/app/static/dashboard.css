@@ -1051,6 +1051,35 @@ body[data-page="dashboard"] .serial-number {
     white-space: nowrap;
 }
 
+body[data-page="dashboard"] .serial-preview {
+    display: inline-flex;
+    max-width: 100%;
+    align-items: center;
+    white-space: nowrap;
+}
+
+body[data-page="dashboard"] .serial-overflow-marker {
+    display: inline-grid;
+    min-width: 18px;
+    height: 16px;
+    margin-inline: 3px;
+    place-items: center;
+    border: 1px solid #475168;
+    border-radius: 4px;
+    color: #aeb8ca;
+    background: #242b38;
+    font-family: var(--font-ui);
+    font-size: 11px;
+    font-weight: 750;
+    line-height: 1;
+}
+
+body[data-page="dashboard"] .serial-number:hover .serial-overflow-marker {
+    border-color: #69758d;
+    color: #edf2fb;
+    background: #2d3544;
+}
+
 body[data-page="dashboard"] .status {
     font-weight: 520;
 }
