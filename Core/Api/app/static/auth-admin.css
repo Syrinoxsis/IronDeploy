@@ -671,3 +671,234 @@ body.access-control-page .admin-toast.error {
         transition: none;
     }
 }
+
+html:has(body.users-page) {
+    background: #151925;
+}
+
+body.users-page {
+    --ink: #f4f7fb;
+    --muted: #929daf;
+    --border: #2d3444;
+    --border-strong: #3a4355;
+    --surface: #151925;
+    --surface-muted: #191e2b;
+    --surface-hover: #1d2331;
+    --nav: #111d30;
+    --blue: #3975f6;
+    --blue-dark: #2f68e5;
+    --green: #3bcd8d;
+    --red: #ff686d;
+    --amber: #e4ad52;
+    --focus: rgba(111, 97, 232, .3);
+    --shadow: none;
+    min-width: 1120px;
+    min-height: 100vh;
+    color-scheme: dark;
+    background: var(--surface);
+}
+
+body.users-page .app-header {
+    min-height: 58px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    box-shadow: none;
+}
+
+body.users-page .header-inner {
+    min-height: 58px;
+}
+
+body.users-page .admin-shell {
+    max-width: none;
+    padding-block: 24px 52px;
+}
+
+body.users-page .page-heading,
+body.users-page .admin-card {
+    width: min(100% - 32px, 1280px);
+    margin-inline: auto;
+}
+
+body.users-page .page-heading {
+    margin-bottom: 20px;
+}
+
+body.users-page .page-heading h1 {
+    color: var(--ink);
+    font-size: 29px;
+    line-height: 1.15;
+}
+
+body.users-page .page-heading p {
+    margin-top: 7px;
+    color: var(--muted);
+    font-size: 14px;
+}
+
+body.users-page .admin-card {
+    margin-top: 18px;
+    padding: 20px;
+    border-color: var(--border-strong);
+    border-radius: 9px;
+    background: var(--surface);
+    box-shadow: none;
+}
+
+body.users-page .page-heading + .admin-card {
+    margin-top: 0;
+}
+
+body.users-page .admin-card h2 {
+    color: var(--ink);
+    font-size: 18px;
+    font-weight: 680;
+}
+
+body.users-page .admin-heading {
+    min-height: 30px;
+}
+
+body.users-page .admin-heading > span,
+body.users-page .managed-note {
+    color: var(--muted);
+}
+
+body.users-page .admin-form {
+    grid-template-columns: minmax(220px, 1fr) minmax(280px, 1fr) auto;
+    gap: 10px;
+    margin-top: 16px;
+}
+
+body.users-page .admin-form label {
+    color: #dfe5ed;
+    font-size: 12px;
+    font-weight: 650;
+}
+
+body.users-page .admin-form input,
+body.users-page .user-controls input {
+    min-height: 42px;
+    border-color: var(--border-strong);
+    border-radius: 6px;
+    color: var(--ink);
+    background: #181d29;
+}
+
+body.users-page .admin-form input:focus,
+body.users-page .user-controls input:focus {
+    border-color: #7769d7;
+    box-shadow: 0 0 0 3px rgba(119, 105, 215, .18);
+}
+
+body.users-page .auth-primary,
+body.users-page .admin-secondary,
+body.users-page .admin-danger {
+    min-height: 42px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 680;
+}
+
+body.users-page .admin-secondary {
+    border-color: #665bbd;
+    color: #c9c3ff;
+    background: transparent;
+}
+
+body.users-page .admin-secondary:hover {
+    border-color: #7769d7;
+    color: #fff;
+    background: #2a2748;
+}
+
+body.users-page .admin-danger {
+    border-color: rgba(255, 104, 109, .5);
+    color: #ff8e92;
+    background: transparent;
+}
+
+body.users-page .admin-danger:hover {
+    background: rgba(255, 104, 109, .08);
+}
+
+body.users-page .users-list {
+    gap: 0;
+    margin-top: 14px;
+    border-top: 1px solid var(--border);
+}
+
+body.users-page .user-row {
+    min-height: 76px;
+    gap: 20px;
+    padding: 16px 0;
+    border: 0;
+    border-bottom: 1px solid var(--border);
+    border-radius: 0;
+    background: transparent;
+}
+
+body.users-page .account-identity {
+    min-width: 190px;
+    gap: 7px;
+}
+
+body.users-page .account-identity > strong {
+    color: #e9edf4;
+    font-size: 14px;
+    font-weight: 670;
+}
+
+body.users-page .account-status {
+    padding: 2px 7px;
+    border-radius: 999px;
+    color: var(--muted);
+    background: #252c3a;
+    font-size: 10px;
+}
+
+body.users-page .account-status.active {
+    color: var(--green);
+    background: rgba(59, 205, 141, .1);
+}
+
+body.users-page .account-status.blocked {
+    color: var(--red);
+    background: rgba(255, 104, 109, .1);
+}
+
+body.users-page .account-status.superadmin {
+    color: #a9a1ff;
+    background: rgba(119, 105, 215, .16);
+}
+
+body.users-page .user-controls {
+    grid-template-columns: minmax(240px, 1fr) auto auto;
+}
+
+body.users-page .admin-empty {
+    border: 1px solid var(--border);
+    color: var(--muted);
+    background: var(--surface-muted);
+}
+
+body.users-page .admin-toast {
+    border-color: var(--border-strong);
+    color: var(--green);
+    background: #202634;
+    box-shadow: none;
+}
+
+body.users-page .admin-toast.error {
+    color: var(--red);
+}
+
+@media (max-width: 1220px) {
+    body.users-page .admin-form {
+        grid-template-columns: minmax(180px, 1fr) minmax(240px, 1fr) auto;
+    }
+
+    body.users-page .user-controls {
+        grid-template-columns: minmax(200px, 1fr) auto auto;
+    }
+}

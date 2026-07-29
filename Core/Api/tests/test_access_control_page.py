@@ -40,5 +40,24 @@ class AccessControlPageTests(unittest.TestCase):
         self.assertIn(".authorization-option:has(input:checked)", self.css)
 
 
+class UsersPageTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.html = (STATIC_ROOT / "users.html").read_text(encoding="utf-8")
+        cls.css = (STATIC_ROOT / "auth-admin.css").read_text(encoding="utf-8")
+
+    def test_uses_centered_dark_admin_layout(self) -> None:
+        self.assertIn('class="users-page"', self.html)
+        self.assertIn("body.users-page", self.css)
+        self.assertIn("width: min(100% - 32px, 1280px)", self.css)
+        self.assertIn("margin-inline: auto", self.css)
+
+    def test_keeps_existing_user_management_controls(self) -> None:
+        self.assertIn('id="create-user-form"', self.html)
+        self.assertIn('id="new-username"', self.html)
+        self.assertIn('id="new-password"', self.html)
+        self.assertIn('id="users-list"', self.html)
+
+
 if __name__ == "__main__":
     unittest.main()
