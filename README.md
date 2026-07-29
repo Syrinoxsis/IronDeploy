@@ -57,6 +57,20 @@ with the error message, but no alternative deployment workflow is started.
 - ODJ blobs contain computer-account secrets. Keep `Core\ODJ` local to the
   API server and restrict its ACL.
 
+## Microsoft prerequisites
+
+IronDeploy does not redistribute the Windows Assessment and Deployment Kit
+(Windows ADK), the Windows PE add-on, Windows installation images, or Windows
+licenses. Install the required Microsoft components from the official sources
+before preparing the WinPE working tree:
+
+- [Download and install the Windows ADK](https://learn.microsoft.com/en-us/windows-hardware/get-started/adk-install)
+- [Download Windows PE (WinPE)](https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/download-winpe--windows-pe)
+
+Use a supported ADK/WinPE version appropriate for the Windows releases you
+deploy. Every deployed Windows installation remains subject to Microsoft's
+applicable licensing terms.
+
 ## First setup: files 1, 2, 3, 4
 
 Run the numbered PowerShell files from the repository root in order. Steps 1
@@ -271,3 +285,18 @@ The network monitor identifies the route to SMB instead of choosing the first
 active adapter. Ping and received-byte counters use that adapter; existing API
 request durations use the route to IronAPI, which may be different. Only final
 aggregates are submitted to IronAPI, never the individual one-second samples.
+
+## Community
+
+Use [GitHub Discussions](https://github.com/Syrinoxsis/IronDeploy/discussions)
+for questions, deployment experiences, feature ideas, and general or commercial
+inquiries. Report bugs through GitHub Issues. Do not report vulnerabilities
+publicly; follow [SECURITY.md](SECURITY.md).
+
+## License
+
+IronDeploy is licensed under the Apache License, Version 2.0. See
+[LICENSE](LICENSE) and [NOTICE](NOTICE). The interface includes modified icon
+designs from Lucide Icons and Feather Icons; their applicable notices and
+license terms are provided in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
