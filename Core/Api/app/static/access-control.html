@@ -1,39 +1,159 @@
 <!doctype html>
 <html lang="en">
 <head>
-    <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="icon" type="image/png" href="/static/irondeploy-api-icon.png">
     <title>IronDeploy - Access control</title>
-    <link rel="stylesheet" href="/static/dashboard.css"><link rel="stylesheet" href="/static/navigation.css"><link rel="stylesheet" href="/static/auth-admin.css">
-    <script src="/static/i18n.js"></script><script src="/static/navigation.js"></script><script src="/static/auth-admin.js" defer></script>
+    <link rel="stylesheet" href="/static/dashboard.css">
+    <link rel="stylesheet" href="/static/navigation.css">
+    <link rel="stylesheet" href="/static/auth-admin.css">
+    <script src="/static/i18n.js"></script>
+    <script src="/static/navigation.js"></script>
+    <script src="/static/auth-admin.js" defer></script>
 </head>
-<body data-page="access-control">
-    <header class="app-header"><div class="header-inner"><span class="header-page-title">Access control</span></div></header>
-    <main class="page-shell admin-shell">
-        <section class="page-heading"><h1>Page access</h1><p>Assign exact page permissions to each regular user. Saving permissions signs that user out.</p></section>
-        <section class="admin-card" id="winpe-auth-card">
-            <div class="admin-heading"><h2>WinPE authorization</h2><span id="winpe-pin-status"></span></div>
-            <p>Choose how an operator authorizes a deployment before disk 0 can be erased.</p>
-            <div class="winpe-auth-options">
-                <label class="winpe-auth-option">
-                    <input type="radio" name="winpe-auth-mode" value="account">
-                    <span class="winpe-auth-copy"><strong>Username and password</strong><small>Use a dedicated account with WinPE deployment permission.</small></span>
-                </label>
-                <label class="winpe-auth-option">
-                    <input type="radio" name="winpe-auth-mode" value="pin">
-                    <span class="winpe-auth-copy"><strong>PIN code</strong><small>Operators enter a shared 6-10 digit PIN. Attempts are limited by the API.</small></span>
-                </label>
-                <label class="winpe-auth-option danger">
-                    <input type="radio" name="winpe-auth-mode" value="none">
-                    <span class="winpe-auth-copy"><strong>No operator authorization</strong><small>WinPE starts after receiving a short-lived deployment token. Anyone who can boot this WinPE can erase disk 0.</small></span>
-                </label>
+<body class="access-control-page" data-page="access-control">
+    <header class="app-header">
+        <div class="header-inner">
+            <span class="header-page-title">Access control</span>
+            <button class="refresh-button" id="access-refresh" type="button">
+                <svg aria-hidden="true" viewBox="0 0 24 24">
+                    <path d="M20 6v5h-5"></path>
+                    <path d="M19 11a7.5 7.5 0 1 0 .1 3.4"></path>
+                </svg>
+                <span>Refresh</span>
+            </button>
+        </div>
+    </header>
+
+    <main class="page-shell access-shell">
+        <div class="access-workspace">
+            <div class="access-main">
+                <nav class="access-tabs" aria-label="Access control sections">
+                    <button class="access-tab" type="button"
+                            data-access-tab="permissions">
+                        User permissions
+                    </button>
+                    <button class="access-tab is-active" type="button"
+                            data-access-tab="authorization" aria-current="page">
+                        WinPE authorization
+                    </button>
+                </nav>
+
+                <section class="access-panel" data-access-panel="authorization">
+                    <header class="access-panel-heading">
+                        <h1>Authorization mode</h1>
+                        <p>Choose how an operator authorizes a deployment before disk 0 can be erased.</p>
+                    </header>
+
+                    <div class="authorization-options">
+                        <label class="authorization-option">
+                            <input type="radio" name="winpe-auth-mode" value="account">
+                            <span class="authorization-radio" aria-hidden="true"></span>
+                            <svg class="authorization-icon" aria-hidden="true"
+                                 viewBox="0 0 24 24">
+                                <circle cx="12" cy="8" r="4"></circle>
+                                <path d="M4 21a8 8 0 0 1 16 0"></path>
+                            </svg>
+                            <span class="authorization-copy">
+                                <strong>Username and password</strong>
+                                <small>Use a dedicated account with WinPE deployment permission.</small>
+                            </span>
+                        </label>
+
+                        <label class="authorization-option">
+                            <input type="radio" name="winpe-auth-mode" value="pin">
+                            <span class="authorization-radio" aria-hidden="true"></span>
+                            <svg class="authorization-icon pin-icon" aria-hidden="true"
+                                 viewBox="0 0 24 24">
+                                <circle cx="6" cy="6" r="1"></circle>
+                                <circle cx="12" cy="6" r="1"></circle>
+                                <circle cx="18" cy="6" r="1"></circle>
+                                <circle cx="6" cy="12" r="1"></circle>
+                                <circle cx="12" cy="12" r="1"></circle>
+                                <circle cx="18" cy="12" r="1"></circle>
+                                <circle cx="12" cy="18" r="1"></circle>
+                            </svg>
+                            <span class="authorization-copy">
+                                <span class="authorization-title">
+                                    <strong>PIN code</strong>
+                                    <span class="configured-state" id="winpe-pin-status">
+                                        Checking status...
+                                    </span>
+                                </span>
+                                <small>Operators enter a shared 6-10 digit PIN. Attempts are limited.</small>
+                                <span class="pin-editor" id="pin-editor" hidden>
+                                    <span class="pin-editor-label">Update PIN</span>
+                                    <input id="winpe-pin" type="password"
+                                           inputmode="numeric" pattern="[0-9]{6,10}"
+                                           minlength="6" maxlength="10"
+                                           autocomplete="new-password"
+                                           placeholder="Enter new 6-10 digit PIN">
+                                    <span class="pin-editor-hint">
+                                        Leave blank to keep the current PIN.
+                                    </span>
+                                </span>
+                            </span>
+                        </label>
+
+                        <label class="authorization-option danger">
+                            <input type="radio" name="winpe-auth-mode" value="none">
+                            <span class="authorization-radio" aria-hidden="true"></span>
+                            <svg class="authorization-icon" aria-hidden="true"
+                                 viewBox="0 0 24 24">
+                                <path d="M12 3 4.5 6v5.4c0 4.5 3.2 8.1 7.5 9.6 4.3-1.5 7.5-5.1 7.5-9.6V6z"></path>
+                                <path d="M12 8v5M12 16h.01"></path>
+                            </svg>
+                            <span class="authorization-copy">
+                                <span class="authorization-title">
+                                    <strong>No operator authorization</strong>
+                                    <span class="danger-state">Not recommended</span>
+                                </span>
+                                <small>
+                                    Anyone who can boot this WinPE can erase disk 0.
+                                </small>
+                            </span>
+                        </label>
+                    </div>
+                </section>
+
+                <section class="access-panel" data-access-panel="permissions" hidden>
+                    <header class="access-panel-heading permission-heading">
+                        <div>
+                            <h1>User permissions</h1>
+                            <p>Choose the pages available to the selected account.</p>
+                        </div>
+                        <label class="user-picker">
+                            <span>User</span>
+                            <select id="access-user-select"></select>
+                        </label>
+                    </header>
+                    <div class="selected-user-state" id="selected-user-state"></div>
+                    <div class="permission-list" id="access-list"></div>
+                </section>
             </div>
-            <div class="winpe-pin-row">
-                <label><span>New PIN</span><input id="winpe-pin" type="password" inputmode="numeric" pattern="[0-9]{6,10}" minlength="6" maxlength="10" autocomplete="new-password" placeholder="Leave blank to keep the configured PIN"></label>
-                <button class="auth-primary" id="save-winpe-auth" type="button">Save WinPE authorization</button>
-            </div>
-        </section>
-        <section class="admin-card"><div class="admin-heading"><h2>Permissions</h2><span>Superadmin always has full access</span></div><div id="access-list" class="access-list"></div></section>
+
+            <aside class="access-actions" aria-label="Access control actions">
+                <section class="access-save-state">
+                    <strong class="rail-status is-clean" id="access-dirty-state">
+                        All changes saved
+                    </strong>
+                    <p id="access-dirty-copy">Settings match the saved configuration.</p>
+                    <button class="access-primary-button" id="access-save-button"
+                            type="button" disabled>
+                        Save authorization
+                    </button>
+                </section>
+                <section class="current-policy" id="current-policy-section">
+                    <h2>Current policy</h2>
+                    <span class="policy-value" id="current-policy">Loading...</span>
+                </section>
+                <section class="permission-note" id="permission-note" hidden>
+                    <h2>Account sessions</h2>
+                    <p>Saving permissions signs the selected user out.</p>
+                </section>
+            </aside>
+        </div>
         <div class="admin-toast" id="admin-toast" hidden></div>
     </main>
 </body>

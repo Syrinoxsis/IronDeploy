@@ -715,3 +715,193 @@
         gap: 8px;
     }
 }
+
+/* Deployment detail: keep the Drivers-inspired dark surface self-contained. */
+html:has(body.deployment-detail-page) {
+    background: #151925;
+}
+
+body.deployment-detail-page {
+    --page-bg: #151925;
+    --surface: #171c28;
+    --surface-muted: #1c2230;
+    --border: #2a3140;
+    --text: #f4f6fb;
+    --muted: #8e98aa;
+    --blue: #72a8ff;
+    --green: #43c59e;
+    --amber: #e3b85c;
+    --red: #ff7b72;
+    min-width: 0;
+    min-height: 100vh;
+    overflow-x: hidden;
+    color: var(--text);
+    background: var(--page-bg);
+    color-scheme: dark;
+}
+
+body.deployment-detail-page .app-header {
+    border-bottom-color: var(--border);
+    background: rgba(21, 25, 37, 0.94);
+    box-shadow: none;
+}
+
+body.deployment-detail-page .header-inner {
+    max-width: none;
+}
+
+body.deployment-detail-page .header-actions {
+    border-color: var(--border);
+    background: #1a202d;
+}
+
+body.deployment-detail-page .refresh-button {
+    border-color: var(--border);
+    color: var(--text);
+    background: transparent;
+    box-shadow: none;
+}
+
+body.deployment-detail-page .refresh-button:hover {
+    border-color: #44506a;
+    background: #202736;
+}
+
+body.deployment-detail-page .page-shell,
+body.deployment-detail-page .detail-shell,
+body.deployment-detail-page #detail-content,
+body.deployment-detail-page .detail-layout,
+body.deployment-detail-page .detail-panel,
+body.deployment-detail-page .network-panel,
+body.deployment-detail-page #network-content {
+    min-width: 0;
+    max-width: 100%;
+}
+
+body.deployment-detail-page .detail-shell {
+    width: auto;
+    overflow-x: clip;
+}
+
+body.deployment-detail-page .detail-panel {
+    border-color: var(--border);
+    background: var(--surface);
+    box-shadow: none;
+}
+
+body.deployment-detail-page .detail-loading,
+body.deployment-detail-page .detail-count,
+body.deployment-detail-page .program-card,
+body.deployment-detail-page .network-summary-card {
+    background: var(--surface-muted);
+}
+
+body.deployment-detail-page .detail-loading.is-error,
+body.deployment-detail-page .detail-error {
+    border-color: #57383b;
+    background: #241c22;
+}
+
+body.deployment-detail-page .detail-error pre,
+body.deployment-detail-page .stage-error,
+body.deployment-detail-page .network-smb-error {
+    color: #ff9a92;
+}
+
+body.deployment-detail-page .stage-error,
+body.deployment-detail-page .network-smb-error {
+    background: #2a1d22;
+}
+
+body.deployment-detail-page .detail-stage,
+body.deployment-detail-page .network-mini-facts > div {
+    border-color: var(--border);
+}
+
+body.deployment-detail-page .stage-marker {
+    border-color: var(--surface);
+}
+
+body.deployment-detail-page .detail-status.status-begin {
+    color: #9bc1ff;
+    background: rgba(80, 137, 230, 0.16);
+}
+
+body.deployment-detail-page .detail-status.status-completed {
+    color: #72ddb9;
+    background: rgba(67, 197, 158, 0.14);
+}
+
+body.deployment-detail-page .detail-status.status-failed {
+    color: #ff9a92;
+    background: rgba(255, 123, 114, 0.14);
+}
+
+body.deployment-detail-page .network-report-state {
+    color: var(--muted);
+    background: #202635;
+}
+
+body.deployment-detail-page .network-report-state.is-reported {
+    color: #72ddb9;
+    background: rgba(67, 197, 158, 0.14);
+}
+
+body.deployment-detail-page .network-panel {
+    background:
+        linear-gradient(135deg, rgba(114, 168, 255, 0.035), transparent 46%),
+        var(--surface);
+}
+
+body.deployment-detail-page .network-empty strong {
+    color: var(--text);
+}
+
+body.deployment-detail-page .network-adapters,
+body.deployment-detail-page .network-summary-grid,
+body.deployment-detail-page .network-stage-section,
+body.deployment-detail-page .network-stage-list,
+body.deployment-detail-page .network-stage-row {
+    min-width: 0;
+}
+
+body.deployment-detail-page .network-adapter-card,
+body.deployment-detail-page .network-summary-card,
+body.deployment-detail-page .network-stage-row {
+    border-color: var(--border);
+    background: var(--surface-muted);
+}
+
+body.deployment-detail-page .network-stage-row {
+    grid-template-columns:
+        minmax(145px, 1.2fr)
+        repeat(7, minmax(0, 0.75fr));
+}
+
+body.deployment-detail-page .network-stage-name,
+body.deployment-detail-page .network-stage-metric,
+body.deployment-detail-page .network-stage-name strong,
+body.deployment-detail-page .network-stage-metric strong,
+body.deployment-detail-page .network-adapter-meta,
+body.deployment-detail-page .network-errors li {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+body.deployment-detail-page .network-errors {
+    border-color: #5d4a2b;
+    color: #e7c478;
+    background: #242118;
+}
+
+@media (max-width: 1100px) {
+    body.deployment-detail-page .network-stage-row {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 760px) {
+    body.deployment-detail-page .network-stage-row {
+        grid-template-columns: 1fr;
+    }
+}

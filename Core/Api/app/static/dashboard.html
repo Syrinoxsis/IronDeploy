@@ -14,7 +14,7 @@
 <body data-page="dashboard">
     <header class="app-header">
         <div class="header-inner">
-            <span class="header-page-title">Dashboard</span>
+            <span class="header-page-title">Deployments</span>
             <div class="header-actions">
                 <button class="refresh-button" id="refresh-button" type="button">
                     <svg aria-hidden="true" viewBox="0 0 24 24">
@@ -32,11 +32,6 @@
     </header>
 
     <main class="page-shell">
-        <section class="page-heading" aria-labelledby="page-title">
-            <h1 id="page-title">Deployments</h1>
-            <p id="page-subtitle">Windows deployment journal and WinPE status</p>
-        </section>
-
         <nav class="view-tabs" aria-label="Dashboard views">
             <button class="view-tab is-active" type="button" data-view="deployments">
                 Deployments
@@ -96,35 +91,10 @@
                     <input
                         id="search-input"
                         type="search"
-                        placeholder="Search every visible cell"
+                        placeholder="Search deployments"
                         autocomplete="off"
                     >
                 </label>
-
-                <label class="status-select" id="status-select-wrap">
-                    <span class="visually-hidden">Status filter</span>
-                    <select id="status-select">
-                        <option value="all">All statuses</option>
-                        <option value="begin">Running</option>
-                        <option value="completed">Completed</option>
-                        <option value="failed">Failed</option>
-                    </select>
-                </label>
-
-                <div class="status-tabs" id="status-tabs" role="group" aria-label="Status filter">
-                    <button class="status-tab is-active" type="button" data-status="all">
-                        All statuses
-                    </button>
-                    <button class="status-tab" type="button" data-status="begin">
-                        Running
-                    </button>
-                    <button class="status-tab" type="button" data-status="completed">
-                        Completed
-                    </button>
-                    <button class="status-tab" type="button" data-status="failed">
-                        Failed
-                    </button>
-                </div>
             </div>
 
             <div class="table-region" id="table-region" aria-live="polite">

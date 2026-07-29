@@ -2,6 +2,37 @@
     flex-wrap: wrap;
 }
 
+.program-upload-note {
+    margin-top: 9px;
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.program-upload-note summary {
+    width: fit-content;
+    color: #c5cedc;
+    cursor: pointer;
+    font-weight: 650;
+}
+
+.program-upload-note ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px 24px;
+    margin: 9px 0 0;
+    padding-left: 18px;
+}
+
+.program-upload-note code {
+    color: #bec8d7;
+}
+
+.programs-page .page-heading,
+.programs-page .upload-card,
+.programs-page .images-card {
+    width: min(100% - 32px, 1280px);
+}
+
 .arguments-input {
     flex: 1 1 240px;
     min-width: 200px;
