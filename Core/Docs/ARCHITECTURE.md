@@ -57,7 +57,7 @@ manifest directly from SMB.
 | `Core\WinPE\Runtime\deploy.config.ps1` | WinPE | API address, payload paths, certificate trust, and offline account policy. |
 | `Core\Data\irondeploy.db` | IronAPI | Accounts, permissions, deployments, stages, and inventory. |
 | `Core\ODJ\pending` | IronAPI | Short-lived Offline Domain Join blobs. |
-| `Core\Share` | SMB data plane | Windows images, driver packages, and installers. |
+| `Core\Share` | IronAPI / SMB data plane | Windows images, driver packages, and installers managed by IronAPI and read by WinPE through SMB. |
 | `Core\ServerTemplates` | IronAPI | Authorized unattend and post-install templates. |
 | `Core\.work` | WinPE build tools | Mutable Windows ADK working tree. |
 | `Core\dist` | WinPE build tools | Replaceable WIM and ISO delivery artifacts. |
