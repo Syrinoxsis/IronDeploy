@@ -43,13 +43,7 @@ You also need:
 
 - Windows PowerShell 5.1;
 - Python 3;
-- `Core\Share` published as an SMB share for every deployment;
-- a separate local or domain SMB account, always required so WinPE can read
-  images, drivers, and program installers from that share;
 - a way to boot the generated x64 WinPE image, such as WDS/PXE, ISO, or USB;
-- a dedicated domain account with permission to search computer objects and
-  provision Offline Domain Join computer accounts in the intended OU, only if
-  Active Directory features are required.
 
 IronDeploy does not redistribute Windows ADK, WinPE, Windows installation
 images, or Windows licences.
@@ -95,9 +89,25 @@ stop it with `Ctrl+C`.
 & ".\4. Install-IronAPIService.ps1"
 ```
 
-Installs IronAPI as an automatically started Windows service. A dedicated
-domain service account with only the required Active Directory permissions is
-recommended.
+Installs IronAPI as an automatically started Windows service.
+
+### 5. Configure required accounts and file access
+
+Before the first deployment:
+
+- publish only `Core\Share` as an SMB share; do not share the repository root;
+- create a separate local or domain SMB account for WinPE. Grant it read-only
+  access in both the SMB share permissions and the NTFS permissions. Do not
+  grant write, change, full-control, local administrator, or interactive logon
+  rights, and do not reuse the IronAPI service identity;
+- protect the entire local IronDeploy repository directory with NTFS
+  permissions. Allow access only to administrators, the IronAPI service
+  identity, and operators who maintain the deployment system;
+- if Active Directory integration is enabled, run IronAPI under a dedicated
+  domain identity. Grant it read/search access to computer objects for name
+  checks and only the delegated rights required to create or provision computer
+  accounts for Offline Domain Join in the intended OU. It does not need Domain
+  Admin membership.
 
 After installation, use the IronAPI web interface to manage Windows images,
 driver packages, programs, and deployment settings.
@@ -112,19 +122,6 @@ environment:
   in transit;
 - prefer HTTPS for IronAPI and enable certificate validation, because the API
   carries deployment tokens and temporary SMB credentials;
-- protect the entire local IronDeploy repository directory with NTFS
-  permissions. Allow access only to administrators, the IronAPI service
-  identity, and operators who maintain the deployment system;
-- when Active Directory integration is enabled, run IronAPI under a dedicated
-  domain identity. It needs read/search access to computer objects for name
-  checks and only the delegated rights required to create or provision computer
-  accounts for Offline Domain Join in the intended OU. It does not need Domain
-  Admin membership;
-- use a separate local or domain account only for WinPE access to the deployment
-  share. Do not reuse the IronAPI service identity;
-- share only `Core\Share` and grant that SMB account read-only access in both
-  the SMB share permissions and the NTFS permissions. Do not grant write,
-  change, full-control, local administrator, or interactive logon rights;
 - never commit `.env`, databases, ODJ blobs, WIM/ESD images, generated
   WIM/ISO files, driver packages, or program installers;
 - verify the target machine before confirming the permanent erase of disk 0.
