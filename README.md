@@ -43,10 +43,12 @@ You also need:
 
 - Windows PowerShell 5.1;
 - Python 3;
-- an SMB share for Windows images, drivers, and program installers;
+- \`Core\\Share\` published as an SMB share, plus a separate local or domain
+  account with read-only access for WinPE;
 - a way to boot the generated x64 WinPE image, such as WDS/PXE, ISO, or USB;
-- Active Directory only if computer naming checks or Offline Domain Join are
-  required.
+- a dedicated domain account with permission to search computer objects and
+  provision Offline Domain Join computer accounts in the intended OU, only if
+  Active Directory features are required.
 
 IronDeploy does not redistribute Windows ADK, WinPE, Windows installation
 images, or Windows licences.
@@ -109,10 +111,19 @@ environment:
   in transit;
 - prefer HTTPS for IronAPI and enable certificate validation, because the API
   carries deployment tokens and temporary SMB credentials;
-- use a read-only SMB account for WinPE;
-- run the IronAPI service under a dedicated identity with only the Active
-  Directory rights it needs;
-- restrict access to `Core\Api\.env`, `Core\Data`, and `Core\ODJ`;
+- protect the entire local IronDeploy repository directory with NTFS
+  permissions. Allow access only to administrators, the IronAPI service
+  identity, and operators who maintain the deployment system;
+- when Active Directory integration is enabled, run IronAPI under a dedicated
+  domain identity. It needs read/search access to computer objects for name
+  checks and only the delegated rights required to create or provision computer
+  accounts for Offline Domain Join in the intended OU. It does not need Domain
+  Admin membership;
+- use a separate local or domain account only for WinPE access to the deployment
+  share. Do not reuse the IronAPI service identity;
+- share only \`Core\\Share\` and grant that SMB account read-only access in both
+  the SMB share permissions and the NTFS permissions. Do not grant write,
+  change, full-control, local administrator, or interactive logon rights;
 - never commit `.env`, databases, ODJ blobs, WIM/ESD images, generated
   WIM/ISO files, driver packages, or program installers;
 - verify the target machine before confirming the permanent erase of disk 0.
