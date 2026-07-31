@@ -46,6 +46,5 @@ about them are especially valuable:
 
 ## Operator guidance
 
-If you run IronDeploy, note that `Core\ODJ` holds computer-account secrets and
-`Core\Api\.env` holds SMB credentials. Both should stay local to the API server
-with a restricted ACL. Neither should ever be committed.
+Before operating IronDeploy, follow the mandatory security requirements listed
+in the [README](README.md#security-must-haves).
