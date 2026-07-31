@@ -110,7 +110,8 @@ Before the first deployment:
   Admin membership.
 
 After installation, use the IronAPI web interface to manage Windows images,
-driver packages, programs, and deployment settings.
+driver packages, programs, and deployment settings, and to build the current
+WinPE WIM or ISO.
 
 ## Security must-haves
 
@@ -150,8 +151,10 @@ deployment speed; SMB signing is the minimum recommended integrity protection.
 Detailed implementation and operator notes live outside this README:
 
 - [Architecture](Core/Docs/ARCHITECTURE.md)
-- [Building the WinPE image](Core/Docs/WINPE_ISO.md)
-- [IronAPI configuration and API behaviour](Core/Api/README.md)
+- [WinPE build and deployment runtime](Core/Docs/WINPE.md)
+- [IronAPI configuration and API behaviour](Core/Docs/API.md)
+- [Initial configuration with SetupWeb](Core/Docs/SETUPWEB.md)
+- [Roadmap](Core/Docs/ROADMAP.md)
 - [Security policy](SECURITY.md)
 - [Contributing and bug reports](CONTRIBUTING.md)
 - [Third-party notices](THIRD_PARTY_NOTICES.md)
