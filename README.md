@@ -43,8 +43,9 @@ You also need:
 
 - Windows PowerShell 5.1;
 - Python 3;
-- `Core\Share` published as an SMB share, plus a separate local or domain
-  account with read-only access for WinPE;
+- `Core\Share` published as an SMB share for every deployment;
+- a separate local or domain SMB account, always required so WinPE can read
+  images, drivers, and program installers from that share;
 - a way to boot the generated x64 WinPE image, such as WDS/PXE, ISO, or USB;
 - a dedicated domain account with permission to search computer objects and
   provision Offline Domain Join computer accounts in the intended OU, only if
