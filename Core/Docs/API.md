@@ -29,9 +29,11 @@ service:
 ```
 
 The recommended service identity is a dedicated domain account. LDAP searches
-and `djoin.exe` both run as the IronAPI process identity; no separate domain
-password is stored. The identity needs read access to the application and the
-delegated AD rights required to create or reuse computer objects.
+and `djoin.exe` both run as the IronAPI process identity. IronDeploy stores no
+separate LDAP or ODJ credentials; the password entered during service
+installation is handed to Windows Service Control Manager for service logon.
+The identity needs read access to the application and the delegated AD rights
+required to create or reuse computer objects.
 
 ## Configuration
 
@@ -41,7 +43,7 @@ IronAPI reads `Core\Api\.env`. Its settings are grouped by responsibility:
 | --- | --- |
 | Listener | access mode, bind address, port, access log, allowed client networks |
 | Deployment | authorization and deployment timeouts |
-| SMB | share path and read-only credential returned to authorized WinPE |
+| SMB | share path and configured account returned to authorized WinPE; the account must be read-only in SMB and NTFS |
 | Storage | SQLite database and temporary ODJ directory |
 | Naming and LDAP | name prefix/range, domain controller, base DN, LDAP TLS |
 | Offline Domain Join | domain, target OU, `djoin.exe`, timeout, blob lifetime |
@@ -68,9 +70,10 @@ IronAPI answers requests from several sources rather than one central catalog:
 
 The manifest endpoint validates the current selection against the current
 server catalog and returns image/index details, driver-package metadata,
-selected programs, and post-install settings. WinPE checks the image size,
-checks the driver package's total size and INF count, and verifies selected
-program installers with SHA-256 after copying them. IronDeploy does not
+selected programs, and post-install settings. WinPE checks the image size, checks the driver package's total size and INF
+count, and compares selected program installers with their expected SHA-256
+after copying. Post-install checks the hash again and refuses to execute a
+mismatched installer. IronDeploy does not
 currently calculate a content hash for Windows images or driver packages.
 
 ## Browser interface
@@ -104,7 +107,7 @@ Key WinPE-facing routes are:
 | `GET /api/deploy/catalog` | Available images, indexes, programs, hashes, and driver-package metadata | `Core\Share` and its server-side metadata |
 | `POST /api/deploy/begin` | Deployment ID and bound bearer state | Submitted hardware/selection data and SQLite |
 | `POST /api/deploy/{id}/manifest` | Validated server-approved deployment plan | Current catalog and image settings |
-| `GET /api/deploy/{id}/smb-credentials` | Temporary read-only SMB connection details | `Core\Api\.env` |
+| `GET /api/deploy/{id}/smb-credentials` | Configured SMB connection details; the account must be read-only | `Core\Api\.env` |
 | Unattend and post-install routes | Per-deployment answer file and scripts | `Core\ServerTemplates` and image settings |
 | Domain-join routes | ODJ provisioning, download, and acknowledgement | Active Directory and `Core\ODJ\pending` |
 | Stage, error, diagnostics, and completion routes | Deployment progress and final result | SQLite deployment state |
@@ -151,7 +154,7 @@ snapshot.
 
 During execution, routes provide:
 
-- temporary SMB credentials;
+- the configured SMB connection details;
 - the per-deployment unattend file;
 - ODJ provision/download/acknowledgement operations;
 - SetupComplete and post-install script content;
