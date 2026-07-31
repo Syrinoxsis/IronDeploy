@@ -1,6 +1,6 @@
 # IronDeploy architecture
 
-IronDeploy has four runtime components. Each one owns a distinct part of the
+IronDeploy has four main components. Each one owns a distinct part of the
 deployment process:
 
 | Component | Responsibility |
@@ -38,7 +38,7 @@ SMB share ---- payloads -----+
 ```
 
 WinPE asks IronAPI what may be deployed and reports progress. IronAPI returns
-the authorized catalog, final manifest, SMB connection details, answer file,
+the authorized catalog, validated manifest, SMB connection details, answer file,
 and optional Offline Domain Join data. WinPE reads the large files named in the
 manifest directly from SMB.
 
@@ -46,21 +46,21 @@ manifest directly from SMB.
 
 | Location | Owner | Contents |
 | --- | --- | --- |
-| `Api\.env` | IronAPI | Listener, SMB, LDAP, ODJ, and timeout settings. |
-| `WinPE\Runtime\deploy.config.ps1` | WinPE | API address, payload paths, certificate trust, and offline account policy. |
-| `Data\irondeploy.db` | IronAPI | Accounts, permissions, deployments, stages, and inventory. |
-| `ODJ\pending` | IronAPI | Short-lived Offline Domain Join blobs. |
-| `Share` | SMB data plane | Windows images, driver packages, and installers. |
-| `ServerTemplates` | IronAPI | Authorized unattend and post-install templates. |
-| `.work` | WinPE build tools | Mutable Windows ADK working tree. |
-| `dist` | WinPE build tools | Replaceable WIM and ISO delivery artifacts. |
+| `Core\Api\.env` | IronAPI | Listener, SMB, LDAP, ODJ, and timeout settings. |
+| `Core\WinPE\Runtime\deploy.config.ps1` | WinPE | API address, payload paths, certificate trust, and offline account policy. |
+| `Core\Data\irondeploy.db` | IronAPI | Accounts, permissions, deployments, stages, and inventory. |
+| `Core\ODJ\pending` | IronAPI | Short-lived Offline Domain Join blobs. |
+| `Core\Share` | SMB data plane | Windows images, driver packages, and installers. |
+| `Core\ServerTemplates` | IronAPI | Authorized unattend and post-install templates. |
+| `Core\.work` | WinPE build tools | Mutable Windows ADK working tree. |
+| `Core\dist` | WinPE build tools | Replaceable WIM and ISO delivery artifacts. |
 
 Generated state is not source code. The source copied into a WinPE image lives
-under `WinPE\Runtime`.
+under `Core\WinPE\Runtime`.
 
 ## Secret boundaries
 
-- SetupWeb writes the SMB credential only to server-side `Api\.env`.
+- SetupWeb writes the SMB credential only to server-side `Core\Api\.env`.
 - WinPE receives the SMB credential from IronAPI for an authorized deployment;
   it is not embedded in `deploy.config.ps1`.
 - Browser sessions and WinPE deployment tokens are separate authorization
