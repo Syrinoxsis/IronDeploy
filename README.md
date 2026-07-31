@@ -128,7 +128,7 @@ environment:
   ```
 
 - prefer HTTPS for IronAPI and enable certificate validation, because the API
-  carries deployment tokens and temporary SMB credentials;
+  carries deployment tokens and the configured SMB account details;
 - never commit `.env`, databases, ODJ blobs, WIM/ESD images, generated
   WIM/ISO files, driver packages, or program installers;
 - verify the target machine before confirming the permanent erase of disk 0.
