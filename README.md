@@ -43,7 +43,7 @@ You also need:
 
 - Windows PowerShell 5.1;
 - Python 3;
-- a way to boot the generated x64 WinPE image, such as WDS/PXE, ISO, or USB;
+- a way to boot the generated x64 WinPE image, such as WDS/PXE, ISO, or USB.
 
 IronDeploy does not redistribute Windows ADK, WinPE, Windows installation
 images, or Windows licences.
