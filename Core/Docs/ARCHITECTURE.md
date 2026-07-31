@@ -7,7 +7,7 @@ deployment process:
 | --- | --- |
 | SetupWeb | Writes the initial IronDeploy configuration on the deployment server. |
 | IronAPI | Authorizes operators, builds the deployment plan, stores state, and integrates with Active Directory. |
-| WinPE | Selects a deployment, erases the target disk, and applies Windows offline. |
+| WinPE | Collects operator choices, creates the deployment through IronAPI, erases the target disk, and applies Windows offline. |
 | Post-install | Finishes the deployment inside the newly installed Windows system. |
 
 WDS/PXE or bootable media only deliver WinPE. SMB carries large payloads such
@@ -15,26 +15,33 @@ as Windows images, drivers, and installers. IronAPI is the control plane.
 
 ## System flow
 
+Configuration:
+
 ```text
-                           Active Directory
-                                  ^
-                                  |
-SetupWeb ---- configuration ----> IronAPI ----> SQLite
-     |                            ^   ^
-     |                            |   |
-     +------ WinPE config ------> |   +------ browser management
-                                  |
-WDS / ISO ---- boot ----> WinPE --+------ deployment control
-                            |
-SMB share ---- payloads -----+
-                            |
-                            v
-                    offline Windows
-                            |
-                            v
-                       post-install
-                            |
-                            +----------> IronAPI completion report
+SetupWeb
+  +--> Core\Api\.env ----------------> IronAPI
+  +--> deploy.config.ps1 --> WinPE build --> WIM / ISO
+```
+
+Deployment runtime:
+
+```text
+Browser management --> IronAPI <--> SQLite
+                           ^
+                           |
+Active Directory <---------+
+                           |
+WDS / PXE / ISO --> WinPE -+---- deployment control
+                      |
+SMB share -- payloads-+
+                      |
+                      v
+               offline Windows
+                      |
+                      v
+                 post-install
+                      |
+                      +--------> IronAPI completion report
 ```
 
 WinPE asks IronAPI what may be deployed and reports progress. IronAPI returns
