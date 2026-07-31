@@ -49,7 +49,9 @@ The UI owns the first-time settings needed by both IronAPI and WinPE:
 
 - initial IronAPI superadmin username and password;
 - listener/access mode, address, port, and allowed client networks;
-- SMB share path and read-only credential;
+- SMB share path and configured account details; the administrator must create
+  the share and account separately and grant read-only access in both SMB and
+  NTFS permissions;
 - computer naming, LDAP, and Offline Domain Join settings;
 - deployment and authorization timeouts;
 - driver-upload safety limits;
@@ -84,6 +86,8 @@ the bootstrap identity into SQLite at startup.
 SetupWeb writes settings to the component that consumes them:
 
 - SMB credentials stay in `Core\Api\.env`; they are never embedded in WinPE.
+- SetupWeb records the SMB connection details but does not create the share,
+  account, or access permissions.
 - WinPE stores the API address and trust policy, not deployment authorization
   credentials.
 - Unattend remains under `Core\ServerTemplates`, where IronAPI can return it only to
