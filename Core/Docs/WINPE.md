@@ -6,7 +6,7 @@ IronAPI, reads payloads from SMB, and applies Windows to disk 0.
 
 ## Safety
 
-- Never run `WinPE\Runtime\deploy.ps1` on the deployment server or a normal
+- Never run `Core\WinPE\Runtime\deploy.ps1` on the deployment server or a normal
   Windows workstation. The deployment path erases disk 0.
 - Build and servicing commands require elevation.
 - Never mount a WIM a second time when DISM already reports it as mounted.
@@ -18,7 +18,7 @@ an additional guard, not permission to test the destructive script on a host.
 
 ## Source and generated artifacts
 
-`WinPE\Runtime` is the source of truth for files copied into the image:
+`Core\WinPE\Runtime` is the source of truth for files copied into the image:
 
 | File | Purpose |
 | --- | --- |
@@ -32,32 +32,32 @@ an additional guard, not permission to test the destructive script on a host.
 The build pipeline copies those files into the ADK working tree and produces:
 
 ```text
-WinPE\Runtime
+Core\WinPE\Runtime
       |
       v
-.work\WinPE_amd64\media\sources\boot.wim
+Core\.work\WinPE_amd64\media\sources\boot.wim
       |
-      +--> dist\IronDeploy_PE.wim
-      +--> dist\IronDeploy_PE.iso
+      +--> Core\dist\IronDeploy_PE.wim
+      +--> Core\dist\IronDeploy_PE.iso
 ```
 
 `.work` and `dist` are replaceable output, not source.
 
 ## Building WinPE manually
 
-Use the public wrapper from the `Core` directory. On a fresh working copy,
+Use the public wrapper from the repository root. On a fresh working copy,
 initialize the ADK tree and build both artifacts:
 
 ```powershell
-.\Tools\Build-IronDeployWinPE.ps1 -Initialize -Target Both
+.\Core\Tools\Build-IronDeployWinPE.ps1 -Initialize -Target Both
 ```
 
 Later builds can target one artifact:
 
 ```powershell
-.\Tools\Build-IronDeployWinPE.ps1 -Target Wim
-.\Tools\Build-IronDeployWinPE.ps1 -Target Iso
-.\Tools\Build-IronDeployWinPE.ps1 -Target Both
+.\Core\Tools\Build-IronDeployWinPE.ps1 -Target Wim
+.\Core\Tools\Build-IronDeployWinPE.ps1 -Target Iso
+.\Core\Tools\Build-IronDeployWinPE.ps1 -Target Both
 ```
 
 Without `-Target`, the wrapper prompts for WIM, ISO, or both. A normal ISO
@@ -66,13 +66,13 @@ stale boot image. `-SkipWimUpdate` is only for repackaging immediately after a
 successful WIM build.
 
 Use `-UpdatePxeBundle` with `Wim` or `Both` to replace
-`dist\PXE\irondeploy\boot.wim` after the published WIM passes verification.
+`Core\dist\PXE\irondeploy\boot.wim` after the published WIM passes verification.
 
 ## Building through IronAPI
 
 The IronAPI Image configuration page can start a WIM or ISO rebuild. IronAPI
-runs the same `Tools\Build-IronDeployWinPE.ps1` wrapper in a background process
-and records its output under `Logs\WinPEBuild`.
+runs the same `Core\Tools\Build-IronDeployWinPE.ps1` wrapper in a background process
+and records its output under `Core\Logs\WinPEBuilds`.
 
 IronAPI must itself be running as Administrator for this feature. Only one
 WinPE build may run at a time. The web action does not provide the manual
@@ -80,9 +80,9 @@ WinPE build may run at a time. The web action does not provide the manual
 
 ## Delivery and boot
 
-- Publish `dist\IronDeploy_PE.wim` through WDS/PXE when the environment boots
+- Publish `Core\dist\IronDeploy_PE.wim` through WDS/PXE when the environment boots
   WinPE over the network.
-- Use `dist\IronDeploy_PE.iso` for a VM, optical/USB media, or a boot manager
+- Use `Core\dist\IronDeploy_PE.iso` for a VM, optical/USB media, or a boot manager
   such as Ventoy.
 
 IronDeploy does not configure WDS, DHCP, firmware boot order, USB media, or
@@ -103,7 +103,7 @@ console is restored for diagnostics and no fallback deployment begins.
 
 ## Runtime configuration
 
-`WinPE\Runtime\deploy.config.ps1` defines:
+`Core\WinPE\Runtime\deploy.config.ps1` defines:
 
 - the IronAPI base URL and certificate-validation policy;
 - the drive letter and SMB paths used for images, drivers, and programs;
@@ -126,8 +126,9 @@ Before disk modification, WinPE:
    credential-free mode;
 4. requests a computer-name suggestion and the allowed catalog;
 5. submits the final image, index, driver, program, and domain-join selection;
-6. receives a deployment ID and immutable manifest;
-7. obtains temporary SMB credentials and verifies the selected payloads.
+6. receives a deployment ID, then requests a server-validated manifest;
+7. obtains temporary SMB credentials, checks the image size and the selected
+   driver package's total size and INF count.
 
 Only then does the destructive phase begin:
 
@@ -148,7 +149,7 @@ to IronAPI. The details of what each API request returns belong in
 
 ## Post-install boundary
 
-Windows Setup runs `ServerTemplates\PostInstall\SetupComplete.cmd`, which
+Windows Setup runs `Core\ServerTemplates\PostInstall\SetupComplete.cmd`, which
 starts `postinstall.ps1` in the installed system. The script:
 
 - installs the selected EXE/MSI programs and records their results;
@@ -170,7 +171,7 @@ dism.exe /English /Get-MountedWimInfo
 ```
 
 - No mounted images: run a normal build.
-- The expected `.work\WinPE_amd64\mount` is `Ok`: inspect it, then use
+- The expected `Core\.work\WinPE_amd64\mount` is `Ok`: inspect it, then use
   `-Target Wim -UseExistingMount` only if committing it is intentional.
 - The expected mount is `Invalid`: use `-RecoverInvalidMount`.
 - Any unrelated mount is present: stop and leave it untouched.
@@ -178,7 +179,7 @@ dism.exe /English /Get-MountedWimInfo
 Recovery discards only the expected invalid IronDeploy mount:
 
 ```powershell
-.\Tools\Build-IronDeployWinPE.ps1 `
+.\Core\Tools\Build-IronDeployWinPE.ps1 `
   -Target Wim `
   -RecoverInvalidMount
 ```
@@ -188,12 +189,12 @@ Recovery discards only the expected invalid IronDeploy mount:
 After a requested build, verify the requested files and the final mount state:
 
 ```powershell
-Get-Item .\dist\IronDeploy_PE.wim, .\dist\IronDeploy_PE.iso `
+Get-Item .\Core\dist\IronDeploy_PE.wim, .\Core\dist\IronDeploy_PE.iso `
   -ErrorAction SilentlyContinue |
   Select-Object FullName, Length, LastWriteTime
 
-Get-FileHash .\dist\IronDeploy_PE.wim -Algorithm SHA256
-Get-FileHash .\dist\IronDeploy_PE.iso -Algorithm SHA256
+Get-FileHash .\Core\dist\IronDeploy_PE.wim -Algorithm SHA256
+Get-FileHash .\Core\dist\IronDeploy_PE.iso -Algorithm SHA256
 dism.exe /English /Get-MountedWimInfo
 ```
 
