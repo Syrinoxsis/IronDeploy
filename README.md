@@ -119,7 +119,13 @@ operations, and destructive disk actions. Before using it outside a test
 environment:
 
 - use SMB 3.x and require **SMB signing** so files cannot be silently modified
-  in transit;
+  in transit. Run the following command in an elevated PowerShell session on
+  the SMB server; it requires signing for all shares hosted by that server:
+
+  ```powershell
+  Set-SmbServerConfiguration -RequireSecuritySignature $true -Force
+  ```
+
 - prefer HTTPS for IronAPI and enable certificate validation, because the API
   carries deployment tokens and temporary SMB credentials;
 - never commit `.env`, databases, ODJ blobs, WIM/ESD images, generated
