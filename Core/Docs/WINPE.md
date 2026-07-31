@@ -127,8 +127,8 @@ Before disk modification, WinPE:
 4. requests a computer-name suggestion and the allowed catalog;
 5. submits the final image, index, driver, program, and domain-join selection;
 6. receives a deployment ID, then requests a server-validated manifest;
-7. obtains temporary SMB credentials, checks the image size and the selected
-   driver package's total size and INF count.
+7. receives the configured read-only SMB account details, checks the image
+   size and the selected driver package's total size and INF count.
 
 Only then does the destructive phase begin:
 
@@ -140,8 +140,10 @@ Only then does the destructive phase begin:
 6. Optional ODJ data is provisioned by IronAPI and applied to offline Windows.
 7. SetupComplete, post-install configuration, and selected installers are
    copied into the offline system.
-8. `bcdboot` creates the UEFI boot files.
-9. WinPE moves the deployment into its post-install phase and reboots.
+8. WinPE compares each copied installer's SHA-256 with the value in the
+   server-approved manifest.
+9. `bcdboot` creates the UEFI boot files.
+10. WinPE moves the deployment into its post-install phase and reboots.
 
 WinPE reports stage transitions, failures, and aggregate network diagnostics
 to IronAPI. The details of what each API request returns belong in
