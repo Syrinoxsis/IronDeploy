@@ -41,7 +41,7 @@ Core\.work\WinPE_amd64\media\sources\boot.wim
       +--> Core\dist\IronDeploy_PE.iso
 ```
 
-`.work` and `dist` are replaceable output, not source.
+`Core\.work` and `Core\dist` are replaceable output, not source.
 
 ## Building WinPE manually
 
