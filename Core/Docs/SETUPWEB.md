@@ -16,7 +16,7 @@ From the repository root, run step 2:
 ```
 
 The launcher forwards to `Core\SetupWeb\Start-IronDeploySetupWeb.ps1`. On
-demand, that script creates `SetupWeb\.venv`, installs its requirements,
+demand, that script creates `Core\SetupWeb\.venv`, installs its requirements,
 selects a random localhost port, and opens the default browser.
 
 Useful launcher options are:
@@ -66,13 +66,13 @@ that behavior.
 
 | File | Content |
 | --- | --- |
-| `Api\.env` | IronAPI listener, SMB, LDAP, ODJ, storage, and timeout settings. |
-| `WinPE\Runtime\deploy.config.ps1` | Credential-free WinPE runtime settings. |
-| `ServerTemplates\Unattend\unattend-win11-template.xml` | Server-side Windows answer-file settings. |
-| `Data\auth-bootstrap.json` | Initial superadmin name and PBKDF2-SHA256 password hash. |
+| `Core\Api\.env` | IronAPI listener, SMB, LDAP, ODJ, storage, and timeout settings. |
+| `Core\WinPE\Runtime\deploy.config.ps1` | Credential-free WinPE runtime settings. |
+| `Core\ServerTemplates\Unattend\unattend-win11-template.xml` | Server-side Windows answer-file settings. |
+| `Core\Data\auth-bootstrap.json` | Initial superadmin name and PBKDF2-SHA256 password hash. |
 
 Existing `.env`, WinPE config, and unattend files are backed up under
-`Logs\ConfigBackups` before replacement. Writes use temporary files followed
+`Core\Logs\ConfigBackups` before replacement. Writes use temporary files followed
 by atomic replacement so an interrupted save does not leave a partially
 written configuration.
 
@@ -83,10 +83,10 @@ the bootstrap identity into SQLite at startup.
 
 SetupWeb writes settings to the component that consumes them:
 
-- SMB credentials stay in `Api\.env`; they are never embedded in WinPE.
+- SMB credentials stay in `Core\Api\.env`; they are never embedded in WinPE.
 - WinPE stores the API address and trust policy, not deployment authorization
   credentials.
-- Unattend remains under `ServerTemplates`, where IronAPI can return it only to
+- Unattend remains under `Core\ServerTemplates`, where IronAPI can return it only to
   an authorized deployment.
 - Generated configuration and backups remain ignored by Git.
 
@@ -94,7 +94,7 @@ These boundaries are summarized in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Validation
 
-The Validate action runs `Tools\Test-IronDeploy.ps1` without starting IronAPI.
+The Validate action runs `Core\Tools\Test-IronDeploy.ps1` without starting IronAPI.
 It checks required files and configuration consistency and returns PowerShell
 stdout, stderr, and the exit code to the browser.
 
