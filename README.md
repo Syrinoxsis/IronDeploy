@@ -43,7 +43,7 @@ You also need:
 
 - Windows PowerShell 5.1;
 - Python 3;
-- \`Core\\Share\` published as an SMB share, plus a separate local or domain
+- `Core\Share` published as an SMB share, plus a separate local or domain
   account with read-only access for WinPE;
 - a way to boot the generated x64 WinPE image, such as WDS/PXE, ISO, or USB;
 - a dedicated domain account with permission to search computer objects and
@@ -121,7 +121,7 @@ environment:
   Admin membership;
 - use a separate local or domain account only for WinPE access to the deployment
   share. Do not reuse the IronAPI service identity;
-- share only \`Core\\Share\` and grant that SMB account read-only access in both
+- share only `Core\Share` and grant that SMB account read-only access in both
   the SMB share permissions and the NTFS permissions. Do not grant write,
   change, full-control, local administrator, or interactive logon rights;
 - never commit `.env`, databases, ODJ blobs, WIM/ESD images, generated
