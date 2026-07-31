@@ -96,31 +96,8 @@ Installs IronAPI as an automatically started Windows service. A dedicated
 domain service account with only the required Active Directory permissions is
 recommended.
 
-### Validate the installation
-
-```powershell
-& ".\Core\Tools\Test-IronDeploy.ps1"
-```
-
-### Build WinPE
-
-```powershell
-& ".\Core\Tools\Build-IronDeployWinPE.ps1" -Target Iso
-```
-
-The generated deployment files are written to `Core\dist`. They are local
-build artifacts and are not committed to the repository.
-
-Place deployment payloads in:
-
-```text
-Core\Share\Images      Windows installation images
-Core\Share\Drivers     extracted INF driver packages
-Core\Share\Programs    EXE and MSI installers
-```
-
-Images, drivers, and programs can also be managed from the IronAPI web
-interface.
+After installation, use the IronAPI web interface to manage Windows images,
+driver packages, programs, and deployment settings.
 
 ## Security must-haves
 
