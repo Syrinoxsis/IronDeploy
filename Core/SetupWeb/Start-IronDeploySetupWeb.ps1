@@ -3,7 +3,7 @@
 [CmdletBinding()]
 param(
     [int]$TokenTtlSeconds = 120,
-    [int]$SessionTtlSeconds = 480,
+    [int]$SessionTtlSeconds = 900,
     [switch]$SkipDependencyInstall,
     [switch]$NoBrowser
 )
