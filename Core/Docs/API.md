@@ -83,7 +83,7 @@ The IronAPI browser interface provides:
 - deployment dashboard, details, stage history, errors, and network summaries;
 - browser user and permission management;
 - WinPE authorization policy;
-- Windows image upload, rename, index selection, and ESD-to-WIM conversion;
+- WIM/ESD image upload, WIM rename, index selection, and ESD-to-WIM conversion;
 - program upload, rename, arguments, hash metadata, and removal;
 - driver vendor/package upload and cleanup;
 - WinPE and image configuration;
