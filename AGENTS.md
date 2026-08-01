@@ -2,7 +2,7 @@
 
 Before changing or rebuilding the IronDeploy WinPE image, read and follow:
 
-- `Core\Docs\WINPE_ISO.md`
+- `Core\Docs\WINPE.md`
 
 Important:
 
