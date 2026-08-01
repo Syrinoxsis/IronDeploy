@@ -73,7 +73,8 @@ Starts the local SetupWeb configuration page. Configure IronAPI, the SMB share,
 computer naming, Active Directory settings, WinPE access, and the first
 administrator account.
 
-Stop SetupWeb with `Ctrl+C` after saving the configuration.
+After saving, finish setup in the browser so SetupWeb closes automatically.
+Alternatively, you may stop it with `Ctrl+C`.
 
 ### 3. Test IronAPI in the foreground
 
