@@ -82,8 +82,9 @@ WinPE build may run at a time. The web action does not provide the manual
 
 - Publish `Core\dist\IronDeploy_PE.wim` through WDS/PXE when the environment boots
   WinPE over the network.
-- Use `Core\dist\IronDeploy_PE.iso` for a VM, optical/USB media, or a boot manager
-  such as Ventoy.
+- Use `Core\dist\IronDeploy_PE.iso` for a VM, optical/USB media, or a compatible
+  ISO boot manager. Ventoy should work with the generated ISO, but has not yet
+  been tested with IronDeploy.
 
 IronDeploy does not configure WDS, DHCP, firmware boot order, USB media, or
 Ventoy. Those systems only need to deliver the generated WinPE artifact.
