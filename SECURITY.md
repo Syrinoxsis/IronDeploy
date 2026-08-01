@@ -46,5 +46,7 @@ about them are especially valuable:
 
 ## Operator guidance
 
-Before operating IronDeploy, follow the mandatory security requirements listed
-in the [README](README.md#security-must-haves).
+Before operating IronDeploy, complete the
+[required accounts and file access](README.md#5-configure-required-accounts-and-file-access)
+setup and the [security must-haves](README.md#security-must-haves)
+described in the README.
