@@ -7,9 +7,10 @@
 IronDeploy is an independent Windows deployment tool for installing Windows 10
 and Windows 11 from WinPE.
 
-It performs a complete deployment from a Windows installation image. You provide
-a normal WIM image, or import an ESD image and convert it to WIM; IronDeploy does
-**not** capture or clone an already configured reference computer.
+It performs a complete deployment from a Windows installation image. You can
+use WIM or ESD directly, but WIM is recommended for regular deployment;
+IronDeploy can convert an imported ESD image to WIM. It does **not** capture or
+clone an already configured reference computer.
 
 ## What IronDeploy does
 
@@ -68,7 +69,7 @@ installs its dependencies.
 & ".\2. Start-IronDeploySetupWeb.ps1"
 ```
 
-Starts the local one-time SetupWeb page. Configure IronAPI, the SMB share,
+Starts the local SetupWeb configuration page. Configure IronAPI, the SMB share,
 computer naming, Active Directory settings, WinPE access, and the first
 administrator account.
 
@@ -141,7 +142,7 @@ deployment speed; SMB signing is the minimum recommended integrity protection.
 - the deployment runtime targets x64 UEFI/GPT systems;
 - the current disk workflow always erases and partitions **disk 0**;
 - multi-disk selection is not implemented;
-- ESD files are imported and converted to WIM before deployment;
+- ESD images can be deployed directly, but WIM is recommended for regular use;
 - hardware, firmware, network, drivers, and Windows images vary, so validate the
   complete workflow in your own environment;
 - only the latest release is supported.
