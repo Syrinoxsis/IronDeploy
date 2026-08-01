@@ -1,4 +1,4 @@
-"""Manage vendor/model driver packages stored in ``Share\Drivers``."""
+r"""Manage vendor/model driver packages stored in ``Share\Drivers``."""
 
 from __future__ import annotations
 
