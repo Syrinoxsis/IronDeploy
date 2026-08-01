@@ -1,4 +1,4 @@
-# IronDeploy v0.6 - WinPE deployment launcher.
+# IronDeploy 0.0.1-alpha.1 - WinPE deployment launcher.
 #
 # Loads the deployment engine and its WPF GUI. The engine performs the
 # destructive work and never reboots; this launcher reboots when the GUI asks
