@@ -31,7 +31,7 @@ class SecurityState:
         bootstrap_token: str,
         port: int,
         token_ttl_seconds: int = 120,
-        session_ttl_seconds: int = 480,
+        session_ttl_seconds: int = 900,
     ) -> None:
         if not bootstrap_token:
             raise RuntimeError("SETUPWEB_BOOTSTRAP_TOKEN is required.")
@@ -94,7 +94,7 @@ def get_security_state() -> SecurityState:
     token = os.environ.get("SETUPWEB_BOOTSTRAP_TOKEN", "")
     port = int(os.environ.get("SETUPWEB_PORT", "0"))
     token_ttl = int(os.environ.get("SETUPWEB_TOKEN_TTL_SECONDS", "120"))
-    session_ttl = int(os.environ.get("SETUPWEB_SESSION_TTL_SECONDS", "480"))
+    session_ttl = int(os.environ.get("SETUPWEB_SESSION_TTL_SECONDS", "900"))
     return SecurityState(token, port, token_ttl, session_ttl)
 
 
