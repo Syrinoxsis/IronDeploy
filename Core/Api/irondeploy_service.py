@@ -174,17 +174,17 @@ def _read_registration_secret() -> tuple[str, str]:
     account = sys.stdin.readline().rstrip("\r\n")
     password = sys.stdin.readline().rstrip("\r\n")
 
-    if mode == "domain":
-        if "\\" not in account or not password:
-            raise ValueError(
-                "A DOMAIN\\user account and non-empty password are required."
-            )
-        return account, password
-    if mode == "local_system":
-        if account != "LocalSystem" or password:
-            raise ValueError("Invalid explicit LocalSystem registration input.")
-        return "LocalSystem", ""
-    raise ValueError("Unknown service account mode.")
+    if mode != "account":
+        raise ValueError("Unknown service account mode.")
+    # Both a domain and a local identity are qualified, so a name without a
+    # backslash would let the Service Control Manager resolve it elsewhere.
+    # Built-in identities such as LocalSystem are rejected by the installer.
+    if "\\" not in account or not password:
+        raise ValueError(
+            "A DOMAIN\\user or COMPUTER\\user account and a non-empty "
+            "password are required."
+        )
+    return account, password
 
 
 def _register_service(action: str) -> None:

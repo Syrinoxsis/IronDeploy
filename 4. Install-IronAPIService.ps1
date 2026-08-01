@@ -5,11 +5,13 @@
 Installs IronAPI as an automatically started Windows Service.
 
 .DESCRIPTION
-Prompts for a DOMAIN\user service identity and securely reads its password.
-LocalSystem is available only as an explicit, warned alternative. The script
-grants SeServiceLogonRight to a domain identity, registers the pywin32 service,
-configures restart-on-failure actions, and asks whether to start it now.
-LDAP searches and djoin.exe will run as the selected service identity.
+Prompts for a dedicated service identity and securely reads its password. The
+identity may be a domain account or, for deployments without Active Directory,
+an existing local account. LocalSystem and other built-in high-privilege
+identities are not accepted. The script grants SeServiceLogonRight, registers
+the pywin32 service, configures restart-on-failure actions, and asks whether to
+start it now. LDAP searches and djoin.exe run as the selected service identity
+and therefore require a domain account.
 
 The password is sent to the Python registration helper over redirected stdin.
 It is never included in process arguments or written to disk.
@@ -133,6 +135,79 @@ function Test-SecureStringEqual {
     }
 }
 
+function Resolve-ServiceAccountSid {
+    <#
+    Returns the account SID, or $null when Windows cannot resolve the name or
+    the account is a built-in identity that must never run IronAPI.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Account
+    )
+
+    try {
+        $sid = (
+            New-Object Security.Principal.NTAccount($Account)
+        ).Translate([Security.Principal.SecurityIdentifier])
+    }
+    catch {
+        Write-Host (
+            "Windows could not resolve '$Account'. Create the account first " +
+            "and check the name and domain connection."
+        ) -ForegroundColor Yellow
+        return $null
+    }
+
+    # S-1-5-18/19/20 are LocalSystem, LocalService, and NetworkService.
+    # S-1-5-32-* is the BUILTIN domain, whose members are groups such as
+    # Administrators. A RID of 500 is the built-in Administrator of a machine
+    # or domain. None of them is an acceptable dedicated service identity.
+    if (
+        $sid.Value -in @("S-1-5-18", "S-1-5-19", "S-1-5-20") -or
+        $sid.Value.StartsWith("S-1-5-32-") -or
+        $sid.Value.EndsWith("-500")
+    ) {
+        Write-Host (
+            "'$Account' is a built-in or administrator identity. Use a " +
+            "dedicated account created only for IronAPI."
+        ) -ForegroundColor Yellow
+        return $null
+    }
+
+    return $sid
+}
+
+function Read-ConfirmedServicePassword {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Account
+    )
+
+    while ($true) {
+        $password = Read-Host `
+            -Prompt "Password for $Account" `
+            -AsSecureString
+        if ($password.Length -eq 0) {
+            $password.Dispose()
+            Write-Host "The password cannot be empty." -ForegroundColor Yellow
+            continue
+        }
+
+        $confirmation = Read-Host `
+            -Prompt "Confirm password for $Account" `
+            -AsSecureString
+        $passwordsMatch = Test-SecureStringEqual $password $confirmation
+        $confirmation.Dispose()
+        if (-not $passwordsMatch) {
+            $password.Dispose()
+            Write-Host "The passwords do not match." -ForegroundColor Yellow
+            continue
+        }
+
+        return $password
+    }
+}
+
 function Read-DomainServiceIdentity {
     while ($true) {
         $account = (Read-Host (
@@ -162,42 +237,62 @@ function Read-DomainServiceIdentity {
             continue
         }
 
-        try {
-            $null = (
-                New-Object Security.Principal.NTAccount($account)
-            ).Translate([Security.Principal.SecurityIdentifier])
-        }
-        catch {
-            Write-Host (
-                "Windows could not resolve '$account'. Check the domain " +
-                "connection and account name."
-            ) -ForegroundColor Yellow
-            continue
-        }
-
-        $password = Read-Host `
-            -Prompt "Password for $account" `
-            -AsSecureString
-        if ($password.Length -eq 0) {
-            $password.Dispose()
-            Write-Host "The password cannot be empty." -ForegroundColor Yellow
-            continue
-        }
-        $confirmation = Read-Host `
-            -Prompt "Confirm password for $account" `
-            -AsSecureString
-        $passwordsMatch = Test-SecureStringEqual $password $confirmation
-        $confirmation.Dispose()
-        if (-not $passwordsMatch) {
-            $password.Dispose()
-            Write-Host "The passwords do not match." -ForegroundColor Yellow
+        if ($null -eq (Resolve-ServiceAccountSid -Account $account)) {
             continue
         }
 
         return [pscustomobject]@{
-            Mode = "domain"
+            Mode = "account"
             Account = $account
-            Password = $password
+            Password = (Read-ConfirmedServicePassword -Account $account)
+        }
+    }
+}
+
+function Read-LocalServiceIdentity {
+    while ($true) {
+        $entered = (Read-Host (
+            "Local service account as .\user or $env:COMPUTERNAME\user"
+        )).Trim()
+
+        if ($entered.StartsWith(".\")) {
+            $userName = $entered.Substring(2)
+        }
+        elseif (
+            $entered.StartsWith(
+                "$env:COMPUTERNAME\",
+                [StringComparison]::OrdinalIgnoreCase
+            )
+        ) {
+            $userName = $entered.Substring($env:COMPUTERNAME.Length + 1)
+        }
+        else {
+            Write-Host (
+                "Enter an existing local account as .\user or " +
+                "$env:COMPUTERNAME\user."
+            ) -ForegroundColor Yellow
+            continue
+        }
+
+        if (
+            [string]::IsNullOrWhiteSpace($userName) -or
+            $userName -notmatch "^[^\\/:*?`"<>|]+$"
+        ) {
+            Write-Host "Enter a valid local account name." -ForegroundColor Yellow
+            continue
+        }
+
+        # Always register the account in its fully qualified form so the
+        # Service Control Manager cannot resolve it against another scope.
+        $account = "$env:COMPUTERNAME\$userName"
+        if ($null -eq (Resolve-ServiceAccountSid -Account $account)) {
+            continue
+        }
+
+        return [pscustomobject]@{
+            Mode = "account"
+            Account = $account
+            Password = (Read-ConfirmedServicePassword -Account $account)
         }
     }
 }
@@ -205,8 +300,11 @@ function Read-DomainServiceIdentity {
 function Read-ServiceIdentity {
     Write-Host ""
     Write-Host "Choose the IronAPI service identity:" -ForegroundColor Cyan
-    Write-Host "  1. Domain service account (recommended)"
-    Write-Host "  2. LocalSystem (high-privilege fallback)"
+    Write-Host (
+        "  1. Domain account (required for Active Directory name checks " +
+        "and Offline Domain Join)"
+    )
+    Write-Host "  2. Local account (deployments without Active Directory)"
 
     while ($true) {
         $choice = (Read-Host "Selection [1]").Trim()
@@ -219,29 +317,13 @@ function Read-ServiceIdentity {
         }
         if ($choice -eq "2") {
             Write-Host ""
-            Write-Host "WARNING: LocalSystem has full local-machine control." `
-                -ForegroundColor Red
             Write-Host (
-                "LDAP searches and djoin.exe will then run as the machine's " +
-                "LocalSystem identity, which normally lacks the required AD rights."
+                "A local account cannot perform LDAP name searches or " +
+                "Offline Domain Join. Leave the Active Directory settings " +
+                "empty in SetupWeb, or rerun this step with a domain account " +
+                "before enabling them."
             ) -ForegroundColor Yellow
-            Write-Host (
-                "Prefer a dedicated DOMAIN\svc_irondeploy-style account " +
-                "with only the required AD, file, and DISM permissions."
-            ) -ForegroundColor Yellow
-            $confirmation = Read-Host (
-                "Type LocalSystem to confirm this high-privilege choice"
-            )
-            if ($confirmation -cne "LocalSystem") {
-                Write-Host "LocalSystem was not confirmed." `
-                    -ForegroundColor Yellow
-                continue
-            }
-            return [pscustomobject]@{
-                Mode = "local_system"
-                Account = "LocalSystem"
-                Password = $null
-            }
+            return Read-LocalServiceIdentity
         }
 
         Write-Host "Enter 1 or 2." -ForegroundColor Yellow
@@ -535,17 +617,10 @@ if ($null -ne $existingService) {
 
 $identity = Read-ServiceIdentity
 try {
-    if ($identity.Mode -eq "domain") {
-        Add-ServiceLogonRight -Account $identity.Account
-        Write-Host (
-            "Granted 'Log on as a service' to $($identity.Account)."
-        ) -ForegroundColor Green
-    }
-    else {
-        Write-Host (
-            "LocalSystem already has the built-in right to run services."
-        ) -ForegroundColor DarkGray
-    }
+    Add-ServiceLogonRight -Account $identity.Account
+    Write-Host (
+        "Granted 'Log on as a service' to $($identity.Account)."
+    ) -ForegroundColor Green
 
     Invoke-ServiceRegistration -Action $action -Identity $identity
 }

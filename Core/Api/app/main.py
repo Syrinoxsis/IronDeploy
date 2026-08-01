@@ -1444,6 +1444,17 @@ def deploy_begin(
             detail="This WinPE login has already been used for a deployment.",
         )
 
+    # Reject an impossible domain join before WinPE erases disk 0, rather than
+    # once the deployment has already destroyed the target.
+    if payload.domain_join and not get_settings().odj_enabled:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Domain join was requested, but Offline Domain Join is not "
+                "configured on IronAPI."
+            ),
+        )
+
     deployment = Deployment(
         computer_name=payload.computer_name,
         serial_number=payload.serial_number,

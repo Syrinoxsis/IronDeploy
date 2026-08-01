@@ -52,7 +52,8 @@ images, or Windows licences.
 ## Installation
 
 Download or clone the repository, open an elevated Windows PowerShell session
-in its root, and run the numbered scripts in order.
+in its root, and run scripts 1 through 4 in order. Script 5 is an optional
+maintenance utility and is not part of installation.
 
 ### 1. Prepare IronDeploy
 
@@ -91,9 +92,28 @@ stop it with `Ctrl+C`.
 & ".\4. Install-IronAPIService.ps1"
 ```
 
-Installs IronAPI as an automatically started Windows service.
+Installs IronAPI as an automatically started Windows service under a dedicated
+account that you provide. Choose a domain account when Active Directory
+integration or Offline Domain Join is used, or an existing local account for
+deployments without Active Directory. The account must already exist.
+Built-in identities such as `LocalSystem`, and administrator accounts, are
+rejected.
 
-### 5. Configure required accounts and file access
+### Optional maintenance: remove the Windows service
+
+Script 5 is not part of installation. Use it only when the IronAPI service must
+be stopped and unregistered, for example before moving IronDeploy to another
+host or changing the service identity from scratch:
+
+```powershell
+& ".\5. Delete-IronAPIService.ps1"
+```
+
+It removes only the service registration. Configuration, the database, images,
+drivers, programs, Offline Domain Join blobs, logs, and repository files are
+preserved, so step 4 can register the service again at any time.
+
+### Required accounts and file access
 
 Before the first deployment:
 
@@ -105,11 +125,14 @@ Before the first deployment:
 - protect the entire local IronDeploy repository directory with NTFS
   permissions. Allow access only to administrators, the IronAPI service
   identity, and operators who maintain the deployment system;
-- if Active Directory integration is enabled, run IronAPI under a dedicated
-  domain identity. Grant it read/search access to computer objects for name
+- run IronAPI under a dedicated identity created only for it, never a built-in
+  or administrator account. With Active Directory integration enabled this must
+  be a domain account: grant it read/search access to computer objects for name
   checks and only the delegated rights required to create or provision computer
   accounts for Offline Domain Join in the intended OU. It does not need Domain
-  Admin membership.
+  Admin membership. Without Active Directory, a dedicated local account is
+  enough; leave the directory settings empty in SetupWeb, which disables LDAP
+  name checks and Offline Domain Join.
 
 After installation, use the IronAPI web interface to manage Windows images,
 driver packages, programs, and deployment settings, and to build the current

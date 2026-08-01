@@ -31,6 +31,12 @@ def provision_domain_join_blob(
     computer_name: str,
     reuse_existing_account: bool = False,
 ) -> Path:
+    if not settings.odj_enabled:
+        raise DomainJoinError(
+            "Offline Domain Join is not configured. Set IRONAPI_ODJ_DOMAIN and "
+            "IRONAPI_ODJ_MACHINE_OU, and run IronAPI under a domain identity."
+        )
+
     blob_path = domain_join_blob_path(settings, computer_name)
     max_age_seconds = settings.odj_blob_max_age_minutes * 60
 

@@ -51,6 +51,18 @@ API_NAMES = (
     "IRONAPI_ODJ_BLOB_MAX_AGE_MINUTES",
 )
 
+# Active Directory integration is optional. Leaving these empty disables LDAP
+# name checks and Offline Domain Join, which is what a deployment without a
+# domain needs; every other setting still has to be present.
+OPTIONAL_API_NAMES = frozenset(
+    {
+        "IRONAPI_LDAP_SERVER",
+        "IRONAPI_LDAP_BASE_DN",
+        "IRONAPI_ODJ_DOMAIN",
+        "IRONAPI_ODJ_MACHINE_OU",
+    }
+)
+
 WINPE_NAMES = (
     "SharePath",
     "ShareDrive",
@@ -351,7 +363,7 @@ def load_config(paths: IronDeployPaths) -> dict[str, Any]:
     api_values = read_dotenv(paths.api_env_example)
     current_api_values = read_dotenv(paths.api_env)
     for name, value in current_api_values.items():
-        if value != "" or name in {"IRONAPI_LDAP_SERVER", "IRONAPI_LDAP_BASE_DN"}:
+        if value != "" or name in OPTIONAL_API_NAMES:
             api_values[name] = value
 
     winpe_values = read_ps_config(paths.winpe_config_example)
@@ -549,10 +561,13 @@ def normalize_api(values: dict[str, Any]) -> dict[str, str]:
     result: dict[str, str] = {}
     for name in API_NAMES:
         candidate = str(values.get(name, "")).strip()
-        if candidate == "":
+        if candidate == "" and name not in OPTIONAL_API_NAMES:
+            # Optional settings must stay empty when the operator clears them.
+            # Falling back here would silently write the example placeholders
+            # into a live configuration and make the feature look configured.
             candidate = defaults.get(name, "")
-        if candidate == "" and name not in {"IRONAPI_LDAP_SERVER", "IRONAPI_LDAP_BASE_DN"}:
-            raise ValueError(f"{name} is required in Api\\.env.example.")
+            if candidate == "":
+                raise ValueError(f"{name} is required in Api\\.env.example.")
         result[name] = candidate
 
     access_mode = result["IRONAPI_ACCESS_MODE"].lower()
