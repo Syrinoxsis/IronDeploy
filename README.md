@@ -38,6 +38,13 @@ optionally applies Offline Domain Join, stages selected programs, and boots
 into the newly installed operating system. Post-install tasks then install the
 selected software and report their results to IronAPI.
 
+### Deployment dashboard
+
+The dashboard summarizes deployment outcomes and keeps recent runs searchable
+by computer, hardware, image, status, stage, and start time.
+
+![IronDeploy dashboard showing deployment status and recent runs](Core/Docs/screenshots/dashboard.PNG)
+
 ## Prerequisites
 
 Install these Microsoft components on the deployment server:
@@ -139,9 +146,29 @@ Before the first deployment:
   enough; leave the directory settings empty in SetupWeb, which disables LDAP
   name checks and Offline Domain Join.
 
+### Access control
+
+Administrators can grant each account access only to the IronAPI pages it needs,
+or create an account limited to authorizing a single WinPE deployment.
+
+![IronDeploy user permissions for dashboard, images, software, drivers, settings, and WinPE deployment](Core/Docs/screenshots/user_permishion.PNG)
+
+WinPE authorization can require a dedicated username and password or a shared
+PIN. Disabling operator authorization is available for isolated test setups but
+is not recommended.
+
+![IronDeploy WinPE authorization mode choices](Core/Docs/screenshots/access_control_winpe_auth_choise.PNG)
+
 After installation, use the IronAPI web interface to manage Windows images,
 driver packages, programs, and deployment settings, and to build the current
 WinPE WIM or ISO.
+
+### Managing Windows images
+
+The Windows images page accepts WIM and ESD files, lets administrators choose a
+default deployment edition, and can convert imported ESD images to WIM.
+
+![IronDeploy Windows image management page](Core/Docs/screenshots/Windows_images.PNG)
 
 ## Security must-haves
 
