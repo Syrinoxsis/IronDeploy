@@ -7,6 +7,10 @@
 IronDeploy is an independent Windows deployment tool for installing Windows 10
 and Windows 11 from WinPE.
 
+It covers the bare-metal deployment part of what the Microsoft Deployment
+Toolkit does, without the surrounding toolchain: one operator-facing WinPE
+interface, one API, and a plain SMB share for payloads.
+
 It performs a complete deployment from a Windows installation image. You can
 use WIM or ESD directly, but WIM is recommended for regular deployment;
 IronDeploy can convert an imported ESD image to WIM. It does **not** capture or
