@@ -25,8 +25,10 @@ about them are especially valuable:
   created locally by IronAPI, served over HTTP(S), applied offline with DISM,
   and deleted after acknowledgement. Anything that causes a blob to persist, to
   leak, or to be served to the wrong client is in scope.
-- **Disk handling.** The WinPE runtime wipes disk 0. Anything that causes it to
-  run somewhere it should not, or to target the wrong disk, is in scope.
+- **Disk handling.** The WinPE runtime erases the physical disk the operator
+  selects. Anything that causes it to run where it should not, to erase a disk
+  other than the selected one, or to misreport a disk's number, model, or size
+  before the operator confirms, is in scope.
 - **Authentication.** Browser sessions, WinPE deployment bearers, the
   single-use SetupWeb bootstrap token, and the allowed-client network policy.
 - **The SMB share and file handling.** Path traversal or unintended file
@@ -41,8 +43,8 @@ about them are especially valuable:
   needed, or granting the WinPE SMB account write access).
 - Findings that require administrative access to the IronDeploy server, since
   that access is already sufficient to control every deployment.
-- Running `Core\WinPE\Runtime\deploy.ps1` on a normal Windows host. This wipes
-  disk 0 by design and is documented as unsupported.
+- Running `Core\WinPE\Runtime\deploy.ps1` on a normal Windows host. It erases a
+  physical disk by design and is documented as unsupported.
 
 ## Operator guidance
 

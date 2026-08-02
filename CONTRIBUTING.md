@@ -32,13 +32,13 @@ Issues, so the issue tracker stays a list of things that are actually broken.
 oversight, and it is not a judgement about the quality of the code you would
 send.
 
-IronDeploy wipes disk 0, applies Windows images offline, and handles Offline
-Domain Join blobs that contain computer-account secrets. A change to that path
-cannot be validated by reading it. It needs the Windows ADK, a domain, and a
-test machine — which means the author has to reproduce and verify the change
-regardless of who wrote it. Reviewing a patch to this code costs more than
-writing it, so accepting patches would slow the project down rather than speed
-it up.
+IronDeploy erases a selected physical disk, applies Windows images offline, and
+handles Offline Domain Join blobs that contain computer-account secrets. A
+change to that path cannot be validated by reading it. It needs the Windows
+ADK, a domain, and a test machine — which means the author has to reproduce and
+verify the change regardless of who wrote it. Reviewing a patch to this code
+costs more than writing it, so accepting patches would slow the project down
+rather than speed it up.
 
 Please open an Issue describing the problem instead. A precise description of
 what is wrong is worth more here than a diff.
