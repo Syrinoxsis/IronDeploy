@@ -92,8 +92,8 @@ class Settings(BaseModel):
     ldap_use_ssl: bool
     ldap_connect_timeout: int = Field(ge=1, le=60)
 
-    odj_domain: str
-    odj_machine_ou: str
+    odj_domain: str | None
+    odj_machine_ou: str | None
     odj_blob_dir: Path
     odj_djoin_path: Path
     odj_provision_timeout: int = Field(ge=1, le=300)
@@ -102,6 +102,15 @@ class Settings(BaseModel):
     @property
     def ldap_enabled(self) -> bool:
         return bool(self.ldap_server and self.ldap_base_dn)
+
+    @property
+    def odj_enabled(self) -> bool:
+        """Offline Domain Join needs a target domain and OU to provision into.
+
+        Deployments without Active Directory leave both empty, which keeps the
+        service identity free of any domain requirement.
+        """
+        return bool(self.odj_domain and self.odj_machine_ou)
 
 
 @lru_cache
@@ -141,8 +150,8 @@ def get_settings() -> Settings:
         ldap_base_dn=_get_optional_env("IRONAPI_LDAP_BASE_DN"),
         ldap_use_ssl=_get_bool("IRONAPI_LDAP_USE_SSL"),
         ldap_connect_timeout=_get_int("IRONAPI_LDAP_CONNECT_TIMEOUT"),
-        odj_domain=_get_required_env("IRONAPI_ODJ_DOMAIN"),
-        odj_machine_ou=_get_required_env("IRONAPI_ODJ_MACHINE_OU"),
+        odj_domain=_get_optional_env("IRONAPI_ODJ_DOMAIN"),
+        odj_machine_ou=_get_optional_env("IRONAPI_ODJ_MACHINE_OU"),
         odj_blob_dir=Path(
             _expand_irondeploy_root(_get_required_env("IRONAPI_ODJ_BLOB_DIR"))
         ),

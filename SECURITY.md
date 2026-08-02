@@ -37,8 +37,8 @@ about them are especially valuable:
 ## Out of scope
 
 - Deployments where the operator has deliberately configured an insecure setup
-  (for example running IronAPI as `LocalSystem` after confirming the warning,
-  or granting the service identity more Active Directory rights than needed).
+  (for example granting the service identity more Active Directory rights than
+  needed, or granting the WinPE SMB account write access).
 - Findings that require administrative access to the IronDeploy server, since
   that access is already sufficient to control every deployment.
 - Running `Core\WinPE\Runtime\deploy.ps1` on a normal Windows host. This wipes
@@ -47,6 +47,6 @@ about them are especially valuable:
 ## Operator guidance
 
 Before operating IronDeploy, complete the
-[required accounts and file access](README.md#5-configure-required-accounts-and-file-access)
+[required accounts and file access](README.md#required-accounts-and-file-access)
 setup and the [security must-haves](README.md#security-must-haves)
 described in the README.

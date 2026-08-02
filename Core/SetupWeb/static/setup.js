@@ -39,6 +39,7 @@ const ruTranslations = {
   "Existing LDAP names are skipped automatically.": "Существующие имена LDAP пропускаются автоматически.",
   "Directory and domain join": "Каталог и ввод в домен",
   "LDAP lookup and Offline Domain Join settings are kept together.": "Параметры поиска LDAP и Offline Domain Join собраны в одном месте.",
+  "Active Directory is optional. Leave these fields empty to deploy without domain join; IronAPI then rejects any deployment that requests one.": "Active Directory необязателен. Оставьте эти поля пустыми, чтобы разворачивать без ввода в домен; тогда IronAPI отклонит любое развёртывание, которое его запросит.",
   "LDAP directory": "Каталог LDAP",
   "Offline Domain Join": "Offline Domain Join",
   "IronAPI superadmin login": "Логин суперадминистратора IronAPI",

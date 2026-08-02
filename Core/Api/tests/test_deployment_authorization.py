@@ -84,6 +84,39 @@ class DeploymentAuthorizationTests(unittest.TestCase):
                 deploy_begin(payload, request, session)
             self.assertEqual(raised.exception.status_code, 409)
 
+    def test_domain_join_is_refused_when_offline_domain_join_is_unconfigured(
+        self,
+    ) -> None:
+        # WinPE erases disk 0 after /begin succeeds, so an impossible domain
+        # join has to be rejected here rather than mid-deployment.
+        with Session(self.engine) as session:
+            user = create_user(session, "winpe-user", "WinPEPassword123")
+            set_user_permissions(session, user, {"deploy"})
+            _, token = create_deployment_token(session, user)
+            request = self.request(token.id)
+            payload = DeploymentBeginRequest(
+                computer_name="pc00042",
+                serial_number="SERIAL-42",
+                mac_address="AA:BB:CC:DD:EE:FF",
+                domain_join=True,
+            )
+
+            with patch(
+                "app.main.get_settings",
+                return_value=SimpleNamespace(odj_enabled=False),
+            ):
+                with self.assertRaises(HTTPException) as raised:
+                    deploy_begin(payload, request, session)
+            self.assertEqual(raised.exception.status_code, 409)
+
+            # The same request succeeds once ODJ is configured.
+            with patch(
+                "app.main.get_settings",
+                return_value=SimpleNamespace(odj_enabled=True),
+            ):
+                response = deploy_begin(payload, request, session)
+            self.assertGreater(response.deployment_id, 0)
+
     def test_smb_credentials_require_owner_and_winpe_phase(self) -> None:
         with Session(self.engine) as session:
             first = self.deployment("pc00042")

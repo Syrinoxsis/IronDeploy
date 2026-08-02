@@ -231,6 +231,25 @@ class DomainJoinTests(unittest.TestCase):
         self.assertFalse(first.exists())
         self.assertTrue(second.exists())
 
+    def test_provision_requires_offline_domain_join_to_be_configured(self) -> None:
+        # A deployment without Active Directory leaves the ODJ settings empty,
+        # so provisioning must refuse instead of calling djoin.exe with None.
+        for update in (
+            {"odj_domain": None},
+            {"odj_machine_ou": None},
+            {"odj_domain": None, "odj_machine_ou": None},
+        ):
+            with self.subTest(update=update):
+                settings = self.settings.model_copy(update=update)
+                self.assertFalse(settings.odj_enabled)
+                with patch("subprocess.run") as run:
+                    with self.assertRaises(DomainJoinError):
+                        provision_domain_join_blob(settings, "pc00001")
+                run.assert_not_called()
+
+    def test_configured_settings_report_offline_domain_join_enabled(self) -> None:
+        self.assertTrue(self.settings.odj_enabled)
+
 
 if __name__ == "__main__":
     unittest.main()

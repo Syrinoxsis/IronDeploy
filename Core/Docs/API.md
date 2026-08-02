@@ -28,12 +28,22 @@ service:
 & ".\4. Install-IronAPIService.ps1"
 ```
 
-The recommended service identity is a dedicated domain account. LDAP searches
-and `djoin.exe` both run as the IronAPI process identity. IronDeploy stores no
-separate LDAP or ODJ credentials; the password entered during service
+The installer accepts a dedicated domain account or, for deployments without
+Active Directory, an existing dedicated local account. Built-in identities such
+as `LocalSystem` and administrator accounts are rejected: the installer resolves
+the entered name and refuses well-known SIDs, the `BUILTIN` domain, and any
+account whose RID is 500.
+
+A domain account is required whenever LDAP name checks or Offline Domain Join
+are enabled, because both run as the IronAPI process identity. IronDeploy stores
+no separate LDAP or ODJ credentials; the password entered during service
 installation is handed to Windows Service Control Manager for service logon.
 The identity needs read access to the application and the delegated AD rights
 required to create or reuse computer objects.
+
+Leaving `IRONAPI_ODJ_DOMAIN` and `IRONAPI_ODJ_MACHINE_OU` empty disables Offline
+Domain Join. `POST /api/deploy/begin` then rejects any deployment that requests
+a domain join, before WinPE erases the target disk.
 
 ## Configuration
 

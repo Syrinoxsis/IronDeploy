@@ -52,7 +52,10 @@ The UI owns the first-time settings needed by both IronAPI and WinPE:
 - SMB share path and configured account details; the administrator must create
   the share and account separately and grant read-only access in both SMB and
   NTFS permissions;
-- computer naming, LDAP, and Offline Domain Join settings;
+- computer naming, LDAP, and Offline Domain Join settings. Active Directory is
+  optional: leaving the LDAP server and base DN empty disables name checks, and
+  leaving the Offline Domain Join domain and OU empty disables domain joins.
+  SetupWeb keeps these fields empty rather than substituting the example values;
 - deployment and authorization timeouts;
 - driver-upload safety limits;
 - WinPE API address and certificate trust;
