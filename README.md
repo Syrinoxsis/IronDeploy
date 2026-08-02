@@ -32,6 +32,8 @@ From its graphical WinPE interface, an operator can:
 - follow deployment progress and review the final result in the IronAPI
   dashboard.
 
+![IronDeploy WinPE computer name, Windows image, and target disk selection](<Core/Docs/screenshots/WINPE_choiseName and disk.png>)
+
 During deployment IronDeploy partitions the selected disk, applies the selected
 Windows image, injects offline drivers, writes the Windows answer file,
 optionally applies Offline Domain Join, stages selected programs, and boots
@@ -156,6 +158,8 @@ or create an account limited to authorizing a single WinPE deployment.
 WinPE authorization can require a dedicated username and password or a shared
 PIN. Disabling operator authorization is available for isolated test setups but
 is not recommended.
+
+![IronDeploy WinPE shared PIN authorization screen](Core/Docs/screenshots/WINPE_pincode_auth.png)
 
 ![IronDeploy WinPE authorization mode choices](Core/Docs/screenshots/access_control_winpe_auth_choise.PNG)
 
