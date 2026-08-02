@@ -386,6 +386,15 @@ code {
   line-height: 1.45;
 }
 
+.settings-card-head p.optional-note {
+  margin-top: 8px;
+  padding: 6px 10px;
+  border-left: 3px solid var(--accent);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  background: var(--warning-bg);
+  color: var(--text);
+}
+
 .compact-grid {
   align-items: start;
 }
