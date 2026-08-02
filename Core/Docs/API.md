@@ -115,7 +115,7 @@ Key WinPE-facing routes are:
 | `POST /api/deploy/auth/login` and `/authorize` | Short-lived deployment bearer | IronAPI accounts or the server-owned PIN/credential-free policy |
 | `GET /api/deploy/suggest-name` | Suggested and previously used computer names | Naming configuration, LDAP, and SQLite inventory |
 | `GET /api/deploy/catalog` | Available images, indexes, programs, hashes, and driver-package metadata | `Core\Share` and its server-side metadata |
-| `POST /api/deploy/begin` | Deployment ID and bound bearer state | Submitted hardware/selection data and SQLite |
+| `POST /api/deploy/begin` | Deployment ID and bound bearer state | Submitted hardware, target-disk snapshot, selection data, and SQLite |
 | `POST /api/deploy/{id}/manifest` | Validated server-approved deployment plan | Current catalog and image settings |
 | `GET /api/deploy/{id}/smb-credentials` | Configured SMB connection details; the account must be read-only | `Core\Api\.env` |
 | Unattend and post-install routes | Per-deployment answer file and scripts | `Core\ServerTemplates` and image settings |
@@ -152,9 +152,11 @@ PIN attempts are temporarily locked.
 
 An authorized WinPE client can request a name suggestion and catalog. When the
 operator confirms the selection, `/api/deploy/begin` creates the deployment
-and binds the bearer to it. WinPE then submits the selection to the manifest
-endpoint, which validates it against the current catalog and returns the
-server-approved plan.
+and binds the bearer to it. Current WinPE submits `target_disk_number`,
+`target_disk_model`, and `target_disk_size_bytes`; the fields remain nullable
+for deployment history and compatibility with older WinPE images. WinPE then
+submits the selection to the manifest endpoint, which validates it against the
+current catalog and returns the server-approved plan.
 
 The bound bearer cannot be reused to begin a second deployment. The manifest
 response is generated when requested; it is not stored as a separate immutable
@@ -177,7 +179,8 @@ submit its post-install results and final completion.
 
 ## Deployment state
 
-IronAPI stores deployment identity and status, the selected image name,
+IronAPI stores deployment identity and status, the selected image name, the
+operator-confirmed target disk number/model/size snapshot,
 domain-join choice, stages, errors, computer inventory, program results, and
 aggregate diagnostics in SQLite. Stale active
 deployments are expired according to the configured timeout.

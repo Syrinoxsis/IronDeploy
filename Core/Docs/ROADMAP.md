@@ -10,12 +10,11 @@ systems is not ruled out, but it is not what the current runtime is built for.
 
 ## Disk handling
 
-The current workflow is the most restrictive part of IronDeploy and the first
-thing to change.
+The operator now selects the target disk in WinPE after reviewing its number,
+model, and size. IronAPI records that snapshot with the deployment.
 
-- Let the operator choose the target disk instead of always using disk 0.
-- Show the selected disk, its size, and its existing partitions in the WinPE
-  interface before the erase is confirmed.
+- Show the selected disk's existing partitions in the WinPE interface before
+  the erase is confirmed.
 - Support BIOS/MBR systems in addition to x64 UEFI/GPT.
 
 ## Deployment coverage

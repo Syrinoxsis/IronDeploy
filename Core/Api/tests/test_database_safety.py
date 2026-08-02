@@ -36,6 +36,7 @@ from app.database import (
     _create_sqlite_backup,
     initialize_database,
 )
+from app.sqlite_migration_0001 import SQLITE_MIGRATION_0001
 
 
 class DatabaseSafetyTests(unittest.TestCase):
@@ -163,6 +164,40 @@ class DatabaseSafetyTests(unittest.TestCase):
         )
         self.assertEqual(self.backups(), [])
 
+    def test_version_two_database_adds_disk_columns_before_migration_three(
+        self,
+    ) -> None:
+        with self.engine.begin() as connection:
+            for statement in SQLITE_MIGRATION_0001:
+                connection.exec_driver_sql(statement)
+            connection.execute(
+                text(
+                    f"CREATE TABLE {MIGRATION_TABLE} ("
+                    "version INTEGER NOT NULL PRIMARY KEY, "
+                    "applied_at VARCHAR(32) NOT NULL)"
+                )
+            )
+            connection.execute(
+                text(
+                    f"INSERT INTO {MIGRATION_TABLE} (version, applied_at) "
+                    "VALUES (1, 'now'), (2, 'now')"
+                )
+            )
+
+        initialize_database(self.engine)
+
+        columns = {
+            column["name"]
+            for column in inspect(self.engine).get_columns("deployments")
+        }
+        self.assertIn("target_disk_number", columns)
+        self.assertIn("target_disk_model", columns)
+        self.assertIn("target_disk_size_bytes", columns)
+        self.assertEqual(
+            self.applied_versions(),
+            [migration.version for migration in MIGRATIONS],
+        )
+
     def test_legacy_database_is_backed_up_and_upgraded(self) -> None:
         with self.engine.begin() as connection:
             connection.execute(
@@ -228,6 +263,9 @@ class DatabaseSafetyTests(unittest.TestCase):
         }
         self.assertIn("serial_number", columns)
         self.assertIn("last_error_message", columns)
+        self.assertIn("target_disk_number", columns)
+        self.assertIn("target_disk_model", columns)
+        self.assertIn("target_disk_size_bytes", columns)
         with self.engine.connect() as connection:
             row = connection.execute(
                 text(
@@ -379,7 +417,7 @@ class DatabaseSafetyTests(unittest.TestCase):
                     "GROUP BY version ORDER BY version"
                 )
             ).all()
-        self.assertEqual(counts, [(1, 1), (2, 1), (3, 1)])
+        self.assertEqual(counts, [(1, 1), (2, 1), (3, 1), (4, 1)])
 
     def test_legacy_child_rows_constraints_indexes_and_on_delete_survive(
         self,
@@ -494,7 +532,7 @@ class DatabaseSafetyTests(unittest.TestCase):
         histories = {
             "gap": [1, 3],
             "duplicate": [1, 1],
-            "future": [1, 2, 3, 4],
+            "future": [1, 2, 3, 4, 5],
         }
         for label, versions in histories.items():
             with self.subTest(label=label):

@@ -264,7 +264,10 @@ class HardwareModelSchemaUpgradeTests(unittest.TestCase):
         start = rebuild.index("CREATE TABLE deployments_timeout_upgrade")
         end = rebuild.index("DROP TABLE deployments")
         rebuild_sql = rebuild[start:end]
-        self.assertEqual(rebuild_sql.count("model"), 3)
+        self.assertEqual(
+            sum(line.strip().startswith("model") for line in rebuild_sql.splitlines()),
+            3,
+        )
         self.assertEqual(rebuild_sql.count("manufacturer"), 3)
         self.assertEqual(rebuild_sql.count("system_sku"), 3)
 
@@ -310,8 +313,9 @@ class HardwareModelSurfaceTests(unittest.TestCase):
                 'x:Name="DriversLabel"'
             )
         ]
-        self.assertEqual(card.count("<ColumnDefinition"), 4)
+        self.assertEqual(card.count("<ColumnDefinition"), 5)
         self.assertEqual(card.count('Grid.Column="3"'), 1)
+        self.assertEqual(card.count('Grid.Column="4"'), 1)
 
     def test_dashboard_headers_and_cells_stay_aligned(self) -> None:
         for view, field in (

@@ -1,5 +1,5 @@
-rem ВНИМАНИЕ: следующая команда полностью очистит disk 0 со всеми данными.
-select disk 0
+rem WARNING: the following command permanently erases the selected target disk.
+select disk {{TARGET_DISK_NUMBER}}
 clean
 convert gpt
 create partition efi size=300

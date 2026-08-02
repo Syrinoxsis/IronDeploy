@@ -105,6 +105,9 @@ def _upgrade_sqlite_deployment_constraints(connection: Connection) -> None:
             mac_address VARCHAR(17) NOT NULL,
             ip_address VARCHAR(45) NOT NULL,
             image_name VARCHAR(255),
+            target_disk_number INTEGER,
+            target_disk_model VARCHAR(255),
+            target_disk_size_bytes BIGINT,
             domain_join BOOLEAN NOT NULL,
             status VARCHAR(16) NOT NULL,
             started_at DATETIME NOT NULL,
@@ -131,6 +134,9 @@ def _upgrade_sqlite_deployment_constraints(connection: Connection) -> None:
             mac_address,
             ip_address,
             image_name,
+            target_disk_number,
+            target_disk_model,
+            target_disk_size_bytes,
             domain_join,
             status,
             started_at,
@@ -147,6 +153,9 @@ def _upgrade_sqlite_deployment_constraints(connection: Connection) -> None:
             mac_address,
             ip_address,
             image_name,
+            target_disk_number,
+            target_disk_model,
+            target_disk_size_bytes,
             domain_join,
             status,
             started_at,
@@ -215,6 +224,12 @@ def _migration_add_legacy_columns(connection: Connection) -> None:
             ("model", "VARCHAR(128)"),
             ("manufacturer", "VARCHAR(128)"),
             ("system_sku", "VARCHAR(128)"),
+            # Migration 3 backfills inventory through the current Deployment
+            # ORM model. Add future nullable deployment columns before that
+            # backfill when upgrading a database with no migration history.
+            ("target_disk_number", "INTEGER"),
+            ("target_disk_model", "VARCHAR(255)"),
+            ("target_disk_size_bytes", "BIGINT"),
         ),
         "computers": (("last_model", "VARCHAR(128)"),),
         "deployment_stages": (("error_message", "TEXT"),),
@@ -241,8 +256,34 @@ def _migration_add_legacy_columns(connection: Connection) -> None:
 def _migration_upgrade_constraints_and_inventory(
     connection: Connection,
 ) -> None:
+    # A database can legitimately have migrations 1-2 from an older release
+    # while migration 3 is still pending. Ensure the current ORM columns exist
+    # before its table rebuild and ORM-backed inventory backfill.
+    _migration_add_target_disk_snapshot(connection)
     _upgrade_deployment_constraints(connection)
     _backfill_computer_inventory(connection)
+
+
+def _migration_add_target_disk_snapshot(connection: Connection) -> None:
+    existing_columns = {
+        column["name"]
+        for column in inspect(connection).get_columns(Deployment.__tablename__)
+    }
+    additions = (
+        ("target_disk_number", "INTEGER"),
+        ("target_disk_model", "VARCHAR(255)"),
+        ("target_disk_size_bytes", "BIGINT"),
+    )
+    for column_name, column_type in additions:
+        if column_name in existing_columns:
+            continue
+        connection.execute(
+            text(
+                f"ALTER TABLE {Deployment.__tablename__} "
+                f"ADD COLUMN {column_name} {column_type}"
+            )
+        )
+        existing_columns.add(column_name)
 
 
 MIGRATIONS = (
@@ -253,6 +294,7 @@ MIGRATIONS = (
         "upgrade deployment constraints and inventory",
         _migration_upgrade_constraints_and_inventory,
     ),
+    Migration(4, "add target disk snapshot", _migration_add_target_disk_snapshot),
 )
 
 

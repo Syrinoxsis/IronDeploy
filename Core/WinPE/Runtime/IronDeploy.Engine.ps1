@@ -2011,6 +2011,118 @@ function Get-IronDeployHardwareIdentity {
     }
 }
 
+# Physical disks available for destructive deployment. Win32_DiskDrive is
+# available in the same WinPE WMI/CIM environment already used for hardware
+# identity and exposes the DiskPart disk number through Index.
+function Get-IronDeployDiskList {
+    try {
+        $Disks = @(
+            Get-CimInstance -ClassName Win32_DiskDrive -ErrorAction Stop |
+                ForEach-Object {
+                    $DiskNumber = 0
+                    $DiskSize = 0L
+                    if (
+                        -not [int]::TryParse([string]$_.Index, [ref]$DiskNumber) -or
+                        $DiskNumber -lt 0 -or
+                        -not [long]::TryParse([string]$_.Size, [ref]$DiskSize) -or
+                        $DiskSize -le 0
+                    ) {
+                        return
+                    }
+                    $DiskModel = (([string]$_.Model).Trim() -replace '\s+', ' ')
+                    if ([string]::IsNullOrWhiteSpace($DiskModel)) {
+                        $DiskModel = "Unknown disk"
+                    }
+                    if ($DiskModel.Length -gt 255) {
+                        $DiskModel = $DiskModel.Substring(0, 255).Trim()
+                    }
+                    [pscustomobject]@{
+                        Number = $DiskNumber
+                        Model = $DiskModel
+                        SizeBytes = $DiskSize
+                    }
+                } |
+                Sort-Object Number
+        )
+    } catch {
+        throw "Failed to enumerate physical disks: $($_.Exception.Message)"
+    }
+    if ($Disks.Count -eq 0) {
+        throw "No usable physical disks were detected."
+    }
+    return $Disks
+}
+
+function Test-IronDeployTargetDisk {
+    param(
+        [Parameter(Mandatory = $true)][int]$Number,
+        [Parameter(Mandatory = $true)][string]$Model,
+        [Parameter(Mandatory = $true)][long]$SizeBytes
+    )
+
+    if ($Number -lt 0 -or $SizeBytes -le 0 -or [string]::IsNullOrWhiteSpace($Model)) {
+        throw "The selected target disk is invalid."
+    }
+    $CurrentDisk = @(
+        Get-IronDeployDiskList | Where-Object { $_.Number -eq $Number }
+    ) | Select-Object -First 1
+    if ($null -eq $CurrentDisk) {
+        throw "Selected disk $Number is no longer available."
+    }
+    if (
+        [long]$CurrentDisk.SizeBytes -ne $SizeBytes -or
+        [string]$CurrentDisk.Model -ne $Model
+    ) {
+        throw (
+            "Selected disk {0} changed after confirmation. Expected {1} " +
+            "({2} bytes), found {3} ({4} bytes)."
+        ) -f $Number, $Model, $SizeBytes, $CurrentDisk.Model, $CurrentDisk.SizeBytes
+    }
+    return $CurrentDisk
+}
+
+# C: or S: can already be a transient WinPE mount on another physical disk.
+# Removing that mount point does not erase or repartition the other disk; it
+# only makes the letters available for the selected offline Windows volume.
+function Remove-IronDeployDriveLetterMountPoint {
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidatePattern("^[A-Z]:$")]
+        [string]$Drive
+    )
+
+    $MountPoint = "$Drive\"
+    if (!(Test-Path -LiteralPath $MountPoint -ErrorAction SilentlyContinue)) {
+        return
+    }
+
+    $PreviousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        $MountVolOutput = @(
+            & mountvol.exe $MountPoint /D 2>&1
+        )
+        $MountVolExitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $PreviousErrorActionPreference
+    }
+
+    if ($MountVolExitCode -ne 0) {
+        $Details = (@($MountVolOutput | ForEach-Object { [string]$_ }) -join " ").Trim()
+        $Message = (
+            "Failed to release WinPE drive letter {0} before partitioning" -f
+            $Drive
+        )
+        if ($Details) {
+            $Message += ": $Details"
+        } else {
+            $Message += "."
+        }
+        throw $Message
+    }
+    Write-IronLog "[INFO] Released WinPE drive letter $Drive" -Level info
+}
+
 # Best-effort computer-name suggestion from IronAPI. Never throws: when IronAPI
 # is unavailable it returns null suggestions and an empty known-name list, so a
 # name can still be entered manually.
@@ -2276,6 +2388,15 @@ function Invoke-IronDeployment {
         [Parameter(Mandatory = $true)]
         [string]$SelectedImageName,
 
+        [Parameter(Mandatory = $true)]
+        [int]$SelectedDiskNumber,
+
+        [Parameter(Mandatory = $true)]
+        [string]$SelectedDiskModel,
+
+        [Parameter(Mandatory = $true)]
+        [long]$SelectedDiskSizeBytes,
+
         [string[]]$SelectedProgramNames = @(),
 
         [string]$SelectedDriverPackage = ""
@@ -2302,6 +2423,10 @@ function Invoke-IronDeployment {
         }
     )
     $SelectedDriverPackage = ([string]$SelectedDriverPackage).Trim()
+    $SelectedDisk = Test-IronDeployTargetDisk `
+        -Number $SelectedDiskNumber `
+        -Model $SelectedDiskModel `
+        -SizeBytes $SelectedDiskSizeBytes
 
     Set-IronProgress 2 "Reading hardware identity"
     Write-IronLog "[STEP] Read hardware identity" -Level step
@@ -2330,6 +2455,12 @@ function Invoke-IronDeployment {
     }
 
     Write-IronLog "[OK] Selected computer name: $ComputerName" -Level ok
+    Write-IronLog (
+        "[OK] Selected target disk: disk {0}, {1}, {2:N2} GiB" -f `
+            $SelectedDisk.Number,
+            $SelectedDisk.Model,
+            ($SelectedDisk.SizeBytes / 1GB)
+    ) -Level ok
     if ($UseDomainJoinValue) {
         Write-IronLog "[MODE] Domain join ENABLED" -Level ok
     } else {
@@ -2359,6 +2490,9 @@ function Invoke-IronDeployment {
         } else {
             [string]$SystemSku
         }
+        target_disk_number = [int]$SelectedDisk.Number
+        target_disk_model = [string]$SelectedDisk.Model
+        target_disk_size_bytes = [long]$SelectedDisk.SizeBytes
         domain_join = [bool]$UseDomainJoinValue
     } | ConvertTo-Json
 
@@ -2522,6 +2656,10 @@ function Invoke-IronDeployment {
     if (!(Test-Path $DiskPartScript)) {
         Fail "DiskPart script not found: $DiskPartScript"
     }
+    $DiskPartTemplate = Get-Content -LiteralPath $DiskPartScript -Raw
+    if ($DiskPartTemplate -notmatch '\{\{TARGET_DISK_NUMBER\}\}') {
+        Fail "DiskPart script does not contain the target disk placeholder."
+    }
 
     Write-IronLog "[OK] Files found" -Level ok
     if ($null -ne $DriverPackagePlan) {
@@ -2589,12 +2727,62 @@ function Invoke-IronDeployment {
         Write-IronLog "[OK] Offline Domain Join blob downloaded" -Level ok
     }
 
-    Set-IronProgress 22 "Wiping and partitioning disk 0"
-    Write-IronLog "[STEP] DiskPart wipe and partition" -Level step
+    # Re-read the hardware immediately before the destructive command. If disk
+    # numbering or identity changed since confirmation, stop without wiping.
+    $SelectedDisk = Test-IronDeployTargetDisk `
+        -Number $SelectedDiskNumber `
+        -Model $SelectedDiskModel `
+        -SizeBytes $SelectedDiskSizeBytes
+    Remove-IronDeployDriveLetterMountPoint -Drive $WindowsDrive
+    Remove-IronDeployDriveLetterMountPoint -Drive $EfiDrive
+    $GeneratedDiskPartScript = "X:\IronDeploy\diskpart-target-$PID.txt"
+    $DiskPartTemplate.Replace(
+        "{{TARGET_DISK_NUMBER}}",
+        ([string]$SelectedDisk.Number)
+    ) | Out-File -LiteralPath $GeneratedDiskPartScript -Encoding ASCII -Force
+
+    Set-IronProgress 22 "Wiping and partitioning disk $($SelectedDisk.Number)"
+    Write-IronLog (
+        "[STEP] DiskPart wipe and partition disk {0} ({1}, {2:N2} GiB)" -f `
+            $SelectedDisk.Number,
+            $SelectedDisk.Model,
+            ($SelectedDisk.SizeBytes / 1GB)
+    ) -Level step
     Start-DeploymentStage "disk_partitioning"
-    diskpart /s $DiskPartScript
-    if ($LASTEXITCODE -ne 0) {
-        Fail "DiskPart failed"
+    try {
+        $PreviousErrorActionPreference = $ErrorActionPreference
+        try {
+            $ErrorActionPreference = "Continue"
+            $DiskPartOutput = @(
+                & diskpart.exe /s $GeneratedDiskPartScript 2>&1
+            )
+            $DiskPartExitCode = $LASTEXITCODE
+        } finally {
+            $ErrorActionPreference = $PreviousErrorActionPreference
+        }
+        foreach ($DiskPartLine in $DiskPartOutput) {
+            if (-not [string]::IsNullOrWhiteSpace([string]$DiskPartLine)) {
+                Write-IronLog "[DISKPART] $DiskPartLine" -Level info
+            }
+        }
+        if ($DiskPartExitCode -ne 0) {
+            $DiskPartDetails = @(
+                $DiskPartOutput |
+                    ForEach-Object { ([string]$_).Trim() } |
+                    Where-Object { $_ } |
+                    Select-Object -Last 8
+            ) -join " | "
+            $DiskPartError = "DiskPart failed with exit code $DiskPartExitCode"
+            if ($DiskPartDetails) {
+                $DiskPartError += ": $DiskPartDetails"
+            }
+            Fail $DiskPartError
+        }
+    } finally {
+        Remove-Item `
+            -LiteralPath $GeneratedDiskPartScript `
+            -Force `
+            -ErrorAction SilentlyContinue
     }
     Complete-DeploymentStage "disk_partitioning"
 

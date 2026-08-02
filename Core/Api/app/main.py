@@ -1444,8 +1444,8 @@ def deploy_begin(
             detail="This WinPE login has already been used for a deployment.",
         )
 
-    # Reject an impossible domain join before WinPE erases disk 0, rather than
-    # once the deployment has already destroyed the target.
+    # Reject an impossible domain join before WinPE erases the selected disk,
+    # rather than once the deployment has already destroyed the target.
     if payload.domain_join and not get_settings().odj_enabled:
         raise HTTPException(
             status_code=409,
@@ -1464,6 +1464,9 @@ def deploy_begin(
         mac_address=payload.mac_address,
         ip_address=request.client.host,
         image_name=payload.image_name,
+        target_disk_number=payload.target_disk_number,
+        target_disk_model=payload.target_disk_model,
+        target_disk_size_bytes=payload.target_disk_size_bytes,
         domain_join=payload.domain_join,
         status=DEPLOYMENT_BEGIN,
     )

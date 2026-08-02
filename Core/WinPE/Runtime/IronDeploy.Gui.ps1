@@ -269,6 +269,11 @@ $IronDeployGuiXaml = @'
                         <ComboBox x:Name="ImageCombo" DisplayMemberPath="Display"
                                   Height="34" FontSize="14" Padding="8,4"/>
 
+                        <TextBlock x:Name="TargetDiskLabel" Text="TARGET DISK" Style="{StaticResource Label}"
+                                   Margin="0,14,0,0"/>
+                        <ComboBox x:Name="DiskCombo" DisplayMemberPath="Display"
+                                  Height="34" FontSize="14" Padding="8,4"/>
+
                         <CheckBox x:Name="DomainCheck" Margin="0,16,0,0"
                                   Foreground="{StaticResource TextBrush}"
                                   Content="Join Active Directory domain (Offline Domain Join)"/>
@@ -320,6 +325,7 @@ $IronDeployGuiXaml = @'
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
                             <StackPanel Grid.Column="0">
                                 <TextBlock x:Name="ConfirmModelLabel" Text="MODEL" Style="{StaticResource Label}"/>
@@ -337,6 +343,11 @@ $IronDeployGuiXaml = @'
                                            FontSize="14" TextTrimming="CharacterEllipsis"/>
                             </StackPanel>
                             <StackPanel Grid.Column="3">
+                                <TextBlock x:Name="ConfirmDiskLabel" Text="TARGET DISK" Style="{StaticResource Label}"/>
+                                <TextBlock x:Name="ConfirmDiskText" Text="&#8212;"
+                                           FontSize="14" TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="4" Margin="12,0,0,0">
                                 <TextBlock x:Name="ConfirmDomainLabel" Text="DOMAIN JOIN" Style="{StaticResource Label}"/>
                                 <TextBlock x:Name="ConfirmDomainText" Text="Disabled"
                                            FontSize="14"/>
@@ -370,7 +381,7 @@ $IronDeployGuiXaml = @'
                         <CheckBox x:Name="WipeCheck"
                                   Foreground="{StaticResource TextBrush}">
                             <TextBlock x:Name="WipeWarningText" TextWrapping="Wrap"
-                                Text="I understand this will PERMANENTLY ERASE disk 0 on this machine."/>
+                                Text="Select a target disk before confirming the permanent erase."/>
                         </CheckBox>
                     </Border>
                 </Grid>
@@ -600,14 +611,14 @@ function Start-IronDeployGui {
         "SetupPanel", "ProgressPanel", "PreflightOverlay",
         "IdentityPage", "ProgramsPage", "DriversPage",
         "StepOneIndicator", "StepTwoIndicator", "StepThreeIndicator",
-        "SerialLabel", "MacLabel", "ComputerNameLabel", "WindowsImageLabel",
+        "SerialLabel", "MacLabel", "ComputerNameLabel", "WindowsImageLabel", "TargetDiskLabel",
         "SerialText", "MacText", "NameBox", "NameHint",
         "SuggestedText", "LastDomainText", "KnownList",
         "KnownDeploymentsButton", "KnownDeploymentsPopup", "KnownDeploymentsTitle",
-        "ImageCombo", "DomainCheck", "WipeCheck",
-        "ConfirmComputerLabel", "ConfirmImageLabel", "ConfirmDomainLabel", "WipeWarningText",
+        "ImageCombo", "DiskCombo", "DomainCheck", "WipeCheck",
+        "ConfirmComputerLabel", "ConfirmImageLabel", "ConfirmDiskLabel", "ConfirmDomainLabel", "WipeWarningText",
         "ConfirmModelLabel", "ConfirmModelText",
-        "ConfirmComputerText", "ConfirmImageText", "ConfirmDomainText",
+        "ConfirmComputerText", "ConfirmImageText", "ConfirmDiskText", "ConfirmDomainText",
         "ProgramsLabel", "ProgramsBorder", "ProgramsPanel", "NoProgramsText",
         "DriversLabel", "DriversHint", "NoDriversCheck", "DriverPackagesPanel",
         "BackButton", "NextButton", "DeployButton", "SetupRebootButton",
@@ -677,10 +688,12 @@ function Start-IronDeployGui {
             KnownDeploymentsTitle = "DEPLOYMENTS OF THIS COMPUTER"
             KnownDeployment = "Previously deployed as {0} ({1}, deployment #{2})"
             WindowsImageLabel = "WINDOWS IMAGE"
+            TargetDiskLabel = "TARGET DISK"
             DomainCheck = "Join Active Directory domain (Offline Domain Join)"
             ConfirmModelLabel = "MODEL"
             ConfirmComputerLabel = "COMPUTER"
             ConfirmImageLabel = "WINDOWS IMAGE"
+            ConfirmDiskLabel = "TARGET DISK"
             ConfirmDomainLabel = "DOMAIN JOIN"
             Enabled = "Enabled"
             Disabled = "Disabled"
@@ -690,7 +703,8 @@ function Start-IronDeployGui {
             DriversLabel = "DRIVER PACKAGE"
             DriversHint = "Select one package, or continue without drivers."
             NoDriversOption = "Do not install drivers"
-            WipeWarningText = "I understand this will PERMANENTLY ERASE disk 0 on this machine."
+            WipeWarningText = "I understand this will PERMANENTLY ERASE disk {0}."
+            WipeWarningNoDisk = "Select a target disk before confirming the permanent erase."
             SetupRebootButton = "Reboot"
             BackButton = "Back"
             NextButton = "Next"
@@ -737,10 +751,12 @@ function Start-IronDeployGui {
             KnownDeploymentsTitle = "РАЗВЁРТЫВАНИЯ ЭТОГО КОМПЬЮТЕРА"
             KnownDeployment = "Ранее развёрнут как {0} ({1}, развёртывание №{2})"
             WindowsImageLabel = "ОБРАЗ WINDOWS"
+            TargetDiskLabel = "ЦЕЛЕВОЙ ДИСК"
             DomainCheck = "Присоединить к домену Active Directory (Offline Domain Join)"
             ConfirmModelLabel = "МОДЕЛЬ"
             ConfirmComputerLabel = "КОМПЬЮТЕР"
             ConfirmImageLabel = "ОБРАЗ WINDOWS"
+            ConfirmDiskLabel = "ЦЕЛЕВОЙ ДИСК"
             ConfirmDomainLabel = "ПРИСОЕДИНЕНИЕ К ДОМЕНУ"
             Enabled = "Включено"
             Disabled = "Отключено"
@@ -750,7 +766,8 @@ function Start-IronDeployGui {
             DriversLabel = "ПАКЕТ ДРАЙВЕРОВ"
             DriversHint = "Выберите один пакет либо продолжите без установки драйверов."
             NoDriversOption = "Не устанавливать драйверы"
-            WipeWarningText = "Я понимаю, что это БЕЗВОЗВРАТНО УДАЛИТ все данные с диска 0 этого компьютера."
+            WipeWarningText = "Я понимаю, что это БЕЗВОЗВРАТНО УДАЛИТ все данные с диска {0}."
+            WipeWarningNoDisk = "Выберите целевой диск перед подтверждением безвозвратного удаления."
             SetupRebootButton = "Перезагрузить"
             BackButton = "Назад"
             NextButton = "Далее"
@@ -805,7 +822,6 @@ function Start-IronDeployGui {
             "Selecting Windows image" = "Выбор образа Windows"
             "Checking deployment files" = "Проверка файлов развёртывания"
             "Provisioning Offline Domain Join" = "Подготовка Offline Domain Join"
-            "Wiping and partitioning disk 0" = "Очистка и разметка диска 0"
             "Applying Windows image" = "Применение образа Windows"
             "Injecting drivers" = "Добавление драйверов"
             "Saving deployment state" = "Сохранение состояния развёртывания"
@@ -822,7 +838,19 @@ function Start-IronDeployGui {
         if ($Activity -match '^Applying Windows image \((.+)\)$') {
             return "Применение образа Windows ($($Matches[1]))"
         }
+        if ($Activity -match '^Wiping and partitioning disk (\d+)$') {
+            return "Очистка и разметка диска $($Matches[1])"
+        }
         return $Activity
+    }
+
+    $script:IronGuiUpdateWipeWarning = {
+        $selectedDisk = $script:IronGuiUi.DiskCombo.SelectedItem
+        $script:IronGuiUi.WipeWarningText.Text = if ($null -eq $selectedDisk) {
+            & $script:IronGuiGetText "WipeWarningNoDisk"
+        } else {
+            & $script:IronGuiGetText "WipeWarningText" @([string]$selectedDisk.Display)
+        }
     }
 
     $script:IronGuiApplyLanguage = {
@@ -830,14 +858,15 @@ function Start-IronDeployGui {
             "HeaderSubtitle", "LoginTitle", "LoginDescription",
             "LoginUsernameLabel", "LoginPasswordLabel", "LoginPinLabel", "StepOneIndicator",
             "StepTwoIndicator", "StepThreeIndicator", "SerialLabel", "MacLabel", "ComputerNameLabel",
-            "KnownDeploymentsTitle", "WindowsImageLabel", "ConfirmModelLabel",
+            "KnownDeploymentsTitle", "WindowsImageLabel", "TargetDiskLabel", "ConfirmModelLabel",
             "ConfirmComputerLabel",
-            "ConfirmImageLabel", "ConfirmDomainLabel", "NoProgramsText",
-            "DriversLabel", "DriversHint", "WipeWarningText"
+            "ConfirmImageLabel", "ConfirmDiskLabel", "ConfirmDomainLabel", "NoProgramsText",
+            "DriversLabel", "DriversHint"
         )
         foreach ($name in $textControls) {
             $script:IronGuiUi[$name].Text = & $script:IronGuiGetText $name
         }
+        & $script:IronGuiUpdateWipeWarning
         $script:IronGuiUi.LoginDescription.Text = switch (
             [string]$script:IronGuiState.AuthMode
         ) {
@@ -1106,6 +1135,7 @@ try {
         $nameText = ([string]$script:IronGuiUi.NameBox.Text).Trim()
         $nameOk = $nameText -match "^(?i:pc)\d{5}$"
         $imageOk = $null -ne $script:IronGuiUi.ImageCombo.SelectedItem
+        $diskOk = $null -ne $script:IronGuiUi.DiskCombo.SelectedItem
         $driverChoiceOk = (
             [bool]$script:IronGuiUi.NoDriversCheck.IsChecked -or
             @(
@@ -1116,10 +1146,10 @@ try {
         )
         $confirmOk = [bool]$script:IronGuiUi.WipeCheck.IsChecked
         $script:IronGuiUi.NextButton.IsEnabled = (
-            $nameOk -and $imageOk -and -not $script:IronGuiState.Deploying
+            $nameOk -and $imageOk -and $diskOk -and -not $script:IronGuiState.Deploying
         )
         $script:IronGuiUi.DeployButton.IsEnabled = (
-            $nameOk -and $imageOk -and $driverChoiceOk -and
+            $nameOk -and $imageOk -and $diskOk -and $driverChoiceOk -and
             $confirmOk -and -not $script:IronGuiState.Deploying
         )
 
@@ -1249,6 +1279,11 @@ try {
 
     $script:IronGuiUi.NameBox.Add_TextChanged($script:IronGuiUpdateDeployButton)
     $script:IronGuiUi.ImageCombo.Add_SelectionChanged($script:IronGuiUpdateDeployButton)
+    $script:IronGuiUi.DiskCombo.Add_SelectionChanged({
+        $script:IronGuiUi.WipeCheck.IsChecked = $false
+        & $script:IronGuiUpdateWipeWarning
+        & $script:IronGuiUpdateDeployButton
+    })
     $script:IronGuiUi.WipeCheck.Add_Checked($script:IronGuiUpdateDeployButton)
     $script:IronGuiUi.WipeCheck.Add_Unchecked($script:IronGuiUpdateDeployButton)
     $script:IronGuiUi.KnownDeploymentsButton.Add_Click({
@@ -1263,12 +1298,15 @@ try {
 
         if ($script:IronGuiState.WizardStep -eq 1) {
             $selectedImage = $script:IronGuiUi.ImageCombo.SelectedItem
-            if ($null -eq $selectedImage) { return }
+            $selectedDisk = $script:IronGuiUi.DiskCombo.SelectedItem
+            if ($null -eq $selectedImage -or $null -eq $selectedDisk) { return }
             $script:IronGuiUi.KnownDeploymentsPopup.IsOpen = $false
             $script:IronGuiUi.ConfirmComputerText.Text = (
                 [string]$script:IronGuiUi.NameBox.Text
             ).Trim().ToLowerInvariant()
             $script:IronGuiUi.ConfirmImageText.Text = [string]$selectedImage.Display
+            $script:IronGuiUi.ConfirmDiskText.Text = [string]$selectedDisk.Display
+            $script:IronGuiUi.ConfirmDiskText.ToolTip = [string]$selectedDisk.Display
             $script:IronGuiUi.ConfirmDomainText.Text = if (
                 [bool]$script:IronGuiUi.DomainCheck.IsChecked
             ) {
@@ -1311,6 +1349,19 @@ try {
             [pscustomobject]@{
                 Name = $_.Name
                 Display = ("{0}   ({1:N2} GB)" -f $_.Name, ($_.Length / 1GB))
+            }
+        }
+    )
+    $Sync.Disks = @(
+        Get-IronDeployDiskList | ForEach-Object {
+            [pscustomobject]@{
+                Number = [int]$_.Number
+                Model = [string]$_.Model
+                SizeBytes = [long]$_.SizeBytes
+                Display = (
+                    "#{0} — {1} — {2:N2} GiB" -f `
+                        $_.Number, $_.Model, ($_.SizeBytes / 1GB)
+                )
             }
         }
     )
@@ -1385,6 +1436,9 @@ try {
             if (@($script:IronGuiState.Images).Count -gt 0) {
                 $script:IronGuiUi.ImageCombo.SelectedIndex = 0
             }
+            $script:IronGuiUi.DiskCombo.ItemsSource = @($script:IronGuiState.Disks)
+            $script:IronGuiUi.DiskCombo.SelectedIndex = -1
+            & $script:IronGuiUpdateWipeWarning
 
             if ([string]$script:IronGuiState.SuggestedName -match "^pc\d{5}$") {
                 $script:IronGuiUi.SuggestedText.Text = & $script:IronGuiGetText `
@@ -1521,6 +1575,9 @@ try {
         -ComputerName $ComputerName `
         -UseDomainJoin:$UseDomainJoin `
         -SelectedImageName $SelectedImageName `
+        -SelectedDiskNumber $SelectedDiskNumber `
+        -SelectedDiskModel $SelectedDiskModel `
+        -SelectedDiskSizeBytes $SelectedDiskSizeBytes `
         -SelectedProgramNames @($SelectedProgramNames) `
         -SelectedDriverPackage $SelectedDriverPackage |
         Out-Null
@@ -1620,7 +1677,8 @@ try {
         }
         $computerName = ([string]$script:IronGuiUi.NameBox.Text).Trim().ToLowerInvariant()
         $selectedImage = $script:IronGuiUi.ImageCombo.SelectedItem
-        if ($null -eq $selectedImage) { return }
+        $selectedDisk = $script:IronGuiUi.DiskCombo.SelectedItem
+        if ($null -eq $selectedImage -or $null -eq $selectedDisk) { return }
         $selectedImageName = [string]$selectedImage.Name
         $useDomainJoin = [bool]$script:IronGuiUi.DomainCheck.IsChecked
         $selectedProgramNames = @(
@@ -1666,6 +1724,9 @@ try {
                 ComputerName = $computerName
                 UseDomainJoin = $useDomainJoin
                 SelectedImageName = $selectedImageName
+                SelectedDiskNumber = [int]$selectedDisk.Number
+                SelectedDiskModel = [string]$selectedDisk.Model
+                SelectedDiskSizeBytes = [long]$selectedDisk.SizeBytes
                 SelectedProgramNames = $selectedProgramNames
                 SelectedDriverPackage = $selectedDriverPackage
             } `
