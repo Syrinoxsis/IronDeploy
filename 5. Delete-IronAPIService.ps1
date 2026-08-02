@@ -85,8 +85,8 @@ Write-Host (
 ) -ForegroundColor Green
 Write-Host ""
 
-$confirmation = Read-Host "Type REMOVE to continue"
-if ($confirmation -cne "REMOVE") {
+$confirmation = (Read-Host "Type REMOVE to continue").Trim()
+if ($confirmation -ne "REMOVE") {
     Write-Host "Service removal was cancelled. Nothing was changed."
     exit 0
 }
