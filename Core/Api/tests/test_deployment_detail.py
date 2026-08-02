@@ -58,6 +58,9 @@ class DeploymentDetailApiTests(unittest.TestCase):
                 mac_address="AA:BB:CC:DD:EE:FF",
                 ip_address="192.0.2.42",
                 image_name="win11.wim",
+                target_disk_number=1,
+                target_disk_model="Samsung SSD 990 PRO 2TB",
+                target_disk_size_bytes=2_000_398_934_016,
                 domain_join=True,
                 status="completed",
                 started_at=started_at,
@@ -93,6 +96,9 @@ class DeploymentDetailApiTests(unittest.TestCase):
             self.assertEqual(result.model, "ThinkPad T14 Gen 2")
             self.assertEqual(result.manufacturer, "LENOVO")
             self.assertEqual(result.system_sku, "20XW00A6US")
+            self.assertEqual(result.target_disk_number, 1)
+            self.assertEqual(result.target_disk_model, "Samsung SSD 990 PRO 2TB")
+            self.assertEqual(result.target_disk_size_bytes, 2_000_398_934_016)
             self.assertEqual(result.stages[0].stage, "image_apply")
             self.assertEqual(result.programs[0].name, "Agent.msi")
 
@@ -139,6 +145,7 @@ class DeploymentDetailPageTests(unittest.TestCase):
         )
         self.assertIn('data-field="manufacturer"', detail_html)
         self.assertIn('data-field="system_sku"', detail_html)
+        self.assertIn('data-field="target_disk"', detail_html)
         self.assertIn("Average inbound adapter traffic during WinPE", detail_html)
         self.assertIn("fetch(`/api/deployments/${deploymentId}`", detail_js)
         self.assertIn(
@@ -152,6 +159,10 @@ class DeploymentDetailPageTests(unittest.TestCase):
         )
         self.assertIn(
             'setCopyableField("system_sku", deployment.system_sku)',
+            detail_js,
+        )
+        self.assertIn(
+            'setCopyableField("target_disk", formatTargetDisk(deployment))',
             detail_js,
         )
         self.assertIn('detailText("ICMP unavailable")', detail_js)

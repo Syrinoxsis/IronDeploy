@@ -2,12 +2,13 @@
 
 WinPE is the destructive deployment runtime. It boots independently of the
 installed operating system, obtains an authorized deployment plan from
-IronAPI, reads payloads from SMB, and applies Windows to disk 0.
+IronAPI, reads payloads from SMB, and applies Windows to the physical disk
+explicitly selected by the operator.
 
 ## Safety
 
 - Never run `Core\WinPE\Runtime\deploy.ps1` on the deployment server or a normal
-  Windows workstation. The deployment path erases disk 0.
+  Windows workstation. The deployment path erases the selected physical disk.
 - Build and servicing commands require elevation.
 - Never mount a WIM a second time when DISM already reports it as mounted.
 - Do not discard an unrelated DISM mount.
@@ -27,7 +28,7 @@ an additional guard, not permission to test the destructive script on a host.
 | `IronDeploy.Engine.ps1` | Performs the deployment and reports progress through callbacks. |
 | `IronDeploy.Gui.ps1` | Collects operator input and renders progress. |
 | `deploy.config.ps1` | Holds non-secret runtime settings. |
-| `diskpart-uefi.txt` | Defines the current x64 UEFI/GPT disk layout. |
+| `diskpart-uefi.txt` | Defines the x64 UEFI/GPT layout and contains the validated target-disk placeholder. |
 
 The build pipeline copies those files into the ADK working tree and produces:
 
@@ -125,26 +126,39 @@ Before disk modification, WinPE:
 2. reads the server-owned WinPE authorization policy;
 3. authenticates by deployment account, PIN, or the explicitly configured
    credential-free mode;
-4. requests a computer-name suggestion and the allowed catalog;
-5. submits the final image, index, driver, program, and domain-join selection;
-6. receives a deployment ID, then requests a server-validated manifest;
-7. receives the configured read-only SMB account details, checks the image
+4. enumerates physical disks and shows each disk's number, model, and size;
+5. requests a computer-name suggestion and the allowed catalog;
+6. requires the operator to select a target disk and confirm its permanent
+   erase;
+7. submits the target-disk snapshot plus the final image, index, driver,
+   program, and domain-join selection;
+8. receives a deployment ID, then requests a server-validated manifest;
+9. receives the configured read-only SMB account details, checks the image
    size and the selected driver package's total size and INF count.
 
 Only then does the destructive phase begin:
 
-1. DiskPart erases and partitions disk 0 for UEFI/GPT.
-2. DISM applies the selected Windows image.
-3. DISM stages the selected driver package, when one was selected.
-4. WinPE writes deployment state into `C:\IronDeploy`.
-5. WinPE downloads and applies the authorized unattend file.
-6. Optional ODJ data is provisioned by IronAPI and applied to offline Windows.
-7. SetupComplete, post-install configuration, and selected installers are
+1. WinPE re-enumerates the selected disk and stops if its number, model, or
+   size no longer matches the operator-confirmed snapshot.
+2. WinPE releases any transient `C:` and `S:` mount points so a volume on a
+   non-target disk cannot block the selected disk's Windows and EFI letters.
+3. WinPE substitutes the validated disk number into a temporary DiskPart
+   script, then erases and partitions that disk for UEFI/GPT.
+4. DISM applies the selected Windows image.
+5. DISM stages the selected driver package, when one was selected.
+6. WinPE writes deployment state into `C:\IronDeploy`.
+7. WinPE downloads and applies the authorized unattend file.
+8. Optional ODJ data is provisioned by IronAPI and applied to offline Windows.
+9. SetupComplete, post-install configuration, and selected installers are
    copied into the offline system.
-8. WinPE compares each copied installer's SHA-256 with the value in the
+10. WinPE compares each copied installer's SHA-256 with the value in the
    server-approved manifest.
-9. `bcdboot` creates the UEFI boot files.
-10. WinPE moves the deployment into its post-install phase and reboots.
+11. `bcdboot` creates the UEFI boot files.
+12. WinPE moves the deployment into its post-install phase and reboots.
+
+DiskPart output is copied into the WinPE log. If DiskPart returns a non-zero
+exit code, the exit code and final output lines are included in the deployment
+error reported to IronAPI.
 
 WinPE reports stage transitions, failures, and aggregate network diagnostics
 to IronAPI. The details of what each API request returns belong in

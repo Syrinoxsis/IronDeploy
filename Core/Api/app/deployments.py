@@ -86,6 +86,12 @@ class Deployment(Base):
     mac_address: Mapped[str] = mapped_column(String(17), nullable=False)
     ip_address: Mapped[str] = mapped_column(String(45), nullable=False)
     image_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    target_disk_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    target_disk_model: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    target_disk_size_bytes: Mapped[int | None] = mapped_column(
+        BigInteger,
+        nullable=True,
+    )
     domain_join: Mapped[bool] = mapped_column(Boolean, nullable=False)
     last_error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(
@@ -353,6 +359,11 @@ class DeploymentBeginRequest(BaseModel):
     system_sku: str | None = Field(default=None, max_length=128)
     mac_address: str
     image_name: str | None = Field(default=None, min_length=5, max_length=255)
+    # Optional as a group so WinPE images built before disk selection remain
+    # compatible with a newer IronAPI. Current WinPE always submits all three.
+    target_disk_number: int | None = Field(default=None, ge=0, le=65535)
+    target_disk_model: str | None = Field(default=None, max_length=255)
+    target_disk_size_bytes: int | None = Field(default=None, gt=0)
     domain_join: bool
 
     @field_validator("computer_name")
@@ -418,6 +429,31 @@ class DeploymentBeginRequest(BaseModel):
         ):
             raise ValueError("image_name must be a .wim file name without a path")
         return normalized
+
+    @field_validator("target_disk_model")
+    @classmethod
+    def validate_target_disk_model(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = " ".join(value.split())
+        if not normalized or any(ord(character) < 32 for character in normalized):
+            raise ValueError("target_disk_model must contain printable characters")
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_target_disk_snapshot(self) -> "DeploymentBeginRequest":
+        values = (
+            self.target_disk_number,
+            self.target_disk_model,
+            self.target_disk_size_bytes,
+        )
+        if any(value is not None for value in values) and any(
+            value is None for value in values
+        ):
+            raise ValueError(
+                "target disk number, model, and size must be provided together"
+            )
+        return self
 
 
 class DeploymentImageRequest(BaseModel):
@@ -639,6 +675,9 @@ class DeploymentListItem(BaseModel):
     mac_address: str
     ip_address: str
     image_name: str | None
+    target_disk_number: int | None
+    target_disk_model: str | None
+    target_disk_size_bytes: int | None
     domain_join: bool
     status: Literal["begin", "completed", "failed"]
     started_at: datetime
@@ -901,6 +940,9 @@ def to_deployment_list_item(
         mac_address=deployment.mac_address,
         ip_address=deployment.ip_address,
         image_name=deployment.image_name,
+        target_disk_number=deployment.target_disk_number,
+        target_disk_model=deployment.target_disk_model,
+        target_disk_size_bytes=deployment.target_disk_size_bytes,
         domain_join=deployment.domain_join,
         status=deployment.status,
         started_at=as_utc(deployment.started_at),

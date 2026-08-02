@@ -352,7 +352,7 @@ async function saveWinPEAuth() {
     if (
         selected.value === "none" &&
         !window.confirm(adminText(
-            "Anyone who can boot this WinPE will be able to erase disk 0. Enable deployment without operator authorization?"
+            "Anyone who can boot this WinPE will be able to erase a selected disk. Enable deployment without operator authorization?"
         ))
     ) {
         return;

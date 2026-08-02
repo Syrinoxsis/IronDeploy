@@ -75,20 +75,38 @@ class DeploymentAuthorizationTests(unittest.TestCase):
                 computer_name="pc00042",
                 serial_number="SERIAL-42",
                 mac_address="AA:BB:CC:DD:EE:FF",
+                target_disk_number=1,
+                target_disk_model="Samsung SSD 990 PRO 2TB",
+                target_disk_size_bytes=2_000_398_934_016,
                 domain_join=False,
             )
 
             first = deploy_begin(payload, request, session)
             self.assertGreater(first.deployment_id, 0)
+            stored = session.get(Deployment, first.deployment_id)
+            self.assertEqual(stored.target_disk_number, 1)
+            self.assertEqual(stored.target_disk_model, "Samsung SSD 990 PRO 2TB")
+            self.assertEqual(stored.target_disk_size_bytes, 2_000_398_934_016)
             with self.assertRaises(HTTPException) as raised:
                 deploy_begin(payload, request, session)
             self.assertEqual(raised.exception.status_code, 409)
 
+    def test_target_disk_snapshot_must_be_complete(self) -> None:
+        with self.assertRaises(ValueError):
+            DeploymentBeginRequest(
+                computer_name="pc00042",
+                serial_number="SERIAL-42",
+                mac_address="AA:BB:CC:DD:EE:FF",
+                target_disk_number=1,
+                domain_join=False,
+            )
+
     def test_domain_join_is_refused_when_offline_domain_join_is_unconfigured(
         self,
     ) -> None:
-        # WinPE erases disk 0 after /begin succeeds, so an impossible domain
-        # join has to be rejected here rather than mid-deployment.
+        # WinPE erases the selected disk after /begin succeeds, so an
+        # impossible domain join has to be rejected here rather than
+        # mid-deployment.
         with Session(self.engine) as session:
             user = create_user(session, "winpe-user", "WinPEPassword123")
             set_user_permissions(session, user, {"deploy"})

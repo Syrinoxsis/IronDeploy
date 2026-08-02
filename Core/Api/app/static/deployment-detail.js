@@ -416,6 +416,19 @@ function setCopyableField(name, value) {
     }
 }
 
+function formatTargetDisk(deployment) {
+    if (
+        deployment.target_disk_number === null ||
+        deployment.target_disk_number === undefined ||
+        !deployment.target_disk_model ||
+        !deployment.target_disk_size_bytes
+    ) {
+        return null;
+    }
+    const gibibytes = deployment.target_disk_size_bytes / (1024 ** 3);
+    return `${detailText("Disk")} ${deployment.target_disk_number} — ${deployment.target_disk_model} — ${gibibytes.toFixed(2)} GiB`;
+}
+
 async function copyDetailValue(value) {
     if (!value || value === "-") return;
     let copied = false;
@@ -557,6 +570,7 @@ function renderDeployment(deployment) {
     setCopyableField("mac_address", deployment.mac_address);
     setCopyableField("ip_address", deployment.ip_address);
     setCopyableField("image_name", deployment.image_name);
+    setCopyableField("target_disk", formatTargetDisk(deployment));
     setCopyableField(
         "domain_join",
         detailText(deployment.domain_join ? "Yes" : "No"),

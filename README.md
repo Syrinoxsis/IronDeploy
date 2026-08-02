@@ -1,8 +1,8 @@
 # IronDeploy
 
 > **Alpha software.** Test IronDeploy on a virtual machine or disposable computer
-> before using it on production hardware. The current WinPE workflow permanently
-> erases **disk 0**.
+> before using it on production hardware. The WinPE workflow permanently erases
+> the physical disk explicitly selected by the operator.
 
 IronDeploy is an independent Windows deployment tool for installing Windows 10
 and Windows 11 from WinPE.
@@ -17,6 +17,7 @@ clone an already configured reference computer.
 From its graphical WinPE interface, an operator can:
 
 - choose a Windows image and edition;
+- choose the target physical disk after reviewing its number, model, and size;
 - choose optional post-install programs;
 - select one driver package for the detected hardware, or skip drivers;
 - let IronAPI suggest the next available computer name from the configured
@@ -27,11 +28,11 @@ From its graphical WinPE interface, an operator can:
 - follow deployment progress and review the final result in the IronAPI
   dashboard.
 
-During deployment IronDeploy partitions disk 0, applies the selected Windows
-image, injects offline drivers, writes the Windows answer file, optionally
-applies Offline Domain Join, stages selected programs, and boots into the newly
-installed operating system. Post-install tasks then install the selected
-software and report their results to IronAPI.
+During deployment IronDeploy partitions the selected disk, applies the selected
+Windows image, injects offline drivers, writes the Windows answer file,
+optionally applies Offline Domain Join, stages selected programs, and boots
+into the newly installed operating system. Post-install tasks then install the
+selected software and report their results to IronAPI.
 
 ## Prerequisites
 
@@ -156,7 +157,8 @@ environment:
   carries deployment tokens and the configured SMB account details;
 - never commit `.env`, databases, ODJ blobs, WIM/ESD images, generated
   WIM/ISO files, driver packages, or program installers;
-- verify the target machine before confirming the permanent erase of disk 0.
+- verify the target machine and the selected disk's number, model, and size
+  before confirming the permanent erase.
 
 SMB encryption is optional. It hides file contents in transit but may reduce
 deployment speed; SMB signing is the minimum recommended integrity protection.
@@ -164,8 +166,8 @@ deployment speed; SMB signing is the minimum recommended integrity protection.
 ## Current Alpha limitations
 
 - the deployment runtime targets x64 UEFI/GPT systems;
-- the current disk workflow always erases and partitions **disk 0**;
-- multi-disk selection is not implemented;
+- the selected disk is fully erased and repartitioned; existing partitions are
+  not yet previewed in WinPE;
 - ESD images can be deployed directly, but WIM is recommended for regular use;
 - hardware, firmware, network, drivers, and Windows images vary, so validate the
   complete workflow in your own environment;

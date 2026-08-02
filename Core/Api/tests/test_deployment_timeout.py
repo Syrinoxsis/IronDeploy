@@ -351,7 +351,8 @@ class DeploymentTimeoutTests(unittest.TestCase):
                     computer_name="pc00042",
                     serial_number="PF4ABC12",
                     mac_address="aa-bb-cc-dd-ee-ff",
-                    domain_join=True,
+                    # This test covers inventory creation, not ODJ policy.
+                    domain_join=False,
                 ),
                 request,
                 session,
