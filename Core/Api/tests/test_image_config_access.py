@@ -195,7 +195,7 @@ class ImageConfigPageTests(unittest.TestCase):
             "language",
             "keyboard-layouts",
             "locale-time",
-            "image-progress",
+            "technical-settings",
         ):
             self.assertIn(f'data-settings-view="{view}"', self.html)
             self.assertIn(f'data-settings-view-panel="{view}"', self.html)
@@ -218,6 +218,12 @@ class ImageConfigPageTests(unittest.TestCase):
         self.assertIn("function setDirty(dirty)", self.javascript)
         self.assertIn("function refreshAll()", self.javascript)
         self.assertNotIn("settingsCategory", self.javascript)
+
+    def test_winpe_technical_settings_offer_both_image_apply_modes(self) -> None:
+        self.assertIn('name="imageApplyMode" type="radio" value="staged"', self.html)
+        self.assertIn('name="imageApplyMode" type="radio" value="direct"', self.html)
+        self.assertIn("config.imageApplyMode || \"direct\"", self.javascript)
+        self.assertIn("imageApplyMode:", self.javascript)
 
     def test_redesigned_workspace_has_russian_localization(self) -> None:
         for text in (

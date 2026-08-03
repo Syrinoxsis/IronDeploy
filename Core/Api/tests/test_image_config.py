@@ -25,8 +25,10 @@ class ImageConfigTests(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
         winpe_dir = self.tmp / "WinPE" / "Runtime"
+        api_dir = self.tmp / "Api"
         unattend_dir = self.tmp / "ServerTemplates" / "Unattend"
         winpe_dir.mkdir(parents=True)
+        api_dir.mkdir(parents=True)
         unattend_dir.mkdir(parents=True)
         self.paths = ImagePaths(
             winpe_config=winpe_dir / "deploy.config.ps1",
@@ -34,7 +36,11 @@ class ImageConfigTests(unittest.TestCase):
             unattend=unattend_dir / "unattend-win11-template.xml",
             unattend_example=unattend_dir / "unattend-win11-template.example.xml",
             backup_dir=self.tmp / "Logs" / "ConfigBackups",
+            api_env=api_dir / ".env",
+            api_env_example=api_dir / ".env.example",
         )
+        shutil.copy2(IRONDEPLOY_ROOT / "Api" / ".env.example", self.paths.api_env_example)
+        shutil.copy2(self.paths.api_env_example, self.paths.api_env)
         shutil.copy2(DEPLOY_EXAMPLE, self.paths.winpe_config_example)
         shutil.copy2(UNATTEND_EXAMPLE, self.paths.unattend_example)
         shutil.copy2(DEPLOY_EXAMPLE, self.paths.winpe_config)
@@ -46,6 +52,7 @@ class ImageConfigTests(unittest.TestCase):
         self.assertTrue(config["enableBuiltInAdministrator"])
         self.assertTrue(config["enableSetupLocalAdmin"])
         self.assertTrue(config["enableGuiImageApplyProgress"])
+        self.assertEqual(config["imageApplyMode"], "direct")
         self.assertEqual(config["timeZone"], "Central Asia Standard Time")
         self.assertEqual(config["inputLocale"], "ru-RU")
         self.assertEqual(config["systemLocale"], "ru-RU")
@@ -105,6 +112,35 @@ class ImageConfigTests(unittest.TestCase):
         self.assertFalse(
             load_image_config(self.paths)["hasBuiltInAdministratorPassword"]
         )
+
+    def test_image_apply_mode_is_saved_in_server_config_and_reread(self) -> None:
+        result = save_image_config(
+            {
+                "localAdminName": "localadmin",
+                "timeZone": "UTC",
+                "imageApplyMode": "staged",
+            },
+            self.paths,
+        )
+
+        self.assertEqual(result["config"]["imageApplyMode"], "staged")
+        self.assertEqual(load_image_config(self.paths)["imageApplyMode"], "staged")
+        self.assertIn(
+            "IRONAPI_IMAGE_APPLY_MODE=staged",
+            self.paths.api_env.read_text(encoding="utf-8-sig"),
+        )
+        self.assertNotIn("ImageApplyMode", self.paths.winpe_config.read_text())
+
+    def test_unknown_image_apply_mode_is_rejected_on_save(self) -> None:
+        with self.assertRaisesRegex(ImageConfigError, "direct or staged"):
+            save_image_config(
+                {
+                    "localAdminName": "localadmin",
+                    "timeZone": "UTC",
+                    "imageApplyMode": "auto",
+                },
+                self.paths,
+            )
 
     def test_save_updates_both_files_and_preserves_share_password(self) -> None:
         result = save_image_config(

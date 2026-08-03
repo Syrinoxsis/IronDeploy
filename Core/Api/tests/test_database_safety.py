@@ -158,6 +158,19 @@ class DatabaseSafetyTests(unittest.TestCase):
         tables = set(inspect(self.engine).get_table_names())
         self.assertIn("deployments", tables)
         self.assertIn(MIGRATION_TABLE, tables)
+        deployment_columns = {
+            column["name"]
+            for column in inspect(self.engine).get_columns("deployments")
+        }
+        self.assertIn("image_apply_mode", deployment_columns)
+        with self.engine.connect() as connection:
+            network_stage_sql = connection.execute(
+                text(
+                    "SELECT sql FROM sqlite_master "
+                    "WHERE type = 'table' AND name = 'deployment_network_stages'"
+                )
+            ).scalar_one()
+        self.assertIn("'image_download'", network_stage_sql)
         self.assertEqual(
             self.applied_versions(),
             [migration.version for migration in MIGRATIONS],
@@ -193,6 +206,7 @@ class DatabaseSafetyTests(unittest.TestCase):
         self.assertIn("target_disk_number", columns)
         self.assertIn("target_disk_model", columns)
         self.assertIn("target_disk_size_bytes", columns)
+        self.assertIn("image_apply_mode", columns)
         self.assertEqual(
             self.applied_versions(),
             [migration.version for migration in MIGRATIONS],
@@ -417,7 +431,10 @@ class DatabaseSafetyTests(unittest.TestCase):
                     "GROUP BY version ORDER BY version"
                 )
             ).all()
-        self.assertEqual(counts, [(1, 1), (2, 1), (3, 1), (4, 1)])
+        self.assertEqual(
+            counts,
+            [(migration.version, 1) for migration in MIGRATIONS],
+        )
 
     def test_legacy_child_rows_constraints_indexes_and_on_delete_survive(
         self,
@@ -532,7 +549,7 @@ class DatabaseSafetyTests(unittest.TestCase):
         histories = {
             "gap": [1, 3],
             "duplicate": [1, 1],
-            "future": [1, 2, 3, 4, 5],
+            "future": [1, 2, 3, 4, 5, 6],
         }
         for label, versions in histories.items():
             with self.subTest(label=label):

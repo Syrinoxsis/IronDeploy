@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import shutil
 import tempfile
@@ -104,6 +105,10 @@ class DeploymentImageTests(unittest.TestCase):
         self.assertEqual(result["images"][0]["defaultIndex"], 6)
         self.assertTrue(result["images"][0]["canConvert"])
         self.assertFalse(result["images"][1]["canConvert"])
+        self.assertEqual(
+            result["images"][1]["sha256"],
+            hashlib.sha256(b"wim").hexdigest(),
+        )
         self.assertEqual(inspect_image.call_count, 2)
 
         list_deployment_images(self.images_dir, self.metadata_path)

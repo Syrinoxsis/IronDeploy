@@ -1,6 +1,16 @@
 (() => {
     const STORAGE_KEY = "irondeploy-language";
     const ru = {
+        "WinPE interface": "Интерфейс WinPE",
+        "Technical settings": "Технические настройки",
+        "Configure how WinPE downloads and applies Windows images.": "Настройте способ загрузки и применения образов Windows в WinPE.",
+        "Image apply method": "Способ применения образа",
+        "Download image first": "Предварительно скачать образ",
+        "Copy and verify the WIM locally before applying it.": "Скопировать и проверить WIM локально перед применением.",
+        "Apply directly from SMB": "Применять напрямую с SMB",
+        "Keep the existing behavior and let DISM read the WIM from the share.": "Сохранить существующее поведение: DISM читает WIM с SMB-шары.",
+        "Download image": "Скачивание образа",
+        "Image apply mode": "Способ применения образа",
         "Dashboard": "Панель управления",
         "Dashboard views": "Разделы панели управления",
         "Deployment summary": "Сводка установок",

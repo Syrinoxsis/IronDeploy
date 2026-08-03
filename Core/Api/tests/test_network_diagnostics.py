@@ -113,7 +113,7 @@ class NetworkDiagnosticsApiTests(unittest.TestCase):
             ),
             stages=[
                 {
-                    "stage": "image_apply",
+                    "stage": "image_download",
                     **aggregate_payload(
                         started_at=started_at,
                         completed_at=completed_at,
@@ -192,7 +192,7 @@ class NetworkDiagnosticsApiTests(unittest.TestCase):
             self.assertIsNotNone(detail.network_diagnostics)
             self.assertEqual(
                 detail.network_diagnostics.stages[0].stage,
-                "image_apply",
+                "image_download",
             )
             self.assertEqual(
                 detail.network_diagnostics.smb_adapter.local_ip,

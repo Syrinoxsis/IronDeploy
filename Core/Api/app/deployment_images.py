@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 import subprocess
@@ -73,7 +74,7 @@ def _read_metadata(path: Path = METADATA_PATH) -> dict[str, Any]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
-        return {"version": 2, "images": {}}
+        return {"version": 3, "images": {}}
     except (OSError, json.JSONDecodeError) as exc:
         raise DeploymentImageError(f"Failed to read image metadata: {exc}") from exc
     if not isinstance(payload, dict) or not isinstance(payload.get("images"), dict):
@@ -206,6 +207,14 @@ def _inspect_image(path: Path) -> list[dict[str, Any]]:
     return indexes
 
 
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(4 * 1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _list_deployment_images(
     images_dir: Path = IMAGES_DIR,
     metadata_path: Path = METADATA_PATH,
@@ -213,7 +222,7 @@ def _list_deployment_images(
     images_dir.mkdir(parents=True, exist_ok=True)
     metadata = _read_metadata(metadata_path)
     records = metadata["images"]
-    metadata_needs_upgrade = metadata.get("version") != 2
+    metadata_needs_upgrade = metadata.get("version") != 3
     legacy_index = _legacy_default_index()
     files = sorted(
         (
@@ -246,6 +255,7 @@ def _list_deployment_images(
         ):
             try:
                 indexes = _inspect_image(path)
+                sha256 = _sha256_file(path)
                 inspected_stat = path.stat()
                 if (
                     inspected_stat.st_size != stat.st_size
@@ -258,7 +268,12 @@ def _list_deployment_images(
                 inspection_error = None
             except DeploymentImageError as exc:
                 indexes = []
+                sha256 = None
                 inspection_error = str(exc)
+            except OSError as exc:
+                indexes = []
+                sha256 = None
+                inspection_error = f"Failed to hash the image: {exc}"
             stat = path.stat()
             old_default = record.get("defaultIndex")
             valid_indexes = {item["index"] for item in indexes}
@@ -276,6 +291,7 @@ def _list_deployment_images(
                 "size": stat.st_size,
                 "modifiedNs": stat.st_mtime_ns,
                 "indexes": indexes,
+                "sha256": sha256,
                 "inspectionError": inspection_error,
             }
             records[path.name] = record
@@ -291,6 +307,7 @@ def _list_deployment_images(
                 ).isoformat(),
                 "defaultIndex": record.get("defaultIndex"),
                 "indexes": record.get("indexes", []),
+                "sha256": record.get("sha256"),
                 "inspectionError": record.get("inspectionError"),
                 "ready": bool(
                     record.get("indexes")
@@ -303,7 +320,7 @@ def _list_deployment_images(
         )
 
     if changed:
-        metadata["version"] = 2
+        metadata["version"] = 3
         _write_metadata(metadata, metadata_path)
     return {"images": result, "directory": str(images_dir)}
 

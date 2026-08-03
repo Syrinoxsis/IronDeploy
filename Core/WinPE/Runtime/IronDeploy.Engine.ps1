@@ -194,6 +194,7 @@ $script:DeploymentAccessToken = ""
 $script:IronApiRequestSamples = $null
 $script:IronNetworkDiagnostics = $null
 $script:IronSecretArtifacts = @()
+$script:ImageApplyMode = "direct"
 
 # --- API reporting -----------------------------------------------------------
 
@@ -959,10 +960,12 @@ function Start-IronNetworkStageMeasurement {
     if (
         $null -eq $script:IronNetworkDiagnostics -or
         $Stage -notin @(
+            "image_download",
             "image_apply",
             "driver_injection",
             "postinstall_copy"
-        )
+        ) -or
+        ($Stage -eq "image_apply" -and $script:ImageApplyMode -eq "staged")
     ) {
         return
     }
@@ -1071,7 +1074,9 @@ function Invoke-IronNetworkReportWithRetry {
 function Send-IronNetworkStageDiagnostics {
     param(
         [Parameter(Mandatory = $true)]
-        [ValidateSet("image_apply", "driver_injection", "postinstall_copy")]
+        [ValidateSet(
+            "image_download", "image_apply", "driver_injection", "postinstall_copy"
+        )]
         [string]$Stage
     )
 
@@ -1238,6 +1243,7 @@ function Complete-IronNetworkDiagnostics {
                 -LinkSpeedBps $LinkSpeedBps
             $StageReports = @()
             foreach ($StageName in @(
+                "image_download",
                 "image_apply",
                 "driver_injection",
                 "postinstall_copy"
@@ -1477,7 +1483,9 @@ function Complete-DeploymentStage {
 
     Complete-IronNetworkStageMeasurement -Stage $Stage
     Send-DeploymentStageEvent -Stage $Stage -Event "complete"
-    if ($Stage -in @("image_apply", "driver_injection", "postinstall_copy")) {
+    if ($Stage -in @(
+        "image_download", "image_apply", "driver_injection", "postinstall_copy"
+    )) {
         Send-IronNetworkStageDiagnostics -Stage $Stage
     }
     if ($script:CurrentDeploymentStage -eq $Stage) {
@@ -1578,6 +1586,229 @@ function Fail {
     $script:CurrentDeploymentStage = $null
     Write-IronLog "ERROR: $msg" -Level error
     throw [System.Exception]::new($msg)
+}
+
+function Resolve-IronImageApplyMode {
+    param([AllowNull()][object]$Value)
+
+    $Mode = ([string]$Value).Trim().ToLowerInvariant()
+    if ($Mode -in @("direct", "staged")) {
+        return $Mode
+    }
+
+    $DisplayedValue = if ([string]::IsNullOrWhiteSpace([string]$Value)) {
+        "<missing>"
+    } else {
+        [string]$Value
+    }
+    Write-IronLog (
+        "[WARN] Unknown imageApplyMode '{0}'; falling back to direct" -f
+        $DisplayedValue
+    ) -Level warn
+    return "direct"
+}
+
+function Test-IronRobocopyExitCode {
+    param([Parameter(Mandatory = $true)][int]$ExitCode)
+
+    return ($ExitCode -ge 0 -and $ExitCode -le 7)
+}
+
+function Remove-IronStagedImageArtifacts {
+    param(
+        [string]$StagingDirectory,
+        [Parameter(Mandatory = $true)][string]$Reason
+    )
+
+    if ([string]::IsNullOrWhiteSpace($StagingDirectory)) {
+        return
+    }
+    Write-IronLog (
+        "[INFO] Staged WIM cleanup path: {0}; reason: {1}" -f
+        $StagingDirectory,
+        $Reason
+    ) -Level info
+    try {
+        if (Test-Path -LiteralPath $StagingDirectory) {
+            Remove-Item `
+                -LiteralPath $StagingDirectory `
+                -Recurse `
+                -Force `
+                -ErrorAction Stop
+        }
+    } catch {
+        Write-IronLog (
+            "[WARN] Failed to remove staged WIM path '{0}': {1}" -f
+            $StagingDirectory,
+            $_.Exception.Message
+        ) -Level warn
+    }
+}
+
+function Copy-IronImageToLocalStaging {
+    param(
+        [Parameter(Mandatory = $true)][string]$SourcePath,
+        [Parameter(Mandatory = $true)][long]$ExpectedLength,
+        [Parameter(Mandatory = $true)][AllowEmptyString()][string]$ExpectedSha256,
+        [Parameter(Mandatory = $true)][long]$DeploymentId
+    )
+
+    if ($ExpectedLength -le 0) {
+        throw "The image manifest contains an invalid size"
+    }
+    if ($ExpectedSha256 -notmatch '^[0-9a-fA-F]{64}$') {
+        throw "The image manifest contains an invalid SHA-256"
+    }
+
+    $LocalDrive = Get-PSDrive -Name $WindowsDrive.TrimEnd(":")
+    if ($null -eq $LocalDrive.Free -or [long]$LocalDrive.Free -lt $ExpectedLength) {
+        $FreeBytes = if ($null -eq $LocalDrive.Free) { 0L } else { [long]$LocalDrive.Free }
+        throw (
+            "Insufficient free space for staged WIM: need {0} bytes, have {1} bytes" -f
+            $ExpectedLength,
+            $FreeBytes
+        )
+    }
+
+    $StagingDirectory = Join-Path `
+        "$($WindowsDrive.TrimEnd('\'))\IronDeploy.Staging" `
+        ([string]$DeploymentId)
+    New-Item -ItemType Directory -Path $StagingDirectory -Force | Out-Null
+
+    $SourceDirectory = Split-Path -Parent $SourcePath
+    $SourceName = Split-Path -Leaf $SourcePath
+    $RobocopyDirectory = Join-Path $StagingDirectory "robocopy"
+    New-Item -ItemType Directory -Path $RobocopyDirectory -Force | Out-Null
+    $RobocopyPath = Join-Path $RobocopyDirectory $SourceName
+    $PartialPath = Join-Path $StagingDirectory "image.wim.partial"
+    $FinalPath = Join-Path $StagingDirectory "image.wim"
+    # Robocopy cannot rename a file in flight. Point its source-named target at
+    # the .partial file with an NTFS hard link, so interrupted downloads never
+    # expose the final .wim name.
+    New-Item -ItemType File -Path $PartialPath -Force | Out-Null
+    New-Item `
+        -ItemType HardLink `
+        -Path $RobocopyPath `
+        -Target $PartialPath | Out-Null
+    $Stopwatch = [Diagnostics.Stopwatch]::StartNew()
+    try {
+        Write-IronLog (
+            "[STEP] Download image with robocopy /J: {0} -> {1}" -f
+            $SourcePath,
+            $PartialPath
+        ) -Level step
+        $PreviousErrorActionPreference = $ErrorActionPreference
+        try {
+            $ErrorActionPreference = "Continue"
+            & robocopy.exe `
+                $SourceDirectory `
+                $RobocopyDirectory `
+                $SourceName `
+                /J `
+                /R:2 `
+                /W:2 `
+                /COPY:DAT `
+                /DCOPY:T `
+                /NP `
+                /NFL `
+                /NDL
+            $RobocopyExitCode = $LASTEXITCODE
+        } finally {
+            $ErrorActionPreference = $PreviousErrorActionPreference
+        }
+        if (-not (Test-IronRobocopyExitCode -ExitCode $RobocopyExitCode)) {
+            throw "robocopy failed with exit code $RobocopyExitCode"
+        }
+        if (-not (Test-Path -LiteralPath $RobocopyPath -PathType Leaf)) {
+            throw "robocopy did not create the local image file"
+        }
+
+        Remove-Item -LiteralPath $RobocopyPath -Force
+        Remove-Item -LiteralPath $RobocopyDirectory -Force
+        $ActualLength = (Get-Item -LiteralPath $PartialPath).Length
+        if ($ActualLength -ne $ExpectedLength) {
+            throw (
+                "Downloaded WIM size mismatch: expected {0}, received {1}" -f
+                $ExpectedLength,
+                $ActualLength
+            )
+        }
+        $ActualSha256 = (
+            Get-FileHash -LiteralPath $PartialPath -Algorithm SHA256
+        ).Hash.ToLowerInvariant()
+        if ($ActualSha256 -ne $ExpectedSha256.ToLowerInvariant()) {
+            throw (
+                "Downloaded WIM SHA-256 mismatch at {0}: expected {1}, actual {2}" -f
+                $PartialPath,
+                $ExpectedSha256.ToLowerInvariant(),
+                $ActualSha256
+            )
+        }
+        Move-Item -LiteralPath $PartialPath -Destination $FinalPath -Force
+        $Stopwatch.Stop()
+        $Seconds = [Math]::Max(0.001, $Stopwatch.Elapsed.TotalSeconds)
+        $AverageMegabytesPerSecond = ($ActualLength / 1MB) / $Seconds
+        Write-IronLog (
+            "[OK] Image download completed: status=success; bytes={0}; " +
+            "duration={1:N3}s; average={2:N3} MB/s; path={3}" -f
+            $ActualLength,
+            $Seconds,
+            $AverageMegabytesPerSecond,
+            $FinalPath
+        ) -Level ok
+        return [pscustomobject]@{
+            Path = $FinalPath
+            StagingDirectory = $StagingDirectory
+            BytesTransferred = [long]$ActualLength
+            DurationSeconds = [double]$Seconds
+            AverageMegabytesPerSecond = [double]$AverageMegabytesPerSecond
+            RobocopyExitCode = [int]$RobocopyExitCode
+        }
+    } catch {
+        $Stopwatch.Stop()
+        Write-IronLog (
+            "[ERROR] Image download failed: status=failed; duration={0:N3}s; " +
+            "partialPath={1}; finalPath={2}; reason={3}" -f
+            $Stopwatch.Elapsed.TotalSeconds,
+            $PartialPath,
+            $FinalPath,
+            $_.Exception.Message
+        ) -Level error
+        throw
+    }
+}
+
+function Invoke-IronApplyWindowsImage {
+    param(
+        [Parameter(Mandatory = $true)][string]$ImagePath,
+        [Parameter(Mandatory = $true)][int]$ImageIndex
+    )
+
+    $TrackImageApplyProgress = (
+        [bool]$EnableGuiImageApplyProgress -and
+        $null -ne $script:IronProgressCallback
+    )
+    if ($TrackImageApplyProgress) {
+        $PreviousErrorActionPreference = $ErrorActionPreference
+        try {
+            $ErrorActionPreference = "Continue"
+            & dism.exe `
+                /Apply-Image `
+                /ImageFile:$ImagePath `
+                /Index:$ImageIndex `
+                /ApplyDir:C:\ `
+                2>&1 |
+                ForEach-Object {
+                    Update-IronImageApplyProgress -OutputLine ([string]$_)
+                }
+            return $LASTEXITCODE
+        } finally {
+            $ErrorActionPreference = $PreviousErrorActionPreference
+        }
+    }
+
+    dism.exe /Apply-Image /ImageFile:$ImagePath /Index:$ImageIndex /ApplyDir:C:\
+    return $LASTEXITCODE
 }
 
 # --- Helpers -----------------------------------------------------------------
@@ -2404,6 +2635,7 @@ function Invoke-IronDeployment {
 
     $script:DeploymentErrorReported = $false
     $script:IronNetworkDiagnostics = $null
+    $script:ImageApplyMode = "direct"
     # Shred anything a previous attempt left behind on the ramdisk.
     Clear-IronSecretArtifacts
     try {
@@ -2563,10 +2795,26 @@ function Invoke-IronDeployment {
         Fail "IronAPI returned a manifest for another deployment."
     }
 
+    $script:ImageApplyMode = Resolve-IronImageApplyMode `
+        -Value $DeploymentPlan.imageApplyMode
+    Write-IronLog (
+        "[MODE] Image apply strategy: {0}" -f $script:ImageApplyMode
+    ) -Level info
+
     $SelectedImage = [pscustomobject]@{
         Name = [string]$DeploymentPlan.image.name
         FullName = "$($ImagesPath.TrimEnd('\'))\$($DeploymentPlan.image.name)"
         Length = [long]$DeploymentPlan.image.size
+        Sha256 = [string]$DeploymentPlan.image.sha256
+    }
+    if (
+        $script:ImageApplyMode -eq "staged" -and
+        $SelectedImage.Sha256 -notmatch '^[0-9a-fA-F]{64}$'
+    ) {
+        Fail (
+            "IronAPI manifest does not contain a valid SHA-256 for staged image '{0}'." -f
+            $SelectedImage.Name
+        )
     }
     $ImagePath = $SelectedImage.FullName
     $ImageIndexToApply = [int]$DeploymentPlan.image.defaultIndex
@@ -2786,41 +3034,61 @@ function Invoke-IronDeployment {
     }
     Complete-DeploymentStage "disk_partitioning"
 
-    Set-IronProgress 30 "Applying Windows image"
-    Write-IronLog "[STEP] Apply Windows image" -Level step
-    Start-DeploymentStage "image_apply"
-    $TrackImageApplyProgress = (
-        [bool]$EnableGuiImageApplyProgress -and
-        $null -ne $script:IronProgressCallback
-    )
-    if ($TrackImageApplyProgress) {
-        # Native stderr becomes terminating in a background runspace when the
-        # global preference is Stop. Let DISM finish, then handle its exit code
-        # consistently while parsing its normal percentage output.
-        $PreviousErrorActionPreference = $ErrorActionPreference
+    $ImagePathToApply = $ImagePath
+    $StagedImageDirectory = $null
+    if ($script:ImageApplyMode -eq "staged") {
+        Set-IronProgress 26 "Downloading Windows image"
+        Start-DeploymentStage "image_download"
         try {
-            $ErrorActionPreference = "Continue"
-            & dism.exe `
-                /Apply-Image `
-                /ImageFile:$ImagePath `
-                /Index:$ImageIndexToApply `
-                /ApplyDir:C:\ `
-                2>&1 |
-                ForEach-Object {
-                    Update-IronImageApplyProgress -OutputLine ([string]$_)
-                }
-            $ImageApplyExitCode = $LASTEXITCODE
-        } finally {
-            $ErrorActionPreference = $PreviousErrorActionPreference
+            $DownloadResult = Copy-IronImageToLocalStaging `
+                -SourcePath $ImagePath `
+                -ExpectedLength $SelectedImage.Length `
+                -ExpectedSha256 $SelectedImage.Sha256 `
+                -DeploymentId $script:DeploymentId
+            $ImagePathToApply = $DownloadResult.Path
+            $StagedImageDirectory = $DownloadResult.StagingDirectory
+            Complete-DeploymentStage "image_download"
+        } catch {
+            $DownloadFailure = $_.Exception.Message
+            if ([string]::IsNullOrWhiteSpace($StagedImageDirectory)) {
+                $StagedImageDirectory = Join-Path `
+                    "$($WindowsDrive.TrimEnd('\'))\IronDeploy.Staging" `
+                    ([string]$script:DeploymentId)
+            }
+            Remove-IronStagedImageArtifacts `
+                -StagingDirectory $StagedImageDirectory `
+                -Reason $DownloadFailure
+            Fail "Staged image download failed: $DownloadFailure"
         }
-    } else {
-        dism.exe /Apply-Image /ImageFile:$ImagePath /Index:$ImageIndexToApply /ApplyDir:C:\
-        $ImageApplyExitCode = $LASTEXITCODE
     }
-    if ($ImageApplyExitCode -ne 0) {
-        Fail "DISM Apply-Image failed"
+
+    Set-IronProgress 30 "Applying Windows image"
+    Write-IronLog (
+        "[STEP] Apply Windows image from {0}" -f $ImagePathToApply
+    ) -Level step
+    Start-DeploymentStage "image_apply"
+    try {
+        $ImageApplyExitCode = Invoke-IronApplyWindowsImage `
+            -ImagePath $ImagePathToApply `
+            -ImageIndex $ImageIndexToApply
+        if ($ImageApplyExitCode -ne 0) {
+            throw "DISM Apply-Image failed"
+        }
+    } catch {
+        $ImageApplyFailure = $_.Exception.Message
+        if ($script:ImageApplyMode -eq "staged") {
+            Remove-IronStagedImageArtifacts `
+                -StagingDirectory $StagedImageDirectory `
+                -Reason $ImageApplyFailure
+        }
+        Fail $ImageApplyFailure
     }
     Complete-DeploymentStage "image_apply"
+    if ($script:ImageApplyMode -eq "staged") {
+        Remove-IronStagedImageArtifacts `
+            -StagingDirectory $StagedImageDirectory `
+            -Reason "successful image apply"
+    }
 
     if ($null -ne $DriverPackagePlan) {
         Set-IronProgress 62 "Staging driver packages"
@@ -2848,6 +3116,7 @@ function Invoke-IronDeployment {
 
     @{
         deployment_id = $script:DeploymentId
+        image_apply_mode = $script:ImageApplyMode
         api_base_url = $ApiBaseUrl
         api_deployment_token = $script:DeploymentAccessToken
         driver_package = $DriverPackageRelativePath
@@ -3125,5 +3394,6 @@ function Invoke-IronDeployment {
         DeploymentId = $script:DeploymentId
         UseDomainJoin = $UseDomainJoinValue
         ImageName = $SelectedImage.Name
+        ImageApplyMode = $script:ImageApplyMode
     }
 }

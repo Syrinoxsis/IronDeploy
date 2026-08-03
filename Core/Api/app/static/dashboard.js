@@ -2,6 +2,7 @@ const AUTO_REFRESH_MS = 10_000;
 
 const STAGE_LABELS = {
     disk_partitioning: "Disk partitioning",
+    image_download: "Download image",
     image_apply: "Apply image",
     driver_injection: "Driver injection",
     deployment_state: "Save deployment state",
@@ -440,6 +441,7 @@ function searchableDeployment(deployment) {
         deployment.mac_address,
         deployment.ip_address,
         deployment.image_name,
+        deployment.imageApplyMode,
         deployment.domain_join ? "yes" : "no",
         deployment.status,
         deployment.last_error_message,

@@ -46,14 +46,16 @@ SMB share -- payloads-+
 
 WinPE asks IronAPI what may be deployed and reports progress. IronAPI returns
 the authorized catalog, validated manifest, SMB connection details, answer file,
-and optional Offline Domain Join data. WinPE reads the large files named in the
-manifest directly from SMB.
+and optional Offline Domain Join data. Drivers and installers are read from SMB.
+The manifest also carries the server-owned image-apply strategy: WinPE either
+lets DISM read the image directly from SMB or stages and verifies a complete
+local copy before invoking DISM.
 
 ## Ownership and storage
 
 | Location | Owner | Contents |
 | --- | --- | --- |
-| `Core\Api\.env` | IronAPI | Listener, SMB, LDAP, ODJ, and timeout settings. |
+| `Core\Api\.env` | IronAPI | Listener, SMB, image-apply strategy, LDAP, ODJ, and timeout settings. |
 | `Core\WinPE\Runtime\deploy.config.ps1` | WinPE | API address, payload paths, certificate trust, and offline account policy. |
 | `Core\Data\irondeploy.db` | IronAPI | Accounts, permissions, deployments, stages, and inventory. |
 | `Core\ODJ\pending` | IronAPI | Short-lived Offline Domain Join blobs. |
@@ -70,6 +72,8 @@ under `Core\WinPE\Runtime`.
 - SetupWeb writes the SMB credential only to server-side `Core\Api\.env`.
 - WinPE receives the SMB credential from IronAPI for an authorized deployment;
   it is not embedded in `deploy.config.ps1`.
+- The image-apply strategy is stored with IronAPI configuration and returned in
+  the existing final deployment manifest; it is not embedded in WinPE.
 - Browser sessions and WinPE deployment tokens are separate authorization
   mechanisms.
 - ODJ blobs exist only long enough to provision, download, apply, and

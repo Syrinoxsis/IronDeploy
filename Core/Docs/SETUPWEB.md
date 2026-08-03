@@ -63,6 +63,11 @@ The UI owns the first-time settings needed by both IronAPI and WinPE:
 - local administrator policy for post-install;
 - Windows time zone in the unattend template.
 
+The later IronAPI `/image-config` page owns the operational image-apply choice.
+It stores `direct` or `staged` as `IRONAPI_IMAGE_APPLY_MODE` in
+`Core\Api\.env`. SetupWeb preserves that server-side setting when it rewrites
+the initial configuration and never copies it into `deploy.config.ps1`.
+
 The UI loads existing values when reopened. Leaving a password field empty
 keeps the current stored hash or secret where the form explicitly supports
 that behavior.
@@ -71,7 +76,7 @@ that behavior.
 
 | File | Content |
 | --- | --- |
-| `Core\Api\.env` | IronAPI listener, SMB, LDAP, ODJ, storage, and timeout settings. |
+| `Core\Api\.env` | IronAPI listener, SMB, image-apply strategy, LDAP, ODJ, storage, and timeout settings. |
 | `Core\WinPE\Runtime\deploy.config.ps1` | Credential-free WinPE runtime settings. |
 | `Core\ServerTemplates\Unattend\unattend-win11-template.xml` | Server-side Windows answer-file settings. |
 | `Core\Data\auth-bootstrap.json` | Initial superadmin name and PBKDF2-SHA256 password hash. |
@@ -89,6 +94,8 @@ the bootstrap identity into SQLite at startup.
 SetupWeb writes settings to the component that consumes them:
 
 - SMB credentials stay in `Core\Api\.env`; they are never embedded in WinPE.
+- The image-apply strategy stays in `Core\Api\.env`; IronAPI returns it in the
+  deployment manifest instead of SetupWeb embedding it in WinPE.
 - SetupWeb records the SMB connection details but does not create the share,
   account, or access permissions.
 - WinPE stores the API address and trust policy, not deployment authorization

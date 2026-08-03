@@ -55,6 +55,7 @@ from app.deployments import (
     expire_stale_deployments,
 )
 from app.main import (
+    _deployment_catalog,
     deploy_begin,
     deploy_complete,
     deploy_error,
@@ -85,6 +86,30 @@ class DeploymentTimeoutTests(unittest.TestCase):
             odj_blob_dir=self.odj_blob_dir,
             odj_blob_max_age_minutes=120,
         )
+
+    def test_deployment_catalog_preserves_image_sha256(self) -> None:
+        image_sha256 = "b" * 64
+        image_listing = {
+            "images": [
+                {
+                    "name": "Windows 11.wim",
+                    "size": 123456,
+                    "format": "WIM",
+                    "sha256": image_sha256,
+                    "ready": True,
+                    "indexes": [{"index": 6, "name": "Windows 11 Pro"}],
+                    "defaultIndex": 6,
+                }
+            ]
+        }
+        with patch(
+            "app.main.list_deployment_images", return_value=image_listing
+        ), patch("app.main.list_programs", return_value={"programs": []}), patch(
+            "app.main.list_driver_packages", return_value={"packages": []}
+        ):
+            catalog = _deployment_catalog()
+
+        self.assertEqual(catalog["images"][0]["sha256"], image_sha256)
 
     def write_blob(self, computer_name: str = "pc00042") -> Path:
         blob_path = self.odj_blob_dir / f"{computer_name}.txt"
@@ -410,6 +435,7 @@ class DeploymentTimeoutTests(unittest.TestCase):
                     "name": "Windows 11.esd",
                     "size": 123456,
                     "format": "ESD",
+                    "sha256": "b" * 64,
                     "ready": True,
                     "indexes": [{"index": 6, "name": "Windows 11 Pro"}],
                     "defaultIndex": 6,
@@ -435,6 +461,7 @@ class DeploymentTimeoutTests(unittest.TestCase):
             ],
         }
         image_config = {
+            "imageApplyMode": "staged",
             "localAdminName": "localadmin",
             "enableBuiltInAdministrator": True,
             "enableSetupLocalAdmin": False,
@@ -475,6 +502,8 @@ class DeploymentTimeoutTests(unittest.TestCase):
                 )
 
             self.assertEqual(result["image"]["defaultIndex"], 6)
+            self.assertEqual(result["image"]["sha256"], "b" * 64)
+            self.assertEqual(result["imageApplyMode"], "staged")
             self.assertEqual(result["programs"][0]["arguments"], "/qn /norestart")
             self.assertEqual(result["programs"][0]["sha256"], "a" * 64)
             self.assertEqual(
@@ -487,8 +516,47 @@ class DeploymentTimeoutTests(unittest.TestCase):
                 "Windows 11.esd",
             )
             self.assertEqual(
+                session.get(Deployment, deployment.id).image_apply_mode,
+                "staged",
+            )
+            self.assertEqual(
                 session.query(Computer).one().last_image_name,
                 "Windows 11.esd",
+            )
+
+            catalog_without_image_hash = {
+                **catalog,
+                "images": [{**catalog["images"][0], "sha256": ""}],
+            }
+            with patch(
+                "app.main._deployment_catalog",
+                return_value=catalog_without_image_hash,
+            ), patch("app.main.load_image_config", return_value=image_config):
+                with self.assertRaises(HTTPException) as raised:
+                    deploy_manifest(
+                        deployment.id,
+                        DeploymentManifestRequest(image_name="Windows 11.esd"),
+                        request,
+                        session,
+                    )
+            self.assertEqual(raised.exception.status_code, 503)
+            self.assertIn("SHA-256", raised.exception.detail)
+
+            legacy_image_config = dict(image_config)
+            legacy_image_config.pop("imageApplyMode")
+            with patch("app.main._deployment_catalog", return_value=catalog), patch(
+                "app.main.load_image_config", return_value=legacy_image_config
+            ):
+                fallback = deploy_manifest(
+                    deployment.id,
+                    DeploymentManifestRequest(image_name="Windows 11.esd"),
+                    request,
+                    session,
+                )
+            self.assertEqual(fallback["imageApplyMode"], "direct")
+            self.assertEqual(
+                session.get(Deployment, deployment.id).image_apply_mode,
+                "direct",
             )
 
     def test_error_endpoint_records_deployment_and_stage_message(self) -> None:

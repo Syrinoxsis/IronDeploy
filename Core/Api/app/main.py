@@ -1175,6 +1175,7 @@ def _deployment_catalog() -> dict:
                 "name": image["name"],
                 "size": image["size"],
                 "format": image["format"],
+                "sha256": image.get("sha256"),
                 "ready": image["ready"],
                 "indexes": image["indexes"],
                 "defaultIndex": image["defaultIndex"],
@@ -1286,10 +1287,23 @@ def deploy_manifest(
             )
 
     deployment.image_name = image["name"]
+    image_apply_mode = image_config.get("imageApplyMode", "direct")
+    if image_apply_mode not in {"direct", "staged"}:
+        image_apply_mode = "direct"
+    image_sha256 = str(image.get("sha256") or "").strip()
+    if image_apply_mode == "staged" and re.fullmatch(
+        r"[0-9a-fA-F]{64}", image_sha256
+    ) is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Selected image SHA-256 is unavailable for staged deployment",
+        )
+    deployment.image_apply_mode = image_apply_mode
     update_computer_inventory(session, deployment)
     session.commit()
     return {
         "deploymentId": deployment.id,
+        "imageApplyMode": image_apply_mode,
         "image": image,
         "programs": selected_programs,
         "driverPackage": selected_driver,

@@ -118,6 +118,31 @@ SMB credentials, a WinPE authorization PIN, or browser credentials. Those
 values remain server-side and are returned only when the active deployment is
 authorized.
 
+The image-apply strategy is also server-side. `IRONAPI_IMAGE_APPLY_MODE` in
+`Core\Api\.env` is returned once in the final deployment manifest as
+`imageApplyMode`; it is not embedded in the WinPE image. `direct` keeps DISM on
+the SMB path. `staged` downloads the WIM with unbuffered robocopy, verifies its
+manifest SHA-256, and then gives DISM the local path. Missing or unsupported
+manifest mode values fall back to `direct` with a WinPE warning. IronAPI does
+not issue a staged manifest without a valid image SHA-256, and WinPE validates
+that field again before modifying the target disk.
+
+`direct` retains the established single `image_apply` stage. Its network
+measurement remains open while DISM reads the image from SMB. `staged` uses two
+separate stages:
+
+1. `image_download` checks free space, creates a deployment-specific local
+   directory, copies with `robocopy /J` through an `image.wim.partial` name,
+   accepts robocopy exit codes 0 through 7, verifies size and SHA-256, and only
+   then renames the file to `image.wim`;
+2. `image_apply` passes that completed local file to the shared DISM wrapper.
+
+Only `image_download` collects network bytes and throughput in staged mode.
+Local DISM time and progress remain separate. The staged WIM is removed after
+a successful apply. On failure the cleanup policy runs and the staging path,
+partial/final path where applicable, and failure reason are written to the log.
+The deployment record and final report retain the resolved `imageApplyMode`.
+
 ## What happens during deployment
 
 Before disk modification, WinPE:
@@ -144,7 +169,9 @@ Only then does the destructive phase begin:
    non-target disk cannot block the selected disk's Windows and EFI letters.
 3. WinPE substitutes the validated disk number into a temporary DiskPart
    script, then erases and partitions that disk for UEFI/GPT.
-4. DISM applies the selected Windows image.
+4. WinPE either applies the image directly from SMB, or downloads and verifies
+   it locally first, according to the manifest strategy; DISM then applies the
+   selected Windows image.
 5. DISM stages the selected driver package, when one was selected.
 6. WinPE writes deployment state into `C:\IronDeploy`.
 7. WinPE downloads and applies the authorized unattend file.

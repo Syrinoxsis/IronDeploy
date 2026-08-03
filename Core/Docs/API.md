@@ -52,7 +52,7 @@ IronAPI reads `Core\Api\.env`. Its settings are grouped by responsibility:
 | Group | Examples |
 | --- | --- |
 | Listener | access mode, bind address, port, access log, allowed client networks |
-| Deployment | authorization and deployment timeouts |
+| Deployment | authorization and deployment timeouts, image-apply strategy |
 | SMB | share path and configured account returned to authorized WinPE; the account must be read-only in SMB and NTFS |
 | Storage | SQLite database and temporary ODJ directory |
 | Naming and LDAP | name prefix/range, domain controller, base DN, LDAP TLS |
@@ -69,22 +69,31 @@ IronAPI answers requests from several sources rather than one central catalog:
 | Information | Source |
 | --- | --- |
 | Accounts, permissions, deployments, stages, inventory | `Core\Data\irondeploy.db` |
-| Images and indexes | `Core\Share\Images` plus server-side image metadata |
+| Images, indexes, and SHA-256 hashes | `Core\Share\Images` plus server-side image metadata |
 | Driver packages | `Core\Share\Drivers` |
 | Programs, arguments, sizes, and hashes | `Core\Share\Programs` and its metadata file |
-| SMB access | server-side `Core\Api\.env` |
+| SMB access and image apply strategy | server-side `Core\Api\.env` |
 | Unattend and post-install files | `Core\ServerTemplates` |
 | Computer-name availability | SQLite history plus LDAP when configured |
 | ODJ result | `djoin.exe`, Active Directory, and `Core\ODJ\pending` |
 | WinPE runtime settings | `Core\WinPE\Runtime\deploy.config.ps1` |
 
 The manifest endpoint validates the current selection against the current
-server catalog and returns image/index details, driver-package metadata,
-selected programs, and post-install settings. WinPE checks the image size, checks the driver package's total size and INF
-count, and compares selected program installers with their expected SHA-256
-after copying. Post-install checks the hash again and refuses to execute a
-mismatched installer. IronDeploy does not
-currently calculate a content hash for Windows images or driver packages.
+server catalog and returns image/index/hash details, `imageApplyMode`,
+driver-package metadata, selected programs, and post-install settings. WinPE
+checks the image size, checks the driver package's total size and INF count,
+and compares selected program installers with their expected SHA-256 after
+copying. In staged mode WinPE also verifies the downloaded image against the
+manifest SHA-256 before invoking DISM. Post-install checks program hashes again
+and refuses to execute a mismatched installer. Driver packages are validated
+by their server-approved relative path, total size, and INF count rather than
+a content hash.
+
+`imageApplyMode` accepts `direct` or `staged` and defaults to `direct` to
+preserve the established behavior. IronAPI refuses to issue a staged manifest
+when the selected image has no valid SHA-256. No additional endpoint is used:
+WinPE reads the value once from `POST /api/deploy/{id}/manifest` for the current
+deployment.
 
 ## Browser interface
 
@@ -173,14 +182,20 @@ During execution, routes provide:
 - stage start, completion, skip, and failure events;
 - WinPE error and network-diagnostic reports.
 
+Direct deployments retain the existing `image_apply` stage and its SMB network
+measurement. Staged deployments report `image_download` separately from
+`image_apply`; network bytes, duration, and throughput belong only to the
+download window, while local DISM progress and duration belong to the apply
+stage.
+
 The server controls which routes are available in the WinPE and post-install
 phases. The installed machine uses the persisted deployment state only to
 submit its post-install results and final completion.
 
 ## Deployment state
 
-IronAPI stores deployment identity and status, the selected image name, the
-operator-confirmed target disk number/model/size snapshot,
+IronAPI stores deployment identity and status, the selected image name and
+image-apply strategy, the operator-confirmed target disk number/model/size snapshot,
 domain-join choice, stages, errors, computer inventory, program results, and
 aggregate diagnostics in SQLite. Stale active
 deployments are expired according to the configured timeout.

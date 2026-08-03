@@ -39,6 +39,7 @@ STAGE_SKIPPED = "skipped"
 
 WinPEStageCode = Literal[
     "disk_partitioning",
+    "image_download",
     "image_apply",
     "driver_injection",
     "deployment_state",
@@ -86,6 +87,7 @@ class Deployment(Base):
     mac_address: Mapped[str] = mapped_column(String(17), nullable=False)
     ip_address: Mapped[str] = mapped_column(String(45), nullable=False)
     image_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    image_apply_mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
     target_disk_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     target_disk_model: Mapped[str | None] = mapped_column(String(255), nullable=True)
     target_disk_size_bytes: Mapped[int | None] = mapped_column(
@@ -233,7 +235,8 @@ class DeploymentNetworkStage(Base):
     __tablename__ = "deployment_network_stages"
     __table_args__ = (
         CheckConstraint(
-            "stage IN ('image_apply', 'driver_injection', 'postinstall_copy')",
+            "stage IN ('image_download', 'image_apply', "
+            "'driver_injection', 'postinstall_copy')",
             name="ck_deployment_network_stages_stage",
         ),
         CheckConstraint(
@@ -598,7 +601,9 @@ class NetworkAggregateReport(BaseModel):
 
 
 class NetworkStageReport(NetworkAggregateReport):
-    stage: Literal["image_apply", "driver_injection", "postinstall_copy"]
+    stage: Literal[
+        "image_download", "image_apply", "driver_injection", "postinstall_copy"
+    ]
 
 
 class NetworkApiReport(BaseModel):
@@ -622,7 +627,7 @@ class DeploymentNetworkDiagnosticsRequest(BaseModel):
     api_adapter: NetworkAdapterReport | None = None
     adapters_differ: bool = False
     overall: NetworkAggregateReport
-    stages: list[NetworkStageReport] = Field(default_factory=list, max_length=3)
+    stages: list[NetworkStageReport] = Field(default_factory=list, max_length=4)
     api: NetworkApiReport
     smb: NetworkSmbReport
     diagnostic_errors: list[str] = Field(default_factory=list, max_length=100)
@@ -648,7 +653,7 @@ class DeploymentNetworkDiagnosticsResponse(BaseModel):
     api_adapter: NetworkAdapterReport | None = None
     adapters_differ: bool | None = None
     overall: NetworkAggregateReport | None = None
-    stages: list[NetworkStageReport] = Field(default_factory=list, max_length=3)
+    stages: list[NetworkStageReport] = Field(default_factory=list, max_length=4)
     api: NetworkApiReport | None = None
     smb: NetworkSmbReport | None = None
     diagnostic_errors: list[str] = Field(default_factory=list, max_length=100)
@@ -675,6 +680,7 @@ class DeploymentListItem(BaseModel):
     mac_address: str
     ip_address: str
     image_name: str | None
+    imageApplyMode: Literal["direct", "staged"] | None
     target_disk_number: int | None
     target_disk_model: str | None
     target_disk_size_bytes: int | None
@@ -940,6 +946,7 @@ def to_deployment_list_item(
         mac_address=deployment.mac_address,
         ip_address=deployment.ip_address,
         image_name=deployment.image_name,
+        imageApplyMode=deployment.image_apply_mode,
         target_disk_number=deployment.target_disk_number,
         target_disk_model=deployment.target_disk_model,
         target_disk_size_bytes=deployment.target_disk_size_bytes,

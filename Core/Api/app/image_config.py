@@ -1,6 +1,6 @@
 """Read and write the typical Windows image settings surfaced in the Api.
 
-The settings live in two IronDeploy source files that are normally created by
+The settings live in three IronDeploy source files that are normally created by
 SetupWeb:
 
 * ``WinPE/Runtime/deploy.config.ps1`` — the post-install account policy
@@ -10,6 +10,8 @@ SetupWeb:
 * ``ServerTemplates/Unattend/unattend-win11-template.xml`` — the Windows
   regional and language settings plus the ``localadmin`` local account (its
   name and plain-text password).
+* ``Api/.env`` — the server-owned image-apply strategy returned to WinPE in
+  the final deployment manifest.
 
 Writes are line/element targeted so unrelated values (for example the SMB
 password inside ``deploy.config.ps1``) are preserved, and every changed file is
@@ -189,11 +191,15 @@ class ImagePaths:
     unattend: Path
     unattend_example: Path
     backup_dir: Path
+    api_env: Path | None = None
+    api_env_example: Path | None = None
 
     @staticmethod
     def default() -> "ImagePaths":
         root = IRONDEPLOY_ROOT
         return ImagePaths(
+            api_env=root / "Api" / ".env",
+            api_env_example=root / "Api" / ".env.example",
             winpe_config=root / "WinPE" / "Runtime" / "deploy.config.ps1",
             winpe_config_example=root
             / "WinPE"
@@ -261,6 +267,53 @@ def _ps_literal(value: str) -> str:
 
 def _normalize_bool(value: Any) -> bool:
     return str(value).strip().lower() in {"true", "1", "yes", "y", "on"}
+
+
+def _read_image_apply_mode(paths: ImagePaths) -> str:
+    mode = "direct"
+    for path in (paths.api_env_example, paths.api_env):
+        if path is None or not path.is_file():
+            continue
+        for line in path.read_text(encoding="utf-8-sig").splitlines():
+            match = re.match(
+                r"^\s*IRONAPI_IMAGE_APPLY_MODE\s*=\s*(.*?)\s*$",
+                line,
+            )
+            if match:
+                mode = match.group(1).strip().strip("'\"").lower()
+    return mode if mode in {"direct", "staged"} else "direct"
+
+
+def _save_image_apply_mode(paths: ImagePaths, mode: str) -> str | None:
+    if paths.api_env is None or paths.api_env_example is None:
+        raise ImageConfigError("IronAPI config paths are unavailable.")
+    if not paths.api_env.is_file():
+        if not paths.api_env_example.is_file():
+            raise ImageConfigError(
+                f"Missing IronAPI config template: {paths.api_env_example}"
+            )
+        paths.api_env.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(paths.api_env_example, paths.api_env)
+        backup = None
+    else:
+        backup = _backup_file(paths, paths.api_env)
+
+    lines = paths.api_env.read_text(encoding="utf-8-sig").splitlines()
+    replacement = f"IRONAPI_IMAGE_APPLY_MODE={mode}"
+    updated: list[str] = []
+    found = False
+    for line in lines:
+        if re.match(r"^\s*IRONAPI_IMAGE_APPLY_MODE\s*=", line):
+            updated.append(replacement)
+            found = True
+        else:
+            updated.append(line)
+    if not found:
+        if updated and updated[-1] != "":
+            updated.append("")
+        updated.append(replacement)
+    _atomic_write(paths.api_env, "\n".join(updated) + "\n")
+    return backup
 
 
 # ---------------------------------------------------------------------------
@@ -594,6 +647,7 @@ def load_image_config(paths: ImagePaths | None = None) -> dict[str, Any]:
     admin_name = winpe.get("SetupLocalAdminName") or unattend["localAdminName"]
 
     return {
+        "imageApplyMode": _read_image_apply_mode(paths),
         "localAdminName": admin_name,
         "enableBuiltInAdministrator": _normalize_bool(
             winpe.get("EnableBuiltInAdministrator", "false")
@@ -690,6 +744,11 @@ def save_image_config(
             current_winpe.get("EnableGuiImageApplyProgress", "true"),
         )
     )
+    image_apply_mode = str(
+        payload.get("imageApplyMode", _read_image_apply_mode(paths))
+    ).strip().lower()
+    if image_apply_mode not in {"direct", "staged"}:
+        raise ImageConfigError("Image apply mode must be direct or staged.")
 
     password = _validate_optional_password(
         payload.get("localAdminPassword"), "Local admin"
@@ -699,6 +758,10 @@ def save_image_config(
     )
 
     backups: list[str] = []
+    if "imageApplyMode" in payload:
+        backup = _save_image_apply_mode(paths, image_apply_mode)
+        if backup:
+            backups.append(backup)
     backup = _save_winpe_config(
         paths,
         admin_name,
