@@ -103,6 +103,12 @@ wpeinit
 The GUI is the only supported deployment front-end. If WPF cannot start, the
 console is restored for diagnostics and no fallback deployment begins.
 
+The GUI keeps a fixed logical design surface inside a uniform, down-only WPF
+`Viewbox`. At startup the outer window is limited to the current desktop work
+area. Displays with enough logical space retain the normal size; smaller work
+areas caused by resolution or DPI scaling shrink the complete interface,
+including wizard actions and overlays, without adding main-window scrollbars.
+
 ## Runtime configuration
 
 `Core\WinPE\Runtime\deploy.config.ps1` defines:

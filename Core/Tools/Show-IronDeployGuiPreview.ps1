@@ -43,13 +43,14 @@ Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, Sys
 
 $reader = New-Object System.Xml.XmlNodeReader ([xml]$IronDeployGuiXaml)
 $window = [System.Windows.Markup.XamlReader]::Load($reader)
+Set-IronGuiWindowBounds -Window $window
 
 $ui = @{}
 foreach ($name in @(
-    "SetupPanel", "ProgressPanel", "PreflightOverlay",
+    "LoginPanel", "SetupPanel", "ProgressPanel", "PreflightOverlay",
     "SerialText", "MacText", "NameBox", "SuggestedText", "LastDomainText",
     "KnownList", "KnownDeploymentsButton", "KnownDeploymentsPopup",
-    "ImageCombo", "DeployButton", "SetupRebootButton",
+    "ImageCombo", "DiskCombo", "DomainCheck", "DeployButton", "SetupRebootButton",
     "ActivityText", "DeployProgress", "LogView",
     "ResultBar", "ResultTitle", "ResultMessage", "CountdownText",
     "RebootButton", "CancelRebootButton"
@@ -58,6 +59,8 @@ foreach ($name in @(
 }
 
 # --- Sample data -------------------------------------------------------------
+$ui.LoginPanel.Visibility = "Collapsed"
+$ui.SetupPanel.Visibility = "Visible"
 $ui.PreflightOverlay.Visibility = "Collapsed"
 $ui.SerialText.Text = "5CD1234ABC"
 $ui.MacText.Text = "00-1A-2B-3C-4D-5E"
@@ -77,6 +80,12 @@ $ui.ImageCombo.ItemsSource = @(
     [pscustomobject]@{ Name = "Win10_LTSC.wim"; Display = "Win10_LTSC.wim   (11.80 GB)" }
 )
 $ui.ImageCombo.SelectedIndex = 0
+$ui.DiskCombo.ItemsSource = @(
+    [pscustomobject]@{ Number = 0; Display = "#0 - NVMe Samsung PM9B1 - 476.94 GiB" }
+    [pscustomobject]@{ Number = 1; Display = "#1 - SATA WDC WD10SPZX - 931.51 GiB" }
+)
+$ui.DiskCombo.SelectedIndex = 0
+$ui.DomainCheck.IsChecked = $true
 $ui.DeployButton.IsEnabled = $true
 $ui.DeployButton.Content = "Wipe & Deploy (PREVIEW)"
 
