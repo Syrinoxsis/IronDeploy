@@ -849,6 +849,79 @@ function Get-IronAdapterReport {
     }
 }
 
+function Format-IronNetworkLinkSpeed {
+    param([object]$LinkSpeedBps)
+
+    if ($null -eq $LinkSpeedBps -or [long]$LinkSpeedBps -le 0) {
+        return "unavailable"
+    }
+    if ([long]$LinkSpeedBps -ge 1000000000) {
+        return ("{0:N2} Gbps" -f ([long]$LinkSpeedBps / 1000000000.0))
+    }
+    return ("{0:N0} Mbps" -f ([long]$LinkSpeedBps / 1000000.0))
+}
+
+function Write-IronNetworkLinkSpeed {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RouteLabel,
+        [AllowNull()]
+        [object]$Adapter
+    )
+
+    if ($null -eq $Adapter) {
+        Write-IronLog (
+            "[WARN] $RouteLabel link speed is unavailable; " +
+            "the route adapter was not detected"
+        ) -Level warn
+        return
+    }
+
+    $AdapterDetails = "{0} ({1})" -f $Adapter.Name, $Adapter.LocalIp
+    $DisplaySpeed = Format-IronNetworkLinkSpeed $Adapter.LinkSpeedBps
+    if (
+        $null -eq $Adapter.LinkSpeedBps -or
+        [long]$Adapter.LinkSpeedBps -le 0
+    ) {
+        Write-IronLog (
+            "[WARN] $RouteLabel link speed is unavailable: $AdapterDetails"
+        ) -Level warn
+    } elseif ([long]$Adapter.LinkSpeedBps -lt 1000000000) {
+        Write-IronLog (
+            "[WARN] $RouteLabel LINK SPEED BELOW 1 GBPS: " +
+            "$DisplaySpeed - $AdapterDetails"
+        ) -Level warn
+    } else {
+        Write-IronLog (
+            "[OK] $RouteLabel link speed: $DisplaySpeed - $AdapterDetails"
+        ) -Level ok
+    }
+}
+
+function Write-IronNetworkLinkSpeedSummary {
+    $Context = $script:IronNetworkDiagnostics
+    if ($null -eq $Context) {
+        Write-IronLog (
+            "[WARN] Network link speed is unavailable; diagnostics did not start"
+        ) -Level warn
+        return
+    }
+
+    if (
+        $null -ne $Context.SmbAdapter -and
+        $null -ne $Context.ApiAdapter -and
+        $Context.SmbAdapter.AdapterId -eq $Context.ApiAdapter.AdapterId
+    ) {
+        Write-IronNetworkLinkSpeed `
+            -RouteLabel "API/SMB" `
+            -Adapter $Context.SmbAdapter
+        return
+    }
+
+    Write-IronNetworkLinkSpeed -RouteLabel "IronAPI" -Adapter $Context.ApiAdapter
+    Write-IronNetworkLinkSpeed -RouteLabel "SMB" -Adapter $Context.SmbAdapter
+}
+
 function Start-IronNetworkDiagnostics {
     param(
         [Parameter(Mandatory = $true)]
@@ -1136,6 +1209,38 @@ function Send-IronNetworkStageDiagnostics {
     }
 }
 
+function Send-IronNetworkAdapterSnapshot {
+    $Context = $script:IronNetworkDiagnostics
+    if ($null -eq $Context -or $script:DeploymentId -le 0) {
+        return
+    }
+
+    try {
+        $Payload = [ordered]@{
+            smb_adapter = Get-IronAdapterReport -Adapter $Context.SmbAdapter
+            api_adapter = Get-IronAdapterReport -Adapter $Context.ApiAdapter
+            adapters_differ = [bool]$Context.AdaptersDiffer
+        } | ConvertTo-Json -Depth 5 -Compress
+        $Sent = Invoke-IronNetworkReportWithRetry `
+            -Uri (
+                "$($ApiBaseUrl.TrimEnd('/'))/api/deploy/" +
+                "$script:DeploymentId/network-diagnostics/adapters"
+            ) `
+            -Body $Payload `
+            -Description "early network adapter snapshot"
+        if (-not $Sent) {
+            Add-IronNetworkDiagnosticError (
+                "All attempts to report the early network adapter snapshot failed"
+            )
+        }
+    } catch {
+        Add-IronNetworkDiagnosticError (
+            "Failed to prepare the early network adapter snapshot: " +
+            $_.Exception.Message
+        )
+    }
+}
+
 function Set-IronNetworkSmbResult {
     param(
         [Parameter(Mandatory = $true)]
@@ -1338,21 +1443,45 @@ function Set-IronDeploymentAuthorization {
 }
 
 function Get-IronDeploymentAuthorizationPolicy {
-    $Response = Invoke-RestMethod `
-        -Uri "$($ApiBaseUrl.TrimEnd('/'))/api/deploy/auth/policy" `
-        -Method Get `
-        -TimeoutSec 30 `
-        -UseBasicParsing
-    $Mode = [string]$Response.mode
-    if ($Mode -notin @("account", "pin", "none")) {
-        throw "IronAPI returned an unsupported WinPE authorization mode"
+    $MaximumAttempts = 5
+    $RetryDelaySeconds = 5
+    $LastError = $null
+    for ($Attempt = 1; $Attempt -le $MaximumAttempts; $Attempt++) {
+        try {
+            $Response = Invoke-RestMethod `
+                -Uri "$($ApiBaseUrl.TrimEnd('/'))/api/deploy/auth/policy" `
+                -Method Get `
+                -TimeoutSec 5 `
+                -UseBasicParsing
+        } catch {
+            $LastError = $_.Exception.Message
+            if ($Attempt -lt $MaximumAttempts) {
+                Write-IronLog (
+                    "[WARN] IronAPI is not ready after wpeinit " +
+                    "(attempt $Attempt/$MaximumAttempts): $LastError; " +
+                    "retrying in $RetryDelaySeconds seconds"
+                ) -Level warn
+                Start-Sleep -Seconds $RetryDelaySeconds
+            }
+            continue
+        }
+
+        $Mode = [string]$Response.mode
+        if ($Mode -notin @("account", "pin", "none")) {
+            throw "IronAPI returned an unsupported WinPE authorization mode"
+        }
+        return [pscustomobject]@{
+            Mode = $Mode
+            PinConfigured = [bool]$Response.pin_configured
+            PinMinLength = [int]$Response.pin_min_length
+            PinMaxLength = [int]$Response.pin_max_length
+        }
     }
-    return [pscustomobject]@{
-        Mode = $Mode
-        PinConfigured = [bool]$Response.pin_configured
-        PinMinLength = [int]$Response.pin_min_length
-        PinMaxLength = [int]$Response.pin_max_length
-    }
+
+    throw (
+        "IronAPI authorization policy is unavailable after " +
+        "$MaximumAttempts attempts: $LastError"
+    )
 }
 
 function New-IronDeploymentAuthorization {
@@ -2792,6 +2921,8 @@ function Invoke-IronDeployment {
     Get-IronDeployShareCredentials
     try {
         Start-IronNetworkDiagnostics -SharePath $script:SharePath
+        Write-IronNetworkLinkSpeedSummary
+        Send-IronNetworkAdapterSnapshot
     } catch {
         Write-IronLog (
             "[WARN] Network diagnostics could not start: {0}" -f

@@ -177,6 +177,94 @@ class DatabaseSafetyTests(unittest.TestCase):
         )
         self.assertEqual(self.backups(), [])
 
+    def test_early_adapter_migration_preserves_final_network_report(self) -> None:
+        with self.engine.begin() as connection:
+            connection.execute(
+                text(
+                    f"CREATE TABLE {MIGRATION_TABLE} ("
+                    "version INTEGER PRIMARY KEY, "
+                    "applied_at VARCHAR(32) NOT NULL)"
+                )
+            )
+            for migration in MIGRATIONS[:5]:
+                migration.upgrade(connection)
+                connection.execute(
+                    text(
+                        f"INSERT INTO {MIGRATION_TABLE} (version, applied_at) "
+                        "VALUES (:version, '2026-08-04T00:00:00Z')"
+                    ),
+                    {"version": migration.version},
+                )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO deployments (
+                        id, computer_name, serial_number, mac_address,
+                        ip_address, image_name, domain_join, status, started_at
+                    ) VALUES (
+                        7, 'pc00007', 'PF4ABC12', 'AA:BB:CC:DD:EE:FF',
+                        '192.0.2.7', 'win11.wim', 0, 'begin',
+                        '2026-08-04 00:00:00'
+                    )
+                    """
+                )
+            )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO deployment_network_summaries (
+                        deployment_id, started_at, completed_at, ping_target,
+                        smb_adapter_name, smb_local_ip, smb_link_speed_bps,
+                        adapters_differ, duration_seconds, icmp_status,
+                        ping_sent, ping_received, ping_lost, latency_spikes,
+                        api_request_count, api_error_count,
+                        smb_connect_attempts, diagnostic_errors
+                    ) VALUES (
+                        7, '2026-08-04 00:00:01', '2026-08-04 00:01:01',
+                        'fileserver', 'Ethernet', '192.0.2.7', 1000000000,
+                        0, 60, 'available', 60, 60, 0, 0, 4, 0, 1, '[]'
+                    )
+                    """
+                )
+            )
+
+        initialize_database(self.engine)
+
+        columns = {
+            column["name"]: column
+            for column in inspect(self.engine).get_columns(
+                "deployment_network_summaries"
+            )
+        }
+        for name in (
+            "started_at",
+            "completed_at",
+            "ping_target",
+            "duration_seconds",
+            "icmp_status",
+            "api_request_count",
+            "smb_connect_attempts",
+        ):
+            with self.subTest(column=name):
+                self.assertTrue(columns[name]["nullable"])
+        with self.engine.connect() as connection:
+            preserved = connection.execute(
+                text(
+                    "SELECT smb_adapter_name, smb_local_ip, "
+                    "smb_link_speed_bps, ping_sent "
+                    "FROM deployment_network_summaries "
+                    "WHERE deployment_id = 7"
+                )
+            ).one()
+        self.assertEqual(
+            tuple(preserved),
+            ("Ethernet", "192.0.2.7", 1_000_000_000, 60),
+        )
+        self.assertEqual(
+            self.applied_versions(),
+            [migration.version for migration in MIGRATIONS],
+        )
+
     def test_version_two_database_adds_disk_columns_before_migration_three(
         self,
     ) -> None:
@@ -549,7 +637,7 @@ class DatabaseSafetyTests(unittest.TestCase):
         histories = {
             "gap": [1, 3],
             "duplicate": [1, 1],
-            "future": [1, 2, 3, 4, 5, 6],
+            "future": list(range(1, MIGRATIONS[-1].version + 2)),
         }
         for label, versions in histories.items():
             with self.subTest(label=label):

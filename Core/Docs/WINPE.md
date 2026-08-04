@@ -100,6 +100,12 @@ wpeinit
         -> IronDeploy.Gui.ps1
 ```
 
+`wpeinit` runs once. It initializes the WinPE network stack but does not prove
+that DHCP, the route to IronAPI, TCP, or TLS is ready. The GUI therefore tries
+`GET /api/deploy/auth/policy` up to five times. Each attempt has a five-second
+timeout, and failed attempts are separated by a five-second pause. A fatal
+startup error is shown only after the fifth attempt fails.
+
 The GUI is the only supported deployment front-end. If WPF cannot start, the
 console is restored for diagnostics and no fallback deployment begins.
 
@@ -153,7 +159,8 @@ The deployment record and final report retain the resolved `imageApplyMode`.
 
 Before disk modification, WinPE:
 
-1. waits for networking and contacts the configured IronAPI;
+1. initializes networking once with `wpeinit`, then contacts the configured
+   IronAPI with the bounded authorization-policy retry described above;
 2. reads the server-owned WinPE authorization policy;
 3. authenticates by deployment account, PIN, or the explicitly configured
    credential-free mode;
@@ -163,9 +170,11 @@ Before disk modification, WinPE:
    erase;
 7. submits the target-disk snapshot plus the final image, index, driver,
    program, and domain-join selection;
-8. receives a deployment ID, then requests a server-validated manifest;
-9. receives the configured read-only SMB account details, checks the image
-   size and the selected driver package's total size and INF count.
+8. receives a deployment ID and the configured read-only SMB account details;
+9. identifies the adapters and negotiated link speeds used to reach IronAPI
+   and SMB, and immediately sends this adapter-only snapshot to IronAPI;
+10. connects the SMB share, requests a server-validated manifest, and checks
+   the image size and the selected driver package's total size and INF count.
 
 Only then does the destructive phase begin:
 
@@ -193,9 +202,17 @@ DiskPart output is copied into the WinPE log. If DiskPart returns a non-zero
 exit code, the exit code and final output lines are included in the deployment
 error reported to IronAPI.
 
-WinPE reports stage transitions, failures, and aggregate network diagnostics
-to IronAPI. The details of what each API request returns belong in
-[API.md](API.md).
+The adapter-only network snapshot is best-effort telemetry and cannot block
+deployment. It is sent after the deployment ID exists but before SMB catalog
+validation and before any disk is modified, so negotiated 100/1000 Mbps link
+speed can survive a later hard power-off. Before sending the snapshot, WinPE
+always writes the negotiated API/SMB link speed to the WPF deployment log. A
+link below decimal 1 Gbps, or an unavailable speed, is emitted as a highlighted
+warning; one shared API/SMB adapter produces one combined log entry. WinPE also
+reports stage transitions, failures, per-stage metrics, and a final aggregate
+network report. The final report overwrites the early adapter fields with its
+copy of the adapter data. The details of what each API request returns belong
+in [API.md](API.md).
 
 ## Post-install boundary
 

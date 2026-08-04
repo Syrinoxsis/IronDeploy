@@ -61,6 +61,7 @@ from app.deployments import (
     DeploymentListItem,
     DeploymentListResponse,
     DeploymentManifestRequest,
+    DeploymentNetworkAdaptersReport,
     DeploymentNetworkDiagnosticsRequest,
     DeploymentNetworkDiagnosticsResponse,
     DeploymentNetworkStage,
@@ -1690,6 +1691,39 @@ def _upsert_deployment_network_stage(
         session.add(stage)
     _apply_network_aggregate(stage, payload)
     return stage
+
+
+@app.put(
+    "/api/deploy/{deployment_id}/network-diagnostics/adapters",
+    response_model=DeploymentNetworkAdaptersReport,
+)
+def save_deployment_network_adapters(
+    deployment_id: int,
+    payload: DeploymentNetworkAdaptersReport,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> DeploymentNetworkAdaptersReport:
+    require_owned_deployment(
+        deployment_id,
+        request,
+        session,
+        "winpe",
+    )
+    summary = session.get(DeploymentNetworkSummary, deployment_id)
+    if summary is None:
+        summary = DeploymentNetworkSummary(deployment_id=deployment_id)
+        session.add(summary)
+
+    summary.adapters_differ = payload.adapters_differ
+    _apply_network_adapter(summary, payload.smb_adapter, "smb")
+    _apply_network_adapter(summary, payload.api_adapter, "api")
+    session.commit()
+    session.refresh(summary)
+    return DeploymentNetworkAdaptersReport(
+        smb_adapter=payload.smb_adapter,
+        api_adapter=payload.api_adapter,
+        adapters_differ=summary.adapters_differ,
+    )
 
 
 @app.put(

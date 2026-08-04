@@ -51,6 +51,11 @@ The manifest also carries the server-owned image-apply strategy: WinPE either
 lets DISM read the image directly from SMB or stages and verifies a complete
 local copy before invoking DISM.
 
+Immediately after a deployment ID is created, WinPE reports the API/SMB route
+adapters, local addresses, and negotiated link speeds. This happens before the
+target disk is modified. The later aggregate network report updates the same
+SQLite summary with completed measurements and its final adapter values.
+
 ## Ownership and storage
 
 | Location | Owner | Contents |

@@ -127,6 +127,7 @@ Key WinPE-facing routes are:
 | `POST /api/deploy/begin` | Deployment ID and bound bearer state | Submitted hardware, target-disk snapshot, selection data, and SQLite |
 | `POST /api/deploy/{id}/manifest` | Validated server-approved deployment plan | Current catalog and image settings |
 | `GET /api/deploy/{id}/smb-credentials` | Configured SMB connection details; the account must be read-only | `Core\Api\.env` |
+| `PUT /api/deploy/{id}/network-diagnostics/adapters` | Early API/SMB adapter, IP, route relationship, and negotiated link-speed snapshot | WinPE network interfaces and SQLite |
 | Unattend and post-install routes | Per-deployment answer file and scripts | `Core\ServerTemplates` and image settings |
 | Domain-join routes | ODJ provisioning, download, and acknowledgement | Active Directory and `Core\ODJ\pending` |
 | Stage, error, diagnostics, and completion routes | Deployment progress and final result | SQLite deployment state |
@@ -187,7 +188,21 @@ During execution, routes provide:
 - ODJ provision/download/acknowledgement operations;
 - SetupComplete and post-install script content;
 - stage start, completion, skip, and failure events;
-- WinPE error and network-diagnostic reports.
+- an early adapter-only network snapshot before disk partitioning;
+- WinPE error, per-stage, and final aggregate network-diagnostic reports.
+
+After `/api/deploy/begin` binds a deployment ID, WinPE identifies the routes
+used for IronAPI and SMB and sends their adapter names, local IP addresses, and
+negotiated `link_speed_bps` values to the adapter snapshot endpoint. The call
+is best effort and occurs before SMB validation, manifest retrieval, and disk
+partitioning. This lets deployment details expose 100/1000 Mbps link speed even
+if the machine is later powered off abruptly.
+
+The adapter snapshot creates a partial `deployment_network_summaries` row whose
+final aggregate fields remain null. The existing final
+`PUT /api/deploy/{id}/network-diagnostics` request fills those metrics and
+overwrites the adapter fields in that same row. Per-stage diagnostic requests
+continue to store only their completed measurement windows.
 
 Direct deployments retain the existing `image_apply` stage and its SMB network
 measurement. Staged deployments report `image_download` separately from
@@ -202,9 +217,10 @@ submit its post-install results and final completion.
 ## Deployment state
 
 IronAPI stores deployment identity and status, the selected image name and
-image-apply strategy, the operator-confirmed target disk number/model/size snapshot,
-domain-join choice, stages, errors, computer inventory, program results, and
-aggregate diagnostics in SQLite. Stale active
+image-apply strategy, the operator-confirmed target disk number/model/size
+snapshot, domain-join choice, stages, errors, computer inventory, program
+results, early adapter data, and aggregate diagnostics in SQLite. An adapter
+snapshot may exist before the aggregate report is complete. Stale active
 deployments are expired according to the configured timeout.
 
 The deployment bearer progresses through authorization, bound WinPE work, and
@@ -232,6 +248,10 @@ placed on the SMB share.
 
 IronAPI currently supports SQLite. Startup applies numbered migrations and
 records completed versions in `schema_migrations`.
+
+Migration 6 makes final-only columns in `deployment_network_summaries` nullable
+so an adapter snapshot can be stored before aggregate measurements finish.
+Existing completed diagnostic rows are copied without changing their values.
 
 Before migrating a file-backed database, IronAPI:
 

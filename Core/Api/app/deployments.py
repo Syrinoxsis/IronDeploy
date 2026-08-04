@@ -184,9 +184,16 @@ class DeploymentNetworkSummary(Base):
         ForeignKey("deployments.id", ondelete="CASCADE"),
         primary_key=True,
     )
-    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    completed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    ping_target: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Final aggregate fields remain null until WinPE sends the complete report.
+    # This lets an earlier adapter-only snapshot expose negotiated link speed
+    # before the destructive disk phase begins.
+    started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    ping_target: Mapped[str | None] = mapped_column(String(255), nullable=True)
     smb_adapter_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     smb_adapter_description: Mapped[str | None] = mapped_column(
         String(512), nullable=True
@@ -202,34 +209,36 @@ class DeploymentNetworkSummary(Base):
     api_local_ip: Mapped[str | None] = mapped_column(String(45), nullable=True)
     api_link_speed_bps: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     adapters_differ: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    duration_seconds: Mapped[float] = mapped_column(Float, nullable=False)
-    icmp_status: Mapped[str] = mapped_column(String(16), nullable=False)
-    ping_sent: Mapped[int] = mapped_column(Integer, nullable=False)
-    ping_received: Mapped[int] = mapped_column(Integer, nullable=False)
-    ping_lost: Mapped[int] = mapped_column(Integer, nullable=False)
+    duration_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    icmp_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    ping_sent: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    ping_received: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    ping_lost: Mapped[int | None] = mapped_column(Integer, nullable=True)
     loss_percentage: Mapped[float | None] = mapped_column(Float, nullable=True)
     rtt_min_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
     rtt_avg_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
     rtt_max_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
-    latency_spikes: Mapped[int] = mapped_column(Integer, nullable=False)
+    latency_spikes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     bytes_received: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     average_inbound_mbps: Mapped[float | None] = mapped_column(Float, nullable=True)
     link_utilization_percent: Mapped[float | None] = mapped_column(
         Float, nullable=True
     )
-    api_request_count: Mapped[int] = mapped_column(Integer, nullable=False)
-    api_error_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    api_request_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    api_error_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     api_min_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
     api_avg_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
     api_max_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
     smb_connect_success: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
-    smb_connect_attempts: Mapped[int] = mapped_column(Integer, nullable=False)
+    smb_connect_attempts: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
     smb_connect_duration_ms: Mapped[float | None] = mapped_column(
         Float, nullable=True
     )
     smb_error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    diagnostic_errors: Mapped[list[str]] = mapped_column(
-        JSON, nullable=False, default=list
+    diagnostic_errors: Mapped[list[str] | None] = mapped_column(
+        JSON, nullable=True, default=list
     )
 
 
@@ -592,6 +601,12 @@ class NetworkAdapterReport(BaseModel):
     link_speed_bps: int | None = Field(default=None, ge=0)
 
 
+class DeploymentNetworkAdaptersReport(BaseModel):
+    smb_adapter: NetworkAdapterReport | None = None
+    api_adapter: NetworkAdapterReport | None = None
+    adapters_differ: bool = False
+
+
 class NetworkAggregateReport(BaseModel):
     started_at: datetime
     completed_at: datetime
@@ -904,6 +919,22 @@ def _network_aggregate_response(
     )
 
 
+def _has_complete_network_aggregate(summary: DeploymentNetworkSummary) -> bool:
+    return all(
+        value is not None
+        for value in (
+            summary.started_at,
+            summary.completed_at,
+            summary.duration_seconds,
+            summary.icmp_status,
+            summary.ping_sent,
+            summary.ping_received,
+            summary.ping_lost,
+            summary.latency_spikes,
+        )
+    )
+
+
 def to_network_stage_response(
     stage: DeploymentNetworkStage,
 ) -> NetworkStageReport:
@@ -925,26 +956,40 @@ def to_network_diagnostics_response(
         if not stage_reports:
             return None
         return DeploymentNetworkDiagnosticsResponse(stages=stage_reports)
-    return DeploymentNetworkDiagnosticsResponse(
-        ping_target=summary.ping_target,
-        smb_adapter=_network_adapter_response(summary, "smb"),
-        api_adapter=_network_adapter_response(summary, "api"),
-        adapters_differ=summary.adapters_differ,
-        overall=_network_aggregate_response(summary),
-        stages=stage_reports,
-        api=NetworkApiReport(
+    overall = (
+        _network_aggregate_response(summary)
+        if _has_complete_network_aggregate(summary)
+        else None
+    )
+    api = None
+    if (
+        summary.api_request_count is not None
+        and summary.api_error_count is not None
+    ):
+        api = NetworkApiReport(
             request_count=summary.api_request_count,
             error_count=summary.api_error_count,
             min_ms=summary.api_min_ms,
             avg_ms=summary.api_avg_ms,
             max_ms=summary.api_max_ms,
-        ),
-        smb=NetworkSmbReport(
+        )
+    smb = None
+    if summary.smb_connect_attempts is not None:
+        smb = NetworkSmbReport(
             success=summary.smb_connect_success,
             attempts=summary.smb_connect_attempts,
             duration_ms=summary.smb_connect_duration_ms,
             error_message=summary.smb_error_message,
-        ),
+        )
+    return DeploymentNetworkDiagnosticsResponse(
+        ping_target=summary.ping_target,
+        smb_adapter=_network_adapter_response(summary, "smb"),
+        api_adapter=_network_adapter_response(summary, "api"),
+        adapters_differ=summary.adapters_differ,
+        overall=overall,
+        stages=stage_reports,
+        api=api,
+        smb=smb,
         diagnostic_errors=list(summary.diagnostic_errors or []),
     )
 
