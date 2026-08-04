@@ -61,6 +61,36 @@ class HardwareModelRequestTests(unittest.TestCase):
         self.assertIsNone(self.request().manufacturer)
         self.assertIsNone(self.request().system_sku)
 
+    def test_serial_number_is_optional(self) -> None:
+        request = DeploymentBeginRequest(
+            computer_name="pc00042",
+            mac_address="AA:BB:CC:DD:EE:FF",
+            domain_join=False,
+        )
+        self.assertIsNone(request.serial_number)
+
+    def test_valid_serial_number_is_trimmed(self) -> None:
+        self.assertEqual(
+            self.request(serial_number="  PF4ABC12  ").serial_number,
+            "PF4ABC12",
+        )
+
+    def test_unusable_serial_numbers_become_none(self) -> None:
+        values = (
+            None,
+            "",
+            "   ",
+            "To Be Filled By O.E.M.",
+            "TO BE FILLED BY O.E.M",
+            "OEM",
+            "System Serial Number",
+            "SERIAL\x00VALUE",
+            "X" * 129,
+        )
+        for value in values:
+            with self.subTest(value=value):
+                self.assertIsNone(self.request(serial_number=value).serial_number)
+
     def test_model_whitespace_is_collapsed(self) -> None:
         self.assertEqual(
             self.request(model="  HP EliteDesk\t800  G6 \n").model,
@@ -191,6 +221,59 @@ class HardwareModelStorageTests(unittest.TestCase):
                 1,
             )
 
+    def test_begin_accepts_and_stores_a_missing_serial_number(self) -> None:
+        with Session(self.engine) as session:
+            request = self.deploy_request(session)
+            response = deploy_begin(
+                self.begin_payload(serial_number=None),
+                request,
+                session,
+            )
+
+            stored = session.get(Deployment, response.deployment_id)
+            computer = session.scalars(select(Computer)).one()
+            self.assertIsNone(stored.serial_number)
+            self.assertIsNone(computer.serial_number)
+            self.assertEqual(computer.mac_address, "AA:BB:CC:DD:EE:FF")
+
+    def test_missing_serial_keeps_known_inventory_identity(self) -> None:
+        with Session(self.engine) as session:
+            first = Deployment(
+                computer_name="pc00042",
+                serial_number="PF4ABC12",
+                model="ThinkPad T14 Gen 2",
+                mac_address="AA:BB:CC:DD:EE:FF",
+                ip_address="192.0.2.42",
+                image_name="win11.wim",
+                domain_join=False,
+                status="begin",
+            )
+            session.add(first)
+            session.flush()
+            update_computer_inventory(session, first)
+
+            second = Deployment(
+                computer_name="pc00042",
+                serial_number=None,
+                model="ThinkPad T14 Gen 2",
+                mac_address="AA:BB:CC:DD:EE:FF",
+                ip_address="192.0.2.42",
+                image_name="win11.wim",
+                domain_join=False,
+                status="begin",
+            )
+            session.add(second)
+            session.flush()
+            computer = update_computer_inventory(session, second)
+            session.commit()
+
+            self.assertEqual(computer.serial_number, "PF4ABC12")
+            self.assertEqual(computer.deployment_count, 2)
+            self.assertEqual(
+                session.scalar(text("SELECT COUNT(*) FROM computers")),
+                1,
+            )
+
 
 class HardwareModelSchemaUpgradeTests(unittest.TestCase):
     def test_model_columns_are_added_to_an_existing_database(self) -> None:
@@ -297,6 +380,21 @@ class HardwareModelSurfaceTests(unittest.TestCase):
         start = self.engine.index("function Get-SystemModel")
         end = self.engine.index("function Get-SystemSerialNumber", start)
         self.assertNotIn("Fail ", self.engine[start:end])
+
+    def test_engine_never_fails_the_deployment_on_a_missing_serial(self) -> None:
+        start = self.engine.index("function Get-SystemSerialNumber")
+        end = self.engine.index("# --- Input gathering", start)
+        serial_reader = self.engine[start:end]
+        self.assertNotIn("Fail ", serial_reader)
+        self.assertIn("return $null", serial_reader)
+
+    def test_gui_shows_a_dash_when_the_serial_is_missing(self) -> None:
+        serial_assignment = self.gui.index(
+            "$script:IronGuiUi.SerialText.Text = if ("
+        )
+        assignment_body = self.gui[serial_assignment : serial_assignment + 400]
+        self.assertIn("IsNullOrWhiteSpace", assignment_body)
+        self.assertIn("[char]0x2014", assignment_body)
 
     def test_gui_shows_the_model_next_to_the_driver_selection(self) -> None:
         self.assertIn('x:Name="ConfirmModelLabel"', self.gui)

@@ -18,7 +18,9 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    and_,
     func,
+    or_,
     select,
     update,
 )
@@ -355,7 +357,7 @@ class Computer(Base):
 
 class DeploymentBeginRequest(BaseModel):
     computer_name: str = Field(min_length=1, max_length=63)
-    serial_number: str = Field(min_length=1, max_length=128)
+    serial_number: str | None = None
     # Optional so WinPE images built before hardware-model reporting keep working.
     model: str | None = Field(default=None, max_length=128)
     manufacturer: str | None = Field(default=None, max_length=128)
@@ -377,12 +379,30 @@ class DeploymentBeginRequest(BaseModel):
             raise ValueError("computer_name is not a valid DNS host name")
         return normalized
 
-    @field_validator("serial_number")
+    @field_validator("serial_number", mode="before")
     @classmethod
-    def validate_serial_number(cls, value: str) -> str:
+    def validate_serial_number(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            return None
         normalized = value.strip()
-        if not normalized or any(ord(character) < 32 for character in normalized):
-            raise ValueError("serial_number must contain printable characters")
+        if (
+            not normalized
+            or len(normalized) > 128
+            or any(
+                ord(character) < 32 or ord(character) == 127
+                for character in normalized
+            )
+            or re.fullmatch(
+                r"(?:To Be Filled By O\.?E\.?M\.?|Default string|"
+                r"System Serial Number|Unknown|None|Not Applicable|"
+                r"Not Specified|OEM|INVALID)",
+                normalized,
+                flags=re.IGNORECASE,
+            )
+        ):
+            return None
         return normalized
 
     @field_validator("model")
@@ -1007,11 +1027,20 @@ def update_computer_inventory(
                 Computer.serial_number == deployment.serial_number,
             )
         )
-    if computer is None:
+    if computer is None and deployment.serial_number:
         computer = session.scalar(
             select(Computer).where(
                 Computer.serial_number.is_(None),
                 Computer.mac_address == deployment.mac_address,
+            )
+        )
+    if computer is None and not deployment.serial_number:
+        computer = session.scalar(
+            select(Computer)
+            .where(Computer.mac_address == deployment.mac_address)
+            .order_by(
+                Computer.serial_number.is_(None),
+                Computer.last_seen_at.desc(),
             )
         )
 
@@ -1031,7 +1060,8 @@ def update_computer_inventory(
         )
         session.add(computer)
 
-    computer.serial_number = deployment.serial_number
+    # A transient missing serial must not erase a previously known stable one.
+    computer.serial_number = deployment.serial_number or computer.serial_number
     computer.mac_address = deployment.mac_address
     # A WinPE image that does not report a model must not erase a known one.
     computer.last_model = deployment.model or computer.last_model
@@ -1042,11 +1072,16 @@ def update_computer_inventory(
     computer.last_seen_at = current_time
     computer.last_deployment_id = deployment.id
 
-    count_filter = (
-        Deployment.serial_number == deployment.serial_number
-        if deployment.serial_number
-        else Deployment.mac_address == deployment.mac_address
-    )
+    if computer.serial_number:
+        count_filter = or_(
+            Deployment.serial_number == computer.serial_number,
+            and_(
+                Deployment.serial_number.is_(None),
+                Deployment.mac_address == computer.mac_address,
+            ),
+        )
+    else:
+        count_filter = Deployment.mac_address == computer.mac_address
     deployment_count = session.scalar(
         select(func.count(Deployment.id)).where(count_filter)
     )

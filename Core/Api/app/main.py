@@ -1157,9 +1157,10 @@ def deploy_suggest_name(
         except ValueError:
             normalized_mac = mac_address.strip().upper()
 
+    normalized_serial = DeploymentBeginRequest.validate_serial_number(serial_number)
     suggestion.known_computer_names = find_known_computer_names(
         session,
-        serial_number.strip() if serial_number else None,
+        normalized_serial,
         normalized_mac,
     )
     return suggestion

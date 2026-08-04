@@ -2020,9 +2020,17 @@ function Test-UsableSerialNumber($SerialNumber) {
     }
 
     $NormalizedSerial = ([string]$SerialNumber).Trim()
+    if (
+        $NormalizedSerial.Length -gt 128 -or
+        $NormalizedSerial -match "[\x00-\x1F\x7F]"
+    ) {
+        return $false
+    }
+
     return $NormalizedSerial -notmatch (
-        "^(To Be Filled By O\.E\.M\.|Default string|" +
-        "System Serial Number|Unknown|None)$"
+        "^(To Be Filled By O\.?E\.?M\.?|Default string|" +
+        "System Serial Number|Unknown|None|Not Applicable|" +
+        "Not Specified|OEM|INVALID)$"
     )
 }
 
@@ -2189,8 +2197,7 @@ function Get-SystemModel {
 }
 
 function Get-SystemSerialNumber {
-    $BiosError = $null
-    $ProductError = $null
+    $Issues = @()
 
     try {
         $Bios = Get-CimInstance `
@@ -2199,8 +2206,9 @@ function Get-SystemSerialNumber {
         if (Test-UsableSerialNumber $Bios.SerialNumber) {
             return ([string]$Bios.SerialNumber).Trim()
         }
+        $Issues += "Win32_BIOS did not return a usable serial number"
     } catch {
-        $BiosError = $_.Exception.Message
+        $Issues += "Win32_BIOS: $($_.Exception.Message)"
     }
 
     try {
@@ -2210,23 +2218,26 @@ function Get-SystemSerialNumber {
         if (Test-UsableSerialNumber $Product.IdentifyingNumber) {
             return ([string]$Product.IdentifyingNumber).Trim()
         }
+        $Issues += (
+            "Win32_ComputerSystemProduct did not return a usable " +
+            "identifying number"
+        )
     } catch {
-        $ProductError = $_.Exception.Message
+        $Issues += "Win32_ComputerSystemProduct: $($_.Exception.Message)"
     }
 
-    $Details = @($BiosError, $ProductError) |
-        Where-Object { ![string]::IsNullOrWhiteSpace($_) }
-    if ($Details.Count -gt 0) {
-        Fail "Failed to read system serial number: $($Details -join '; ')"
-    }
-
-    Fail "BIOS did not provide a usable system serial number"
+    Write-IronLog (
+        "[WARN] System serial number is unavailable; continuing without it: " +
+        ($Issues -join "; ")
+    ) -Level warn
+    return $null
 }
 
 # --- Input gathering (used by both front-ends before deployment) -------------
 
-# Reads the hardware identity used to register the deployment. Throws (via
-# Fail) when no usable adapter or serial number is present.
+# Reads the hardware identity used to register the deployment. A usable network
+# adapter remains required, while the serial number and descriptive hardware
+# fields are best-effort and never block deployment.
 function Get-IronDeployHardwareIdentity {
     $MacAddress = Get-PrimaryMacAddress
     $SerialNumber = Get-SystemSerialNumber
@@ -2359,8 +2370,9 @@ function Remove-IronDeployDriveLetterMountPoint {
 # name can still be entered manually.
 function Get-IronDeployNameSuggestion {
     param(
-        [Parameter(Mandatory = $true)]
-        [string]$SerialNumber,
+        [AllowNull()]
+        [AllowEmptyString()]
+        [string]$SerialNumber = "",
 
         [Parameter(Mandatory = $true)]
         [string]$MacAddress
@@ -2371,10 +2383,17 @@ function Get-IronDeployNameSuggestion {
     $KnownComputerNames = @()
 
     try {
-        $SuggestionQuery = @(
-            "serial_number=$([uri]::EscapeDataString($SerialNumber))",
+        $SuggestionQueryParts = @()
+        if (-not [string]::IsNullOrWhiteSpace([string]$SerialNumber)) {
+            $SuggestionQueryParts += (
+                "serial_number=" +
+                [uri]::EscapeDataString(([string]$SerialNumber).Trim())
+            )
+        }
+        $SuggestionQueryParts += (
             "mac_address=$([uri]::EscapeDataString($MacAddress))"
-        ) -join "&"
+        )
+        $SuggestionQuery = $SuggestionQueryParts -join "&"
         $NameResponse = Invoke-IronApiRestMethod `
             -Uri "$($ApiBaseUrl.TrimEnd('/'))/api/deploy/suggest-name?$SuggestionQuery" `
             -Method Get `
@@ -2668,7 +2687,14 @@ function Invoke-IronDeployment {
     $SystemModel = $Hardware.Model
     $Manufacturer = $Hardware.Manufacturer
     $SystemSku = $Hardware.SystemSku
-    Write-IronLog "[INFO] System serial number: $SerialNumber" -Level info
+    if ([string]::IsNullOrWhiteSpace([string]$SerialNumber)) {
+        Write-IronLog (
+            "[WARN] System serial number is unavailable; deployment will use " +
+            "the MAC address for hardware matching"
+        ) -Level warn
+    } else {
+        Write-IronLog "[INFO] System serial number: $SerialNumber" -Level info
+    }
     Write-IronLog "[INFO] Primary MAC address: $MacAddress" -Level info
     if ([string]::IsNullOrWhiteSpace([string]$SystemModel)) {
         Write-IronLog "[WARN] Hardware model is unknown" -Level warn
@@ -2703,7 +2729,13 @@ function Invoke-IronDeployment {
     Write-IronLog "[STEP] Register deployment start" -Level step
     $BeginPayload = @{
         computer_name = $ComputerName
-        serial_number = $SerialNumber
+        serial_number = if (
+            [string]::IsNullOrWhiteSpace([string]$SerialNumber)
+        ) {
+            $null
+        } else {
+            [string]$SerialNumber
+        }
         mac_address = $MacAddress
         model = if ([string]::IsNullOrWhiteSpace([string]$SystemModel)) {
             $null

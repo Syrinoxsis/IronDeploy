@@ -167,6 +167,13 @@ for deployment history and compatibility with older WinPE images. WinPE then
 submits the selection to the manifest endpoint, which validates it against the
 current catalog and returns the server-approved plan.
 
+The hardware serial number is optional. WinPE first tries the BIOS serial and
+then the system-product identifying number. Empty values, firmware placeholders
+such as `To Be Filled By O.E.M.`, malformed values, and WMI read failures are
+reported as `null` and never block preflight or deployment. Name-history lookup
+and computer inventory fall back to the normalized MAC address. A later missing
+serial does not erase a valid serial already stored for that MAC address.
+
 The bound bearer cannot be reused to begin a second deployment. The manifest
 response is generated when requested; it is not stored as a separate immutable
 snapshot.

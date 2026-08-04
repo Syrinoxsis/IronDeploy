@@ -1462,7 +1462,13 @@ try {
         $script:IronGuiPreflightJob = $null
 
         if ($script:IronGuiState.PreflightOk) {
-            $script:IronGuiUi.SerialText.Text = [string]$script:IronGuiState.Serial
+            $script:IronGuiUi.SerialText.Text = if (
+                [string]::IsNullOrWhiteSpace([string]$script:IronGuiState.Serial)
+            ) {
+                [string][char]0x2014
+            } else {
+                [string]$script:IronGuiState.Serial
+            }
             $script:IronGuiUi.MacText.Text = [string]$script:IronGuiState.Mac
             $script:IronGuiUi.ConfirmModelText.Text = if (
                 [string]::IsNullOrWhiteSpace([string]$script:IronGuiState.Model)
