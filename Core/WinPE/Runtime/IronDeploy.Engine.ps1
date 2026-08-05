@@ -194,6 +194,7 @@ $script:DeploymentAccessToken = ""
 $script:IronApiRequestSamples = $null
 $script:IronNetworkDiagnostics = $null
 $script:IronSecretArtifacts = @()
+$script:ImageApplyMode = "direct"
 
 # --- API reporting -----------------------------------------------------------
 
@@ -848,6 +849,79 @@ function Get-IronAdapterReport {
     }
 }
 
+function Format-IronNetworkLinkSpeed {
+    param([object]$LinkSpeedBps)
+
+    if ($null -eq $LinkSpeedBps -or [long]$LinkSpeedBps -le 0) {
+        return "unavailable"
+    }
+    if ([long]$LinkSpeedBps -ge 1000000000) {
+        return ("{0:N2} Gbps" -f ([long]$LinkSpeedBps / 1000000000.0))
+    }
+    return ("{0:N0} Mbps" -f ([long]$LinkSpeedBps / 1000000.0))
+}
+
+function Write-IronNetworkLinkSpeed {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RouteLabel,
+        [AllowNull()]
+        [object]$Adapter
+    )
+
+    if ($null -eq $Adapter) {
+        Write-IronLog (
+            "[WARN] $RouteLabel link speed is unavailable; " +
+            "the route adapter was not detected"
+        ) -Level warn
+        return
+    }
+
+    $AdapterDetails = "{0} ({1})" -f $Adapter.Name, $Adapter.LocalIp
+    $DisplaySpeed = Format-IronNetworkLinkSpeed $Adapter.LinkSpeedBps
+    if (
+        $null -eq $Adapter.LinkSpeedBps -or
+        [long]$Adapter.LinkSpeedBps -le 0
+    ) {
+        Write-IronLog (
+            "[WARN] $RouteLabel link speed is unavailable: $AdapterDetails"
+        ) -Level warn
+    } elseif ([long]$Adapter.LinkSpeedBps -lt 1000000000) {
+        Write-IronLog (
+            "[WARN] $RouteLabel LINK SPEED BELOW 1 GBPS: " +
+            "$DisplaySpeed - $AdapterDetails"
+        ) -Level warn
+    } else {
+        Write-IronLog (
+            "[OK] $RouteLabel link speed: $DisplaySpeed - $AdapterDetails"
+        ) -Level ok
+    }
+}
+
+function Write-IronNetworkLinkSpeedSummary {
+    $Context = $script:IronNetworkDiagnostics
+    if ($null -eq $Context) {
+        Write-IronLog (
+            "[WARN] Network link speed is unavailable; diagnostics did not start"
+        ) -Level warn
+        return
+    }
+
+    if (
+        $null -ne $Context.SmbAdapter -and
+        $null -ne $Context.ApiAdapter -and
+        $Context.SmbAdapter.AdapterId -eq $Context.ApiAdapter.AdapterId
+    ) {
+        Write-IronNetworkLinkSpeed `
+            -RouteLabel "API/SMB" `
+            -Adapter $Context.SmbAdapter
+        return
+    }
+
+    Write-IronNetworkLinkSpeed -RouteLabel "IronAPI" -Adapter $Context.ApiAdapter
+    Write-IronNetworkLinkSpeed -RouteLabel "SMB" -Adapter $Context.SmbAdapter
+}
+
 function Start-IronNetworkDiagnostics {
     param(
         [Parameter(Mandatory = $true)]
@@ -959,10 +1033,12 @@ function Start-IronNetworkStageMeasurement {
     if (
         $null -eq $script:IronNetworkDiagnostics -or
         $Stage -notin @(
+            "image_download",
             "image_apply",
             "driver_injection",
             "postinstall_copy"
-        )
+        ) -or
+        ($Stage -eq "image_apply" -and $script:ImageApplyMode -eq "staged")
     ) {
         return
     }
@@ -1071,7 +1147,9 @@ function Invoke-IronNetworkReportWithRetry {
 function Send-IronNetworkStageDiagnostics {
     param(
         [Parameter(Mandatory = $true)]
-        [ValidateSet("image_apply", "driver_injection", "postinstall_copy")]
+        [ValidateSet(
+            "image_download", "image_apply", "driver_injection", "postinstall_copy"
+        )]
         [string]$Stage
     )
 
@@ -1126,6 +1204,38 @@ function Send-IronNetworkStageDiagnostics {
     } catch {
         Add-IronNetworkDiagnosticError (
             "Failed to prepare network diagnostics for stage '$Stage': " +
+            $_.Exception.Message
+        )
+    }
+}
+
+function Send-IronNetworkAdapterSnapshot {
+    $Context = $script:IronNetworkDiagnostics
+    if ($null -eq $Context -or $script:DeploymentId -le 0) {
+        return
+    }
+
+    try {
+        $Payload = [ordered]@{
+            smb_adapter = Get-IronAdapterReport -Adapter $Context.SmbAdapter
+            api_adapter = Get-IronAdapterReport -Adapter $Context.ApiAdapter
+            adapters_differ = [bool]$Context.AdaptersDiffer
+        } | ConvertTo-Json -Depth 5 -Compress
+        $Sent = Invoke-IronNetworkReportWithRetry `
+            -Uri (
+                "$($ApiBaseUrl.TrimEnd('/'))/api/deploy/" +
+                "$script:DeploymentId/network-diagnostics/adapters"
+            ) `
+            -Body $Payload `
+            -Description "early network adapter snapshot"
+        if (-not $Sent) {
+            Add-IronNetworkDiagnosticError (
+                "All attempts to report the early network adapter snapshot failed"
+            )
+        }
+    } catch {
+        Add-IronNetworkDiagnosticError (
+            "Failed to prepare the early network adapter snapshot: " +
             $_.Exception.Message
         )
     }
@@ -1238,6 +1348,7 @@ function Complete-IronNetworkDiagnostics {
                 -LinkSpeedBps $LinkSpeedBps
             $StageReports = @()
             foreach ($StageName in @(
+                "image_download",
                 "image_apply",
                 "driver_injection",
                 "postinstall_copy"
@@ -1332,21 +1443,45 @@ function Set-IronDeploymentAuthorization {
 }
 
 function Get-IronDeploymentAuthorizationPolicy {
-    $Response = Invoke-RestMethod `
-        -Uri "$($ApiBaseUrl.TrimEnd('/'))/api/deploy/auth/policy" `
-        -Method Get `
-        -TimeoutSec 30 `
-        -UseBasicParsing
-    $Mode = [string]$Response.mode
-    if ($Mode -notin @("account", "pin", "none")) {
-        throw "IronAPI returned an unsupported WinPE authorization mode"
+    $MaximumAttempts = 5
+    $RetryDelaySeconds = 5
+    $LastError = $null
+    for ($Attempt = 1; $Attempt -le $MaximumAttempts; $Attempt++) {
+        try {
+            $Response = Invoke-RestMethod `
+                -Uri "$($ApiBaseUrl.TrimEnd('/'))/api/deploy/auth/policy" `
+                -Method Get `
+                -TimeoutSec 5 `
+                -UseBasicParsing
+        } catch {
+            $LastError = $_.Exception.Message
+            if ($Attempt -lt $MaximumAttempts) {
+                Write-IronLog (
+                    "[WARN] IronAPI is not ready after wpeinit " +
+                    "(attempt $Attempt/$MaximumAttempts): $LastError; " +
+                    "retrying in $RetryDelaySeconds seconds"
+                ) -Level warn
+                Start-Sleep -Seconds $RetryDelaySeconds
+            }
+            continue
+        }
+
+        $Mode = [string]$Response.mode
+        if ($Mode -notin @("account", "pin", "none")) {
+            throw "IronAPI returned an unsupported WinPE authorization mode"
+        }
+        return [pscustomobject]@{
+            Mode = $Mode
+            PinConfigured = [bool]$Response.pin_configured
+            PinMinLength = [int]$Response.pin_min_length
+            PinMaxLength = [int]$Response.pin_max_length
+        }
     }
-    return [pscustomobject]@{
-        Mode = $Mode
-        PinConfigured = [bool]$Response.pin_configured
-        PinMinLength = [int]$Response.pin_min_length
-        PinMaxLength = [int]$Response.pin_max_length
-    }
+
+    throw (
+        "IronAPI authorization policy is unavailable after " +
+        "$MaximumAttempts attempts: $LastError"
+    )
 }
 
 function New-IronDeploymentAuthorization {
@@ -1477,7 +1612,9 @@ function Complete-DeploymentStage {
 
     Complete-IronNetworkStageMeasurement -Stage $Stage
     Send-DeploymentStageEvent -Stage $Stage -Event "complete"
-    if ($Stage -in @("image_apply", "driver_injection", "postinstall_copy")) {
+    if ($Stage -in @(
+        "image_download", "image_apply", "driver_injection", "postinstall_copy"
+    )) {
         Send-IronNetworkStageDiagnostics -Stage $Stage
     }
     if ($script:CurrentDeploymentStage -eq $Stage) {
@@ -1578,6 +1715,229 @@ function Fail {
     $script:CurrentDeploymentStage = $null
     Write-IronLog "ERROR: $msg" -Level error
     throw [System.Exception]::new($msg)
+}
+
+function Resolve-IronImageApplyMode {
+    param([AllowNull()][object]$Value)
+
+    $Mode = ([string]$Value).Trim().ToLowerInvariant()
+    if ($Mode -in @("direct", "staged")) {
+        return $Mode
+    }
+
+    $DisplayedValue = if ([string]::IsNullOrWhiteSpace([string]$Value)) {
+        "<missing>"
+    } else {
+        [string]$Value
+    }
+    Write-IronLog (
+        "[WARN] Unknown imageApplyMode '{0}'; falling back to direct" -f
+        $DisplayedValue
+    ) -Level warn
+    return "direct"
+}
+
+function Test-IronRobocopyExitCode {
+    param([Parameter(Mandatory = $true)][int]$ExitCode)
+
+    return ($ExitCode -ge 0 -and $ExitCode -le 7)
+}
+
+function Remove-IronStagedImageArtifacts {
+    param(
+        [string]$StagingDirectory,
+        [Parameter(Mandatory = $true)][string]$Reason
+    )
+
+    if ([string]::IsNullOrWhiteSpace($StagingDirectory)) {
+        return
+    }
+    Write-IronLog (
+        "[INFO] Staged WIM cleanup path: {0}; reason: {1}" -f
+        $StagingDirectory,
+        $Reason
+    ) -Level info
+    try {
+        if (Test-Path -LiteralPath $StagingDirectory) {
+            Remove-Item `
+                -LiteralPath $StagingDirectory `
+                -Recurse `
+                -Force `
+                -ErrorAction Stop
+        }
+    } catch {
+        Write-IronLog (
+            "[WARN] Failed to remove staged WIM path '{0}': {1}" -f
+            $StagingDirectory,
+            $_.Exception.Message
+        ) -Level warn
+    }
+}
+
+function Copy-IronImageToLocalStaging {
+    param(
+        [Parameter(Mandatory = $true)][string]$SourcePath,
+        [Parameter(Mandatory = $true)][long]$ExpectedLength,
+        [Parameter(Mandatory = $true)][AllowEmptyString()][string]$ExpectedSha256,
+        [Parameter(Mandatory = $true)][long]$DeploymentId
+    )
+
+    if ($ExpectedLength -le 0) {
+        throw "The image manifest contains an invalid size"
+    }
+    if ($ExpectedSha256 -notmatch '^[0-9a-fA-F]{64}$') {
+        throw "The image manifest contains an invalid SHA-256"
+    }
+
+    $LocalDrive = Get-PSDrive -Name $WindowsDrive.TrimEnd(":")
+    if ($null -eq $LocalDrive.Free -or [long]$LocalDrive.Free -lt $ExpectedLength) {
+        $FreeBytes = if ($null -eq $LocalDrive.Free) { 0L } else { [long]$LocalDrive.Free }
+        throw (
+            "Insufficient free space for staged WIM: need {0} bytes, have {1} bytes" -f
+            $ExpectedLength,
+            $FreeBytes
+        )
+    }
+
+    $StagingDirectory = Join-Path `
+        "$($WindowsDrive.TrimEnd('\'))\IronDeploy.Staging" `
+        ([string]$DeploymentId)
+    New-Item -ItemType Directory -Path $StagingDirectory -Force | Out-Null
+
+    $SourceDirectory = Split-Path -Parent $SourcePath
+    $SourceName = Split-Path -Leaf $SourcePath
+    $RobocopyDirectory = Join-Path $StagingDirectory "robocopy"
+    New-Item -ItemType Directory -Path $RobocopyDirectory -Force | Out-Null
+    $RobocopyPath = Join-Path $RobocopyDirectory $SourceName
+    $PartialPath = Join-Path $StagingDirectory "image.wim.partial"
+    $FinalPath = Join-Path $StagingDirectory "image.wim"
+    # Robocopy cannot rename a file in flight. Point its source-named target at
+    # the .partial file with an NTFS hard link, so interrupted downloads never
+    # expose the final .wim name.
+    New-Item -ItemType File -Path $PartialPath -Force | Out-Null
+    New-Item `
+        -ItemType HardLink `
+        -Path $RobocopyPath `
+        -Target $PartialPath | Out-Null
+    $Stopwatch = [Diagnostics.Stopwatch]::StartNew()
+    try {
+        Write-IronLog (
+            "[STEP] Download image with robocopy /J: {0} -> {1}" -f
+            $SourcePath,
+            $PartialPath
+        ) -Level step
+        $PreviousErrorActionPreference = $ErrorActionPreference
+        try {
+            $ErrorActionPreference = "Continue"
+            & robocopy.exe `
+                $SourceDirectory `
+                $RobocopyDirectory `
+                $SourceName `
+                /J `
+                /R:2 `
+                /W:2 `
+                /COPY:DAT `
+                /DCOPY:T `
+                /NP `
+                /NFL `
+                /NDL
+            $RobocopyExitCode = $LASTEXITCODE
+        } finally {
+            $ErrorActionPreference = $PreviousErrorActionPreference
+        }
+        if (-not (Test-IronRobocopyExitCode -ExitCode $RobocopyExitCode)) {
+            throw "robocopy failed with exit code $RobocopyExitCode"
+        }
+        if (-not (Test-Path -LiteralPath $RobocopyPath -PathType Leaf)) {
+            throw "robocopy did not create the local image file"
+        }
+
+        Remove-Item -LiteralPath $RobocopyPath -Force
+        Remove-Item -LiteralPath $RobocopyDirectory -Force
+        $ActualLength = (Get-Item -LiteralPath $PartialPath).Length
+        if ($ActualLength -ne $ExpectedLength) {
+            throw (
+                "Downloaded WIM size mismatch: expected {0}, received {1}" -f
+                $ExpectedLength,
+                $ActualLength
+            )
+        }
+        $ActualSha256 = (
+            Get-FileHash -LiteralPath $PartialPath -Algorithm SHA256
+        ).Hash.ToLowerInvariant()
+        if ($ActualSha256 -ne $ExpectedSha256.ToLowerInvariant()) {
+            throw (
+                "Downloaded WIM SHA-256 mismatch at {0}: expected {1}, actual {2}" -f
+                $PartialPath,
+                $ExpectedSha256.ToLowerInvariant(),
+                $ActualSha256
+            )
+        }
+        Move-Item -LiteralPath $PartialPath -Destination $FinalPath -Force
+        $Stopwatch.Stop()
+        $Seconds = [Math]::Max(0.001, $Stopwatch.Elapsed.TotalSeconds)
+        $AverageMegabytesPerSecond = ($ActualLength / 1MB) / $Seconds
+        Write-IronLog (
+            "[OK] Image download completed: status=success; bytes={0}; " +
+            "duration={1:N3}s; average={2:N3} MB/s; path={3}" -f
+            $ActualLength,
+            $Seconds,
+            $AverageMegabytesPerSecond,
+            $FinalPath
+        ) -Level ok
+        return [pscustomobject]@{
+            Path = $FinalPath
+            StagingDirectory = $StagingDirectory
+            BytesTransferred = [long]$ActualLength
+            DurationSeconds = [double]$Seconds
+            AverageMegabytesPerSecond = [double]$AverageMegabytesPerSecond
+            RobocopyExitCode = [int]$RobocopyExitCode
+        }
+    } catch {
+        $Stopwatch.Stop()
+        Write-IronLog (
+            "[ERROR] Image download failed: status=failed; duration={0:N3}s; " +
+            "partialPath={1}; finalPath={2}; reason={3}" -f
+            $Stopwatch.Elapsed.TotalSeconds,
+            $PartialPath,
+            $FinalPath,
+            $_.Exception.Message
+        ) -Level error
+        throw
+    }
+}
+
+function Invoke-IronApplyWindowsImage {
+    param(
+        [Parameter(Mandatory = $true)][string]$ImagePath,
+        [Parameter(Mandatory = $true)][int]$ImageIndex
+    )
+
+    $TrackImageApplyProgress = (
+        [bool]$EnableGuiImageApplyProgress -and
+        $null -ne $script:IronProgressCallback
+    )
+    if ($TrackImageApplyProgress) {
+        $PreviousErrorActionPreference = $ErrorActionPreference
+        try {
+            $ErrorActionPreference = "Continue"
+            & dism.exe `
+                /Apply-Image `
+                /ImageFile:$ImagePath `
+                /Index:$ImageIndex `
+                /ApplyDir:C:\ `
+                2>&1 |
+                ForEach-Object {
+                    Update-IronImageApplyProgress -OutputLine ([string]$_)
+                }
+            return $LASTEXITCODE
+        } finally {
+            $ErrorActionPreference = $PreviousErrorActionPreference
+        }
+    }
+
+    dism.exe /Apply-Image /ImageFile:$ImagePath /Index:$ImageIndex /ApplyDir:C:\
+    return $LASTEXITCODE
 }
 
 # --- Helpers -----------------------------------------------------------------
@@ -1789,9 +2149,17 @@ function Test-UsableSerialNumber($SerialNumber) {
     }
 
     $NormalizedSerial = ([string]$SerialNumber).Trim()
+    if (
+        $NormalizedSerial.Length -gt 128 -or
+        $NormalizedSerial -match "[\x00-\x1F\x7F]"
+    ) {
+        return $false
+    }
+
     return $NormalizedSerial -notmatch (
-        "^(To Be Filled By O\.E\.M\.|Default string|" +
-        "System Serial Number|Unknown|None)$"
+        "^(To Be Filled By O\.?E\.?M\.?|Default string|" +
+        "System Serial Number|Unknown|None|Not Applicable|" +
+        "Not Specified|OEM|INVALID)$"
     )
 }
 
@@ -1958,8 +2326,7 @@ function Get-SystemModel {
 }
 
 function Get-SystemSerialNumber {
-    $BiosError = $null
-    $ProductError = $null
+    $Issues = @()
 
     try {
         $Bios = Get-CimInstance `
@@ -1968,8 +2335,9 @@ function Get-SystemSerialNumber {
         if (Test-UsableSerialNumber $Bios.SerialNumber) {
             return ([string]$Bios.SerialNumber).Trim()
         }
+        $Issues += "Win32_BIOS did not return a usable serial number"
     } catch {
-        $BiosError = $_.Exception.Message
+        $Issues += "Win32_BIOS: $($_.Exception.Message)"
     }
 
     try {
@@ -1979,23 +2347,26 @@ function Get-SystemSerialNumber {
         if (Test-UsableSerialNumber $Product.IdentifyingNumber) {
             return ([string]$Product.IdentifyingNumber).Trim()
         }
+        $Issues += (
+            "Win32_ComputerSystemProduct did not return a usable " +
+            "identifying number"
+        )
     } catch {
-        $ProductError = $_.Exception.Message
+        $Issues += "Win32_ComputerSystemProduct: $($_.Exception.Message)"
     }
 
-    $Details = @($BiosError, $ProductError) |
-        Where-Object { ![string]::IsNullOrWhiteSpace($_) }
-    if ($Details.Count -gt 0) {
-        Fail "Failed to read system serial number: $($Details -join '; ')"
-    }
-
-    Fail "BIOS did not provide a usable system serial number"
+    Write-IronLog (
+        "[WARN] System serial number is unavailable; continuing without it: " +
+        ($Issues -join "; ")
+    ) -Level warn
+    return $null
 }
 
 # --- Input gathering (used by both front-ends before deployment) -------------
 
-# Reads the hardware identity used to register the deployment. Throws (via
-# Fail) when no usable adapter or serial number is present.
+# Reads the hardware identity used to register the deployment. A usable network
+# adapter remains required, while the serial number and descriptive hardware
+# fields are best-effort and never block deployment.
 function Get-IronDeployHardwareIdentity {
     $MacAddress = Get-PrimaryMacAddress
     $SerialNumber = Get-SystemSerialNumber
@@ -2128,8 +2499,9 @@ function Remove-IronDeployDriveLetterMountPoint {
 # name can still be entered manually.
 function Get-IronDeployNameSuggestion {
     param(
-        [Parameter(Mandatory = $true)]
-        [string]$SerialNumber,
+        [AllowNull()]
+        [AllowEmptyString()]
+        [string]$SerialNumber = "",
 
         [Parameter(Mandatory = $true)]
         [string]$MacAddress
@@ -2140,10 +2512,17 @@ function Get-IronDeployNameSuggestion {
     $KnownComputerNames = @()
 
     try {
-        $SuggestionQuery = @(
-            "serial_number=$([uri]::EscapeDataString($SerialNumber))",
+        $SuggestionQueryParts = @()
+        if (-not [string]::IsNullOrWhiteSpace([string]$SerialNumber)) {
+            $SuggestionQueryParts += (
+                "serial_number=" +
+                [uri]::EscapeDataString(([string]$SerialNumber).Trim())
+            )
+        }
+        $SuggestionQueryParts += (
             "mac_address=$([uri]::EscapeDataString($MacAddress))"
-        ) -join "&"
+        )
+        $SuggestionQuery = $SuggestionQueryParts -join "&"
         $NameResponse = Invoke-IronApiRestMethod `
             -Uri "$($ApiBaseUrl.TrimEnd('/'))/api/deploy/suggest-name?$SuggestionQuery" `
             -Method Get `
@@ -2404,6 +2783,7 @@ function Invoke-IronDeployment {
 
     $script:DeploymentErrorReported = $false
     $script:IronNetworkDiagnostics = $null
+    $script:ImageApplyMode = "direct"
     # Shred anything a previous attempt left behind on the ramdisk.
     Clear-IronSecretArtifacts
     try {
@@ -2436,7 +2816,14 @@ function Invoke-IronDeployment {
     $SystemModel = $Hardware.Model
     $Manufacturer = $Hardware.Manufacturer
     $SystemSku = $Hardware.SystemSku
-    Write-IronLog "[INFO] System serial number: $SerialNumber" -Level info
+    if ([string]::IsNullOrWhiteSpace([string]$SerialNumber)) {
+        Write-IronLog (
+            "[WARN] System serial number is unavailable; deployment will use " +
+            "the MAC address for hardware matching"
+        ) -Level warn
+    } else {
+        Write-IronLog "[INFO] System serial number: $SerialNumber" -Level info
+    }
     Write-IronLog "[INFO] Primary MAC address: $MacAddress" -Level info
     if ([string]::IsNullOrWhiteSpace([string]$SystemModel)) {
         Write-IronLog "[WARN] Hardware model is unknown" -Level warn
@@ -2471,7 +2858,13 @@ function Invoke-IronDeployment {
     Write-IronLog "[STEP] Register deployment start" -Level step
     $BeginPayload = @{
         computer_name = $ComputerName
-        serial_number = $SerialNumber
+        serial_number = if (
+            [string]::IsNullOrWhiteSpace([string]$SerialNumber)
+        ) {
+            $null
+        } else {
+            [string]$SerialNumber
+        }
         mac_address = $MacAddress
         model = if ([string]::IsNullOrWhiteSpace([string]$SystemModel)) {
             $null
@@ -2528,6 +2921,8 @@ function Invoke-IronDeployment {
     Get-IronDeployShareCredentials
     try {
         Start-IronNetworkDiagnostics -SharePath $script:SharePath
+        Write-IronNetworkLinkSpeedSummary
+        Send-IronNetworkAdapterSnapshot
     } catch {
         Write-IronLog (
             "[WARN] Network diagnostics could not start: {0}" -f
@@ -2563,10 +2958,26 @@ function Invoke-IronDeployment {
         Fail "IronAPI returned a manifest for another deployment."
     }
 
+    $script:ImageApplyMode = Resolve-IronImageApplyMode `
+        -Value $DeploymentPlan.imageApplyMode
+    Write-IronLog (
+        "[MODE] Image apply strategy: {0}" -f $script:ImageApplyMode
+    ) -Level info
+
     $SelectedImage = [pscustomobject]@{
         Name = [string]$DeploymentPlan.image.name
         FullName = "$($ImagesPath.TrimEnd('\'))\$($DeploymentPlan.image.name)"
         Length = [long]$DeploymentPlan.image.size
+        Sha256 = [string]$DeploymentPlan.image.sha256
+    }
+    if (
+        $script:ImageApplyMode -eq "staged" -and
+        $SelectedImage.Sha256 -notmatch '^[0-9a-fA-F]{64}$'
+    ) {
+        Fail (
+            "IronAPI manifest does not contain a valid SHA-256 for staged image '{0}'." -f
+            $SelectedImage.Name
+        )
     }
     $ImagePath = $SelectedImage.FullName
     $ImageIndexToApply = [int]$DeploymentPlan.image.defaultIndex
@@ -2786,41 +3197,61 @@ function Invoke-IronDeployment {
     }
     Complete-DeploymentStage "disk_partitioning"
 
-    Set-IronProgress 30 "Applying Windows image"
-    Write-IronLog "[STEP] Apply Windows image" -Level step
-    Start-DeploymentStage "image_apply"
-    $TrackImageApplyProgress = (
-        [bool]$EnableGuiImageApplyProgress -and
-        $null -ne $script:IronProgressCallback
-    )
-    if ($TrackImageApplyProgress) {
-        # Native stderr becomes terminating in a background runspace when the
-        # global preference is Stop. Let DISM finish, then handle its exit code
-        # consistently while parsing its normal percentage output.
-        $PreviousErrorActionPreference = $ErrorActionPreference
+    $ImagePathToApply = $ImagePath
+    $StagedImageDirectory = $null
+    if ($script:ImageApplyMode -eq "staged") {
+        Set-IronProgress 26 "Downloading Windows image"
+        Start-DeploymentStage "image_download"
         try {
-            $ErrorActionPreference = "Continue"
-            & dism.exe `
-                /Apply-Image `
-                /ImageFile:$ImagePath `
-                /Index:$ImageIndexToApply `
-                /ApplyDir:C:\ `
-                2>&1 |
-                ForEach-Object {
-                    Update-IronImageApplyProgress -OutputLine ([string]$_)
-                }
-            $ImageApplyExitCode = $LASTEXITCODE
-        } finally {
-            $ErrorActionPreference = $PreviousErrorActionPreference
+            $DownloadResult = Copy-IronImageToLocalStaging `
+                -SourcePath $ImagePath `
+                -ExpectedLength $SelectedImage.Length `
+                -ExpectedSha256 $SelectedImage.Sha256 `
+                -DeploymentId $script:DeploymentId
+            $ImagePathToApply = $DownloadResult.Path
+            $StagedImageDirectory = $DownloadResult.StagingDirectory
+            Complete-DeploymentStage "image_download"
+        } catch {
+            $DownloadFailure = $_.Exception.Message
+            if ([string]::IsNullOrWhiteSpace($StagedImageDirectory)) {
+                $StagedImageDirectory = Join-Path `
+                    "$($WindowsDrive.TrimEnd('\'))\IronDeploy.Staging" `
+                    ([string]$script:DeploymentId)
+            }
+            Remove-IronStagedImageArtifacts `
+                -StagingDirectory $StagedImageDirectory `
+                -Reason $DownloadFailure
+            Fail "Staged image download failed: $DownloadFailure"
         }
-    } else {
-        dism.exe /Apply-Image /ImageFile:$ImagePath /Index:$ImageIndexToApply /ApplyDir:C:\
-        $ImageApplyExitCode = $LASTEXITCODE
     }
-    if ($ImageApplyExitCode -ne 0) {
-        Fail "DISM Apply-Image failed"
+
+    Set-IronProgress 30 "Applying Windows image"
+    Write-IronLog (
+        "[STEP] Apply Windows image from {0}" -f $ImagePathToApply
+    ) -Level step
+    Start-DeploymentStage "image_apply"
+    try {
+        $ImageApplyExitCode = Invoke-IronApplyWindowsImage `
+            -ImagePath $ImagePathToApply `
+            -ImageIndex $ImageIndexToApply
+        if ($ImageApplyExitCode -ne 0) {
+            throw "DISM Apply-Image failed"
+        }
+    } catch {
+        $ImageApplyFailure = $_.Exception.Message
+        if ($script:ImageApplyMode -eq "staged") {
+            Remove-IronStagedImageArtifacts `
+                -StagingDirectory $StagedImageDirectory `
+                -Reason $ImageApplyFailure
+        }
+        Fail $ImageApplyFailure
     }
     Complete-DeploymentStage "image_apply"
+    if ($script:ImageApplyMode -eq "staged") {
+        Remove-IronStagedImageArtifacts `
+            -StagingDirectory $StagedImageDirectory `
+            -Reason "successful image apply"
+    }
 
     if ($null -ne $DriverPackagePlan) {
         Set-IronProgress 62 "Staging driver packages"
@@ -2848,6 +3279,7 @@ function Invoke-IronDeployment {
 
     @{
         deployment_id = $script:DeploymentId
+        image_apply_mode = $script:ImageApplyMode
         api_base_url = $ApiBaseUrl
         api_deployment_token = $script:DeploymentAccessToken
         driver_package = $DriverPackageRelativePath
@@ -3125,5 +3557,6 @@ function Invoke-IronDeployment {
         DeploymentId = $script:DeploymentId
         UseDomainJoin = $UseDomainJoinValue
         ImageName = $SelectedImage.Name
+        ImageApplyMode = $script:ImageApplyMode
     }
 }

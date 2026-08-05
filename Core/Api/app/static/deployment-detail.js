@@ -2,6 +2,7 @@ const DETAIL_REFRESH_MS = 10_000;
 
 const DETAIL_STAGE_LABELS = {
     disk_partitioning: "Disk partitioning",
+    image_download: "Download image",
     image_apply: "Apply image",
     driver_injection: "Driver injection",
     deployment_state: "Save deployment state",
@@ -214,7 +215,9 @@ function createNetworkStageMetric(labelText, valueText) {
 }
 
 function renderNetworkStages(stages) {
-    const order = ["image_apply", "driver_injection", "postinstall_copy"];
+    const order = [
+        "image_download", "image_apply", "driver_injection", "postinstall_copy",
+    ];
     const byStage = new Map(stages.map((stage) => [stage.stage, stage]));
     detailElements.networkStageList.replaceChildren();
 
@@ -570,6 +573,7 @@ function renderDeployment(deployment) {
     setCopyableField("mac_address", deployment.mac_address);
     setCopyableField("ip_address", deployment.ip_address);
     setCopyableField("image_name", deployment.image_name);
+    setCopyableField("image_apply_mode", deployment.imageApplyMode);
     setCopyableField("target_disk", formatTargetDisk(deployment));
     setCopyableField(
         "domain_join",

@@ -52,7 +52,7 @@ IronAPI reads `Core\Api\.env`. Its settings are grouped by responsibility:
 | Group | Examples |
 | --- | --- |
 | Listener | access mode, bind address, port, access log, allowed client networks |
-| Deployment | authorization and deployment timeouts |
+| Deployment | authorization and deployment timeouts, image-apply strategy |
 | SMB | share path and configured account returned to authorized WinPE; the account must be read-only in SMB and NTFS |
 | Storage | SQLite database and temporary ODJ directory |
 | Naming and LDAP | name prefix/range, domain controller, base DN, LDAP TLS |
@@ -69,22 +69,31 @@ IronAPI answers requests from several sources rather than one central catalog:
 | Information | Source |
 | --- | --- |
 | Accounts, permissions, deployments, stages, inventory | `Core\Data\irondeploy.db` |
-| Images and indexes | `Core\Share\Images` plus server-side image metadata |
+| Images, indexes, and SHA-256 hashes | `Core\Share\Images` plus server-side image metadata |
 | Driver packages | `Core\Share\Drivers` |
 | Programs, arguments, sizes, and hashes | `Core\Share\Programs` and its metadata file |
-| SMB access | server-side `Core\Api\.env` |
+| SMB access and image apply strategy | server-side `Core\Api\.env` |
 | Unattend and post-install files | `Core\ServerTemplates` |
 | Computer-name availability | SQLite history plus LDAP when configured |
 | ODJ result | `djoin.exe`, Active Directory, and `Core\ODJ\pending` |
 | WinPE runtime settings | `Core\WinPE\Runtime\deploy.config.ps1` |
 
 The manifest endpoint validates the current selection against the current
-server catalog and returns image/index details, driver-package metadata,
-selected programs, and post-install settings. WinPE checks the image size, checks the driver package's total size and INF
-count, and compares selected program installers with their expected SHA-256
-after copying. Post-install checks the hash again and refuses to execute a
-mismatched installer. IronDeploy does not
-currently calculate a content hash for Windows images or driver packages.
+server catalog and returns image/index/hash details, `imageApplyMode`,
+driver-package metadata, selected programs, and post-install settings. WinPE
+checks the image size, checks the driver package's total size and INF count,
+and compares selected program installers with their expected SHA-256 after
+copying. In staged mode WinPE also verifies the downloaded image against the
+manifest SHA-256 before invoking DISM. Post-install checks program hashes again
+and refuses to execute a mismatched installer. Driver packages are validated
+by their server-approved relative path, total size, and INF count rather than
+a content hash.
+
+`imageApplyMode` accepts `direct` or `staged` and defaults to `direct` to
+preserve the established behavior. IronAPI refuses to issue a staged manifest
+when the selected image has no valid SHA-256. No additional endpoint is used:
+WinPE reads the value once from `POST /api/deploy/{id}/manifest` for the current
+deployment.
 
 ## Browser interface
 
@@ -118,6 +127,7 @@ Key WinPE-facing routes are:
 | `POST /api/deploy/begin` | Deployment ID and bound bearer state | Submitted hardware, target-disk snapshot, selection data, and SQLite |
 | `POST /api/deploy/{id}/manifest` | Validated server-approved deployment plan | Current catalog and image settings |
 | `GET /api/deploy/{id}/smb-credentials` | Configured SMB connection details; the account must be read-only | `Core\Api\.env` |
+| `PUT /api/deploy/{id}/network-diagnostics/adapters` | Early API/SMB adapter, IP, route relationship, and negotiated link-speed snapshot | WinPE network interfaces and SQLite |
 | Unattend and post-install routes | Per-deployment answer file and scripts | `Core\ServerTemplates` and image settings |
 | Domain-join routes | ODJ provisioning, download, and acknowledgement | Active Directory and `Core\ODJ\pending` |
 | Stage, error, diagnostics, and completion routes | Deployment progress and final result | SQLite deployment state |
@@ -158,6 +168,13 @@ for deployment history and compatibility with older WinPE images. WinPE then
 submits the selection to the manifest endpoint, which validates it against the
 current catalog and returns the server-approved plan.
 
+The hardware serial number is optional. WinPE first tries the BIOS serial and
+then the system-product identifying number. Empty values, firmware placeholders
+such as `To Be Filled By O.E.M.`, malformed values, and WMI read failures are
+reported as `null` and never block preflight or deployment. Name-history lookup
+and computer inventory fall back to the normalized MAC address. A later missing
+serial does not erase a valid serial already stored for that MAC address.
+
 The bound bearer cannot be reused to begin a second deployment. The manifest
 response is generated when requested; it is not stored as a separate immutable
 snapshot.
@@ -171,7 +188,27 @@ During execution, routes provide:
 - ODJ provision/download/acknowledgement operations;
 - SetupComplete and post-install script content;
 - stage start, completion, skip, and failure events;
-- WinPE error and network-diagnostic reports.
+- an early adapter-only network snapshot before disk partitioning;
+- WinPE error, per-stage, and final aggregate network-diagnostic reports.
+
+After `/api/deploy/begin` binds a deployment ID, WinPE identifies the routes
+used for IronAPI and SMB and sends their adapter names, local IP addresses, and
+negotiated `link_speed_bps` values to the adapter snapshot endpoint. The call
+is best effort and occurs before SMB validation, manifest retrieval, and disk
+partitioning. This lets deployment details expose 100/1000 Mbps link speed even
+if the machine is later powered off abruptly.
+
+The adapter snapshot creates a partial `deployment_network_summaries` row whose
+final aggregate fields remain null. The existing final
+`PUT /api/deploy/{id}/network-diagnostics` request fills those metrics and
+overwrites the adapter fields in that same row. Per-stage diagnostic requests
+continue to store only their completed measurement windows.
+
+Direct deployments retain the existing `image_apply` stage and its SMB network
+measurement. Staged deployments report `image_download` separately from
+`image_apply`; network bytes, duration, and throughput belong only to the
+download window, while local DISM progress and duration belong to the apply
+stage.
 
 The server controls which routes are available in the WinPE and post-install
 phases. The installed machine uses the persisted deployment state only to
@@ -179,10 +216,11 @@ submit its post-install results and final completion.
 
 ## Deployment state
 
-IronAPI stores deployment identity and status, the selected image name, the
-operator-confirmed target disk number/model/size snapshot,
-domain-join choice, stages, errors, computer inventory, program results, and
-aggregate diagnostics in SQLite. Stale active
+IronAPI stores deployment identity and status, the selected image name and
+image-apply strategy, the operator-confirmed target disk number/model/size
+snapshot, domain-join choice, stages, errors, computer inventory, program
+results, early adapter data, and aggregate diagnostics in SQLite. An adapter
+snapshot may exist before the aggregate report is complete. Stale active
 deployments are expired according to the configured timeout.
 
 The deployment bearer progresses through authorization, bound WinPE work, and
@@ -210,6 +248,10 @@ placed on the SMB share.
 
 IronAPI currently supports SQLite. Startup applies numbered migrations and
 records completed versions in `schema_migrations`.
+
+Migration 6 makes final-only columns in `deployment_network_summaries` nullable
+so an adapter snapshot can be stored before aggregate measurements finish.
+Existing completed diagnostic rows are copied without changing their values.
 
 Before migrating a file-backed database, IronAPI:
 

@@ -80,7 +80,15 @@ $IronDeployGuiXaml = @'
         </Style>
     </Window.Resources>
 
-    <Grid>
+    <Viewbox x:Name="RootViewbox"
+             Stretch="Uniform"
+             StretchDirection="DownOnly"
+             HorizontalAlignment="Stretch"
+             VerticalAlignment="Stretch">
+    <Grid x:Name="DesignSurface"
+          Width="820" Height="640"
+          UseLayoutRounding="True"
+          SnapsToDevicePixels="True">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
@@ -500,8 +508,40 @@ $IronDeployGuiXaml = @'
             </Grid>
         </Grid>
     </Grid>
+    </Viewbox>
 </Window>
 '@
+
+# WPF sizes are device-independent units, so a high-DPI Full HD display may
+# expose much less than 1920x1080 to the layout system. Keep the outer window
+# inside the usable desktop. The root Viewbox then scales the complete design
+# surface down as one unit, including wizard actions and overlays, without
+# introducing scrollbars or enlarging the UI on spacious displays.
+function Set-IronGuiWindowBounds {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Window,
+
+        [double]$WorkAreaMargin = 16,
+
+        [AllowNull()]
+        [object]$WorkArea = $null
+    )
+
+    if ($null -eq $WorkArea) {
+        $WorkArea = [System.Windows.SystemParameters]::WorkArea
+    }
+    $MaximumWidth = [Math]::Max(1, $WorkArea.Width - $WorkAreaMargin)
+    $MaximumHeight = [Math]::Max(1, $WorkArea.Height - $WorkAreaMargin)
+    $Window.MaxWidth = $MaximumWidth
+    $Window.MaxHeight = $MaximumHeight
+    if ($Window.Width -gt $MaximumWidth) {
+        $Window.Width = $MaximumWidth
+    }
+    if ($Window.Height -gt $MaximumHeight) {
+        $Window.Height = $MaximumHeight
+    }
+}
 
 # Runs a script body on a fresh background runspace with the supplied variables
 # pre-set. Returns the PowerShell/handle/runspace triple for later disposal.
@@ -599,6 +639,7 @@ function Start-IronDeployGui {
 
     $reader = New-Object System.Xml.XmlNodeReader ([xml]$IronDeployGuiXaml)
     $script:IronGuiWindow = [System.Windows.Markup.XamlReader]::Load($reader)
+    Set-IronGuiWindowBounds -Window $script:IronGuiWindow
     $script:IronGuiAuthPolicy = Get-IronDeploymentAuthorizationPolicy
 
     $script:IronGuiUi = @{}
@@ -1421,7 +1462,13 @@ try {
         $script:IronGuiPreflightJob = $null
 
         if ($script:IronGuiState.PreflightOk) {
-            $script:IronGuiUi.SerialText.Text = [string]$script:IronGuiState.Serial
+            $script:IronGuiUi.SerialText.Text = if (
+                [string]::IsNullOrWhiteSpace([string]$script:IronGuiState.Serial)
+            ) {
+                [string][char]0x2014
+            } else {
+                [string]$script:IronGuiState.Serial
+            }
             $script:IronGuiUi.MacText.Text = [string]$script:IronGuiState.Mac
             $script:IronGuiUi.ConfirmModelText.Text = if (
                 [string]::IsNullOrWhiteSpace([string]$script:IronGuiState.Model)

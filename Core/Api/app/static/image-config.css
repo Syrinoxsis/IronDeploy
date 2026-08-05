@@ -215,6 +215,59 @@ body.image-config-page .refresh-button:hover {
     font-size: 14px;
 }
 
+.settings-choice-group {
+    display: grid;
+    gap: 9px;
+    margin: 24px 0 8px;
+    padding: 0 0 22px;
+    border: 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.settings-choice-group legend {
+    margin-bottom: 10px;
+    color: #dfe5ed;
+    font-size: 13px;
+    font-weight: 680;
+}
+
+.settings-choice-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 14px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: var(--surface-muted);
+    cursor: pointer;
+}
+
+.settings-choice-row:has(input:checked) {
+    border-color: #7769d7;
+    background: #24253a;
+}
+
+.settings-choice-row input {
+    margin-top: 3px;
+    accent-color: #7769d7;
+}
+
+.settings-choice-row span {
+    display: grid;
+    gap: 4px;
+}
+
+.settings-choice-row strong {
+    color: #e9edf4;
+    font-size: 14px;
+}
+
+.settings-choice-row em {
+    color: var(--muted);
+    font-size: 13px;
+    font-style: normal;
+}
+
 .settings-switch-row {
     min-height: 86px;
     display: flex;

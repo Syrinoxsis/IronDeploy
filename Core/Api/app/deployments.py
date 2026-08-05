@@ -18,7 +18,9 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    and_,
     func,
+    or_,
     select,
     update,
 )
@@ -39,6 +41,7 @@ STAGE_SKIPPED = "skipped"
 
 WinPEStageCode = Literal[
     "disk_partitioning",
+    "image_download",
     "image_apply",
     "driver_injection",
     "deployment_state",
@@ -86,6 +89,7 @@ class Deployment(Base):
     mac_address: Mapped[str] = mapped_column(String(17), nullable=False)
     ip_address: Mapped[str] = mapped_column(String(45), nullable=False)
     image_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    image_apply_mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
     target_disk_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     target_disk_model: Mapped[str | None] = mapped_column(String(255), nullable=True)
     target_disk_size_bytes: Mapped[int | None] = mapped_column(
@@ -180,9 +184,16 @@ class DeploymentNetworkSummary(Base):
         ForeignKey("deployments.id", ondelete="CASCADE"),
         primary_key=True,
     )
-    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    completed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    ping_target: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Final aggregate fields remain null until WinPE sends the complete report.
+    # This lets an earlier adapter-only snapshot expose negotiated link speed
+    # before the destructive disk phase begins.
+    started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    ping_target: Mapped[str | None] = mapped_column(String(255), nullable=True)
     smb_adapter_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     smb_adapter_description: Mapped[str | None] = mapped_column(
         String(512), nullable=True
@@ -198,34 +209,36 @@ class DeploymentNetworkSummary(Base):
     api_local_ip: Mapped[str | None] = mapped_column(String(45), nullable=True)
     api_link_speed_bps: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     adapters_differ: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    duration_seconds: Mapped[float] = mapped_column(Float, nullable=False)
-    icmp_status: Mapped[str] = mapped_column(String(16), nullable=False)
-    ping_sent: Mapped[int] = mapped_column(Integer, nullable=False)
-    ping_received: Mapped[int] = mapped_column(Integer, nullable=False)
-    ping_lost: Mapped[int] = mapped_column(Integer, nullable=False)
+    duration_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    icmp_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    ping_sent: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    ping_received: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    ping_lost: Mapped[int | None] = mapped_column(Integer, nullable=True)
     loss_percentage: Mapped[float | None] = mapped_column(Float, nullable=True)
     rtt_min_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
     rtt_avg_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
     rtt_max_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
-    latency_spikes: Mapped[int] = mapped_column(Integer, nullable=False)
+    latency_spikes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     bytes_received: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     average_inbound_mbps: Mapped[float | None] = mapped_column(Float, nullable=True)
     link_utilization_percent: Mapped[float | None] = mapped_column(
         Float, nullable=True
     )
-    api_request_count: Mapped[int] = mapped_column(Integer, nullable=False)
-    api_error_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    api_request_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    api_error_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     api_min_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
     api_avg_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
     api_max_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
     smb_connect_success: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
-    smb_connect_attempts: Mapped[int] = mapped_column(Integer, nullable=False)
+    smb_connect_attempts: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
     smb_connect_duration_ms: Mapped[float | None] = mapped_column(
         Float, nullable=True
     )
     smb_error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    diagnostic_errors: Mapped[list[str]] = mapped_column(
-        JSON, nullable=False, default=list
+    diagnostic_errors: Mapped[list[str] | None] = mapped_column(
+        JSON, nullable=True, default=list
     )
 
 
@@ -233,7 +246,8 @@ class DeploymentNetworkStage(Base):
     __tablename__ = "deployment_network_stages"
     __table_args__ = (
         CheckConstraint(
-            "stage IN ('image_apply', 'driver_injection', 'postinstall_copy')",
+            "stage IN ('image_download', 'image_apply', "
+            "'driver_injection', 'postinstall_copy')",
             name="ck_deployment_network_stages_stage",
         ),
         CheckConstraint(
@@ -352,7 +366,7 @@ class Computer(Base):
 
 class DeploymentBeginRequest(BaseModel):
     computer_name: str = Field(min_length=1, max_length=63)
-    serial_number: str = Field(min_length=1, max_length=128)
+    serial_number: str | None = None
     # Optional so WinPE images built before hardware-model reporting keep working.
     model: str | None = Field(default=None, max_length=128)
     manufacturer: str | None = Field(default=None, max_length=128)
@@ -374,12 +388,30 @@ class DeploymentBeginRequest(BaseModel):
             raise ValueError("computer_name is not a valid DNS host name")
         return normalized
 
-    @field_validator("serial_number")
+    @field_validator("serial_number", mode="before")
     @classmethod
-    def validate_serial_number(cls, value: str) -> str:
+    def validate_serial_number(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            return None
         normalized = value.strip()
-        if not normalized or any(ord(character) < 32 for character in normalized):
-            raise ValueError("serial_number must contain printable characters")
+        if (
+            not normalized
+            or len(normalized) > 128
+            or any(
+                ord(character) < 32 or ord(character) == 127
+                for character in normalized
+            )
+            or re.fullmatch(
+                r"(?:To Be Filled By O\.?E\.?M\.?|Default string|"
+                r"System Serial Number|Unknown|None|Not Applicable|"
+                r"Not Specified|OEM|INVALID)",
+                normalized,
+                flags=re.IGNORECASE,
+            )
+        ):
+            return None
         return normalized
 
     @field_validator("model")
@@ -569,6 +601,12 @@ class NetworkAdapterReport(BaseModel):
     link_speed_bps: int | None = Field(default=None, ge=0)
 
 
+class DeploymentNetworkAdaptersReport(BaseModel):
+    smb_adapter: NetworkAdapterReport | None = None
+    api_adapter: NetworkAdapterReport | None = None
+    adapters_differ: bool = False
+
+
 class NetworkAggregateReport(BaseModel):
     started_at: datetime
     completed_at: datetime
@@ -598,7 +636,9 @@ class NetworkAggregateReport(BaseModel):
 
 
 class NetworkStageReport(NetworkAggregateReport):
-    stage: Literal["image_apply", "driver_injection", "postinstall_copy"]
+    stage: Literal[
+        "image_download", "image_apply", "driver_injection", "postinstall_copy"
+    ]
 
 
 class NetworkApiReport(BaseModel):
@@ -622,7 +662,7 @@ class DeploymentNetworkDiagnosticsRequest(BaseModel):
     api_adapter: NetworkAdapterReport | None = None
     adapters_differ: bool = False
     overall: NetworkAggregateReport
-    stages: list[NetworkStageReport] = Field(default_factory=list, max_length=3)
+    stages: list[NetworkStageReport] = Field(default_factory=list, max_length=4)
     api: NetworkApiReport
     smb: NetworkSmbReport
     diagnostic_errors: list[str] = Field(default_factory=list, max_length=100)
@@ -648,7 +688,7 @@ class DeploymentNetworkDiagnosticsResponse(BaseModel):
     api_adapter: NetworkAdapterReport | None = None
     adapters_differ: bool | None = None
     overall: NetworkAggregateReport | None = None
-    stages: list[NetworkStageReport] = Field(default_factory=list, max_length=3)
+    stages: list[NetworkStageReport] = Field(default_factory=list, max_length=4)
     api: NetworkApiReport | None = None
     smb: NetworkSmbReport | None = None
     diagnostic_errors: list[str] = Field(default_factory=list, max_length=100)
@@ -675,6 +715,7 @@ class DeploymentListItem(BaseModel):
     mac_address: str
     ip_address: str
     image_name: str | None
+    imageApplyMode: Literal["direct", "staged"] | None
     target_disk_number: int | None
     target_disk_model: str | None
     target_disk_size_bytes: int | None
@@ -878,6 +919,22 @@ def _network_aggregate_response(
     )
 
 
+def _has_complete_network_aggregate(summary: DeploymentNetworkSummary) -> bool:
+    return all(
+        value is not None
+        for value in (
+            summary.started_at,
+            summary.completed_at,
+            summary.duration_seconds,
+            summary.icmp_status,
+            summary.ping_sent,
+            summary.ping_received,
+            summary.ping_lost,
+            summary.latency_spikes,
+        )
+    )
+
+
 def to_network_stage_response(
     stage: DeploymentNetworkStage,
 ) -> NetworkStageReport:
@@ -899,26 +956,40 @@ def to_network_diagnostics_response(
         if not stage_reports:
             return None
         return DeploymentNetworkDiagnosticsResponse(stages=stage_reports)
-    return DeploymentNetworkDiagnosticsResponse(
-        ping_target=summary.ping_target,
-        smb_adapter=_network_adapter_response(summary, "smb"),
-        api_adapter=_network_adapter_response(summary, "api"),
-        adapters_differ=summary.adapters_differ,
-        overall=_network_aggregate_response(summary),
-        stages=stage_reports,
-        api=NetworkApiReport(
+    overall = (
+        _network_aggregate_response(summary)
+        if _has_complete_network_aggregate(summary)
+        else None
+    )
+    api = None
+    if (
+        summary.api_request_count is not None
+        and summary.api_error_count is not None
+    ):
+        api = NetworkApiReport(
             request_count=summary.api_request_count,
             error_count=summary.api_error_count,
             min_ms=summary.api_min_ms,
             avg_ms=summary.api_avg_ms,
             max_ms=summary.api_max_ms,
-        ),
-        smb=NetworkSmbReport(
+        )
+    smb = None
+    if summary.smb_connect_attempts is not None:
+        smb = NetworkSmbReport(
             success=summary.smb_connect_success,
             attempts=summary.smb_connect_attempts,
             duration_ms=summary.smb_connect_duration_ms,
             error_message=summary.smb_error_message,
-        ),
+        )
+    return DeploymentNetworkDiagnosticsResponse(
+        ping_target=summary.ping_target,
+        smb_adapter=_network_adapter_response(summary, "smb"),
+        api_adapter=_network_adapter_response(summary, "api"),
+        adapters_differ=summary.adapters_differ,
+        overall=overall,
+        stages=stage_reports,
+        api=api,
+        smb=smb,
         diagnostic_errors=list(summary.diagnostic_errors or []),
     )
 
@@ -940,6 +1011,7 @@ def to_deployment_list_item(
         mac_address=deployment.mac_address,
         ip_address=deployment.ip_address,
         image_name=deployment.image_name,
+        imageApplyMode=deployment.image_apply_mode,
         target_disk_number=deployment.target_disk_number,
         target_disk_model=deployment.target_disk_model,
         target_disk_size_bytes=deployment.target_disk_size_bytes,
@@ -1000,11 +1072,20 @@ def update_computer_inventory(
                 Computer.serial_number == deployment.serial_number,
             )
         )
-    if computer is None:
+    if computer is None and deployment.serial_number:
         computer = session.scalar(
             select(Computer).where(
                 Computer.serial_number.is_(None),
                 Computer.mac_address == deployment.mac_address,
+            )
+        )
+    if computer is None and not deployment.serial_number:
+        computer = session.scalar(
+            select(Computer)
+            .where(Computer.mac_address == deployment.mac_address)
+            .order_by(
+                Computer.serial_number.is_(None),
+                Computer.last_seen_at.desc(),
             )
         )
 
@@ -1024,7 +1105,8 @@ def update_computer_inventory(
         )
         session.add(computer)
 
-    computer.serial_number = deployment.serial_number
+    # A transient missing serial must not erase a previously known stable one.
+    computer.serial_number = deployment.serial_number or computer.serial_number
     computer.mac_address = deployment.mac_address
     # A WinPE image that does not report a model must not erase a known one.
     computer.last_model = deployment.model or computer.last_model
@@ -1035,11 +1117,16 @@ def update_computer_inventory(
     computer.last_seen_at = current_time
     computer.last_deployment_id = deployment.id
 
-    count_filter = (
-        Deployment.serial_number == deployment.serial_number
-        if deployment.serial_number
-        else Deployment.mac_address == deployment.mac_address
-    )
+    if computer.serial_number:
+        count_filter = or_(
+            Deployment.serial_number == computer.serial_number,
+            and_(
+                Deployment.serial_number.is_(None),
+                Deployment.mac_address == computer.mac_address,
+            ),
+        )
+    else:
+        count_filter = Deployment.mac_address == computer.mac_address
     deployment_count = session.scalar(
         select(func.count(Deployment.id)).where(count_filter)
     )

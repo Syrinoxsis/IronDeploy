@@ -25,6 +25,7 @@ API_NAMES = (
     "IRONAPI_COOKIE_SECURE",
     "IRONAPI_DEPLOYMENT_AUTHORIZATION_TIMEOUT_MINUTES",
     "IRONAPI_DEPLOYMENT_TIMEOUT_MINUTES",
+    "IRONAPI_IMAGE_APPLY_MODE",
     "IRONAPI_DRIVER_MAX_FILES",
     "IRONAPI_DRIVER_MAX_DEPTH",
     "IRONAPI_DRIVER_MAX_FULL_PATH",
@@ -434,9 +435,11 @@ def save_config(paths: IronDeployPaths, payload: dict[str, Any]) -> dict[str, An
     ):
         raise ValueError("Invalid payload.")
 
-    normalized_api = normalize_api(api_updates)
-    effective_winpe_updates = dict(winpe_updates)
     current_api = read_dotenv(paths.api_env)
+    effective_api_updates = dict(current_api)
+    effective_api_updates.update(api_updates)
+    normalized_api = normalize_api(effective_api_updates)
+    effective_winpe_updates = dict(winpe_updates)
     for winpe_name, api_name in {
         "SharePath": "IRONAPI_SMB_SHARE_PATH",
         "ShareUser": "IRONAPI_SMB_USER",
@@ -621,6 +624,11 @@ def normalize_api(values: dict[str, Any]) -> dict[str, str]:
             "IRONAPI_DEPLOYMENT_TIMEOUT_MINUTES must be from 30 to 240."
         )
     result["IRONAPI_DEPLOYMENT_TIMEOUT_MINUTES"] = str(deployment_timeout)
+
+    image_apply_mode = result["IRONAPI_IMAGE_APPLY_MODE"].lower()
+    if image_apply_mode not in {"direct", "staged"}:
+        raise ValueError("IRONAPI_IMAGE_APPLY_MODE must be direct or staged.")
+    result["IRONAPI_IMAGE_APPLY_MODE"] = image_apply_mode
 
     driver_integer_ranges = {
         "IRONAPI_DRIVER_MAX_FILES": (1, 1_000_000),

@@ -61,6 +61,7 @@ from app.deployments import (
     DeploymentListItem,
     DeploymentListResponse,
     DeploymentManifestRequest,
+    DeploymentNetworkAdaptersReport,
     DeploymentNetworkDiagnosticsRequest,
     DeploymentNetworkDiagnosticsResponse,
     DeploymentNetworkStage,
@@ -1157,9 +1158,10 @@ def deploy_suggest_name(
         except ValueError:
             normalized_mac = mac_address.strip().upper()
 
+    normalized_serial = DeploymentBeginRequest.validate_serial_number(serial_number)
     suggestion.known_computer_names = find_known_computer_names(
         session,
-        serial_number.strip() if serial_number else None,
+        normalized_serial,
         normalized_mac,
     )
     return suggestion
@@ -1175,6 +1177,7 @@ def _deployment_catalog() -> dict:
                 "name": image["name"],
                 "size": image["size"],
                 "format": image["format"],
+                "sha256": image.get("sha256"),
                 "ready": image["ready"],
                 "indexes": image["indexes"],
                 "defaultIndex": image["defaultIndex"],
@@ -1286,10 +1289,23 @@ def deploy_manifest(
             )
 
     deployment.image_name = image["name"]
+    image_apply_mode = image_config.get("imageApplyMode", "direct")
+    if image_apply_mode not in {"direct", "staged"}:
+        image_apply_mode = "direct"
+    image_sha256 = str(image.get("sha256") or "").strip()
+    if image_apply_mode == "staged" and re.fullmatch(
+        r"[0-9a-fA-F]{64}", image_sha256
+    ) is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Selected image SHA-256 is unavailable for staged deployment",
+        )
+    deployment.image_apply_mode = image_apply_mode
     update_computer_inventory(session, deployment)
     session.commit()
     return {
         "deploymentId": deployment.id,
+        "imageApplyMode": image_apply_mode,
         "image": image,
         "programs": selected_programs,
         "driverPackage": selected_driver,
@@ -1675,6 +1691,39 @@ def _upsert_deployment_network_stage(
         session.add(stage)
     _apply_network_aggregate(stage, payload)
     return stage
+
+
+@app.put(
+    "/api/deploy/{deployment_id}/network-diagnostics/adapters",
+    response_model=DeploymentNetworkAdaptersReport,
+)
+def save_deployment_network_adapters(
+    deployment_id: int,
+    payload: DeploymentNetworkAdaptersReport,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> DeploymentNetworkAdaptersReport:
+    require_owned_deployment(
+        deployment_id,
+        request,
+        session,
+        "winpe",
+    )
+    summary = session.get(DeploymentNetworkSummary, deployment_id)
+    if summary is None:
+        summary = DeploymentNetworkSummary(deployment_id=deployment_id)
+        session.add(summary)
+
+    summary.adapters_differ = payload.adapters_differ
+    _apply_network_adapter(summary, payload.smb_adapter, "smb")
+    _apply_network_adapter(summary, payload.api_adapter, "api")
+    session.commit()
+    session.refresh(summary)
+    return DeploymentNetworkAdaptersReport(
+        smb_adapter=payload.smb_adapter,
+        api_adapter=payload.api_adapter,
+        adapters_differ=summary.adapters_differ,
+    )
 
 
 @app.put(

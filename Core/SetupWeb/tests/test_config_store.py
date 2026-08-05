@@ -25,6 +25,20 @@ class AccessModeTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.paths = IronDeployPaths.from_setupweb(SETUPWEB_ROOT)
 
+    def test_image_apply_mode_defaults_to_direct_and_accepts_staged(self) -> None:
+        self.assertEqual(
+            normalize_api({})["IRONAPI_IMAGE_APPLY_MODE"],
+            "direct",
+        )
+        self.assertEqual(
+            normalize_api({"IRONAPI_IMAGE_APPLY_MODE": "STAGED"})[
+                "IRONAPI_IMAGE_APPLY_MODE"
+            ],
+            "staged",
+        )
+        with self.assertRaisesRegex(ValueError, "direct or staged"):
+            normalize_api({"IRONAPI_IMAGE_APPLY_MODE": "auto"})
+
     def test_http_direct_uses_selected_network_bind_and_insecure_cookie(self) -> None:
         result = normalize_api(
             {
@@ -367,6 +381,14 @@ class CredentialMigrationTests(unittest.TestCase):
                 auth_bootstrap=root / "Data" / "auth-bootstrap.json",
             )
             payload = load_config(paths)
+            paths.api_env.write_text(
+                paths.api_env.read_text(encoding="utf-8").replace(
+                    "IRONAPI_IMAGE_APPLY_MODE=direct",
+                    "IRONAPI_IMAGE_APPLY_MODE=staged",
+                ),
+                encoding="utf-8",
+            )
+            payload["api"].pop("IRONAPI_IMAGE_APPLY_MODE")
             payload["api"]["IRONAPI_BIND_HOST"] = "198.51.100.5"
             payload["winpe"].update(
                 {
@@ -390,6 +412,7 @@ class CredentialMigrationTests(unittest.TestCase):
                 "IRONAPI_DEPLOYMENT_AUTHORIZATION_TIMEOUT_MINUTES=10", api_env
             )
             self.assertIn("IRONAPI_DEPLOYMENT_TIMEOUT_MINUTES=90", api_env)
+            self.assertIn("IRONAPI_IMAGE_APPLY_MODE=staged", api_env)
             self.assertIn("IRONAPI_ODJ_BLOB_MAX_AGE_MINUTES=5", api_env)
             self.assertNotIn("server-side-password", winpe_config)
             self.assertNotIn("$SharePassword", winpe_config)

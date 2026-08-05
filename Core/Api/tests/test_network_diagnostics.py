@@ -32,6 +32,7 @@ from app.auth import create_deployment_token, create_user, set_user_permissions
 from app.deployments import (
     Base,
     DeploymentBeginRequest,
+    DeploymentNetworkAdaptersReport,
     DeploymentNetworkDiagnosticsRequest,
     DeploymentNetworkStage,
     DeploymentNetworkSummary,
@@ -40,6 +41,7 @@ from app.deployments import (
 from app.main import (
     deploy_begin,
     deployment_detail,
+    save_deployment_network_adapters,
     save_deployment_network_diagnostics,
     save_deployment_network_stage,
 )
@@ -113,7 +115,7 @@ class NetworkDiagnosticsApiTests(unittest.TestCase):
             ),
             stages=[
                 {
-                    "stage": "image_apply",
+                    "stage": "image_download",
                     **aggregate_payload(
                         started_at=started_at,
                         completed_at=completed_at,
@@ -192,11 +194,77 @@ class NetworkDiagnosticsApiTests(unittest.TestCase):
             self.assertIsNotNone(detail.network_diagnostics)
             self.assertEqual(
                 detail.network_diagnostics.stages[0].stage,
-                "image_apply",
+                "image_download",
             )
             self.assertEqual(
                 detail.network_diagnostics.smb_adapter.local_ip,
                 "192.0.2.42",
+            )
+
+    def test_early_adapter_snapshot_is_exposed_and_final_report_overwrites_it(
+        self,
+    ) -> None:
+        with Session(self.engine) as session:
+            request = self.deployment_request(session)
+            deployment = deploy_begin(
+                DeploymentBeginRequest(
+                    computer_name="pc00042",
+                    serial_number="PF4ABC12",
+                    mac_address="AA:BB:CC:DD:EE:FF",
+                    domain_join=False,
+                ),
+                request,
+                session,
+            )
+            early = save_deployment_network_adapters(
+                deployment.deployment_id,
+                DeploymentNetworkAdaptersReport(
+                    smb_adapter={
+                        "name": "Ethernet",
+                        "local_ip": "192.0.2.42",
+                        "link_speed_bps": 100_000_000,
+                    },
+                    api_adapter={
+                        "name": "Management",
+                        "local_ip": "198.51.100.42",
+                        "link_speed_bps": 1_000_000_000,
+                    },
+                    adapters_differ=True,
+                ),
+                request,
+                session,
+            )
+
+            partial = deployment_detail(deployment.deployment_id, session)
+            self.assertEqual(early.smb_adapter.link_speed_bps, 100_000_000)
+            self.assertIsNotNone(partial.network_diagnostics)
+            self.assertEqual(
+                partial.network_diagnostics.smb_adapter.link_speed_bps,
+                100_000_000,
+            )
+            self.assertIsNone(partial.network_diagnostics.overall)
+            self.assertIsNone(partial.network_diagnostics.api)
+            self.assertIsNone(partial.network_diagnostics.smb)
+
+            final = save_deployment_network_diagnostics(
+                deployment.deployment_id,
+                self.payload(),
+                request,
+                session,
+            )
+            self.assertEqual(
+                final.smb_adapter.link_speed_bps,
+                1_000_000_000,
+            )
+            self.assertEqual(
+                final.api_adapter.link_speed_bps,
+                100_000_000,
+            )
+            self.assertEqual(
+                session.scalar(
+                    select(func.count(DeploymentNetworkSummary.deployment_id))
+                ),
+                1,
             )
 
     def test_stage_report_is_upserted_and_preserved_by_final_report(self) -> None:
@@ -309,6 +377,10 @@ foreach ($name in @(
     'Get-IronNetworkPingStatistics',
     'New-IronNetworkAggregate',
     'Invoke-IronNetworkReportWithRetry',
+    'Get-IronDeploymentAuthorizationPolicy',
+    'Format-IronNetworkLinkSpeed',
+    'Write-IronNetworkLinkSpeed',
+    'Write-IronNetworkLinkSpeedSummary',
     'Start-IronPingMonitor',
     'Stop-IronPingMonitor'
 )) {{
@@ -514,6 +586,101 @@ if (-not $sent) { throw 'Third attempt should succeed' }
 if ($script:ReportAttempts -ne 3) { throw 'Expected exactly three attempts' }
 if (($script:RetryDelays -join ',') -ne '5,10') {
     throw 'Expected retry delays of 5 and 10 seconds'
+}
+"""
+        )
+
+    def test_auth_policy_retries_five_times_after_wpeinit(self) -> None:
+        self.assert_powershell(
+            """
+$script:PolicyAttempts = 0
+$script:RetryDelays = @()
+$script:Timeouts = @()
+$ApiBaseUrl = 'https://api.test'
+function Write-IronLog { param($Message, $Level) }
+function Start-Sleep {
+    param([int]$Seconds)
+    $script:RetryDelays += $Seconds
+}
+function Invoke-RestMethod {
+    param($Uri, $Method, $TimeoutSec, [switch]$UseBasicParsing)
+    $script:PolicyAttempts++
+    $script:Timeouts += $TimeoutSec
+    if ($script:PolicyAttempts -lt 5) {
+        throw 'network is not ready'
+    }
+    return [pscustomobject]@{
+        mode = 'none'
+        pin_configured = $false
+        pin_min_length = 4
+        pin_max_length = 12
+    }
+}
+$policy = Get-IronDeploymentAuthorizationPolicy
+if ($policy.Mode -ne 'none') { throw 'Unexpected authorization mode' }
+if ($script:PolicyAttempts -ne 5) { throw 'Expected exactly five attempts' }
+if (($script:RetryDelays -join ',') -ne '5,5,5,5') {
+    throw 'Expected four five-second retry delays'
+}
+if (($script:Timeouts -join ',') -ne '5,5,5,5,5') {
+    throw 'Expected a five-second timeout for every attempt'
+}
+"""
+        )
+
+    def test_adapter_snapshot_is_sent_before_disk_partitioning(self) -> None:
+        engine = ENGINE_PATH.read_text(encoding="utf-8-sig")
+        deployment = engine[engine.index("function Invoke-IronDeployment") :]
+        diagnostics = deployment.index("Start-IronNetworkDiagnostics")
+        link_log = deployment.index("Write-IronNetworkLinkSpeedSummary")
+        snapshot = deployment.index("Send-IronNetworkAdapterSnapshot")
+        share = deployment.index("Connect-IronDeployShare")
+        partitioning = deployment.index('Start-DeploymentStage "disk_partitioning"')
+        self.assertLess(diagnostics, link_log)
+        self.assertLess(link_log, snapshot)
+        self.assertLess(snapshot, share)
+        self.assertLess(share, partitioning)
+
+    def test_wpf_log_warns_when_link_speed_is_below_one_gigabit(self) -> None:
+        self.assert_powershell(
+            """
+$script:LogEntries = @()
+function Write-IronLog {
+    param($Message, $Level)
+    $script:LogEntries += [pscustomobject]@{
+        Message = $Message
+        Level = $Level
+    }
+}
+$adapter = [pscustomobject]@{
+    Name = 'Ethernet'
+    LocalIp = '192.0.2.42'
+    AdapterId = 'adapter-one'
+    LinkSpeedBps = 100000000
+}
+$script:IronNetworkDiagnostics = [pscustomobject]@{
+    SmbAdapter = $adapter
+    ApiAdapter = $adapter
+}
+Write-IronNetworkLinkSpeedSummary
+if ($script:LogEntries.Count -ne 1) {
+    throw 'A shared API/SMB adapter must produce one log entry'
+}
+if ($script:LogEntries[0].Level -ne 'warn') {
+    throw 'A 100 Mbps link must be a warning'
+}
+if ($script:LogEntries[0].Message -notmatch 'BELOW 1 GBPS') {
+    throw 'The warning must clearly identify the sub-gigabit link'
+}
+if ($script:LogEntries[0].Message -notmatch '100 Mbps') {
+    throw 'The warning must include the negotiated speed'
+}
+
+$script:LogEntries = @()
+$adapter.LinkSpeedBps = 1000000000
+Write-IronNetworkLinkSpeedSummary
+if ($script:LogEntries.Count -ne 1 -or $script:LogEntries[0].Level -ne 'ok') {
+    throw 'A 1 Gbps link must produce one OK entry'
 }
 """
         )

@@ -100,8 +100,20 @@ wpeinit
         -> IronDeploy.Gui.ps1
 ```
 
+`wpeinit` runs once. It initializes the WinPE network stack but does not prove
+that DHCP, the route to IronAPI, TCP, or TLS is ready. The GUI therefore tries
+`GET /api/deploy/auth/policy` up to five times. Each attempt has a five-second
+timeout, and failed attempts are separated by a five-second pause. A fatal
+startup error is shown only after the fifth attempt fails.
+
 The GUI is the only supported deployment front-end. If WPF cannot start, the
 console is restored for diagnostics and no fallback deployment begins.
+
+The GUI keeps a fixed logical design surface inside a uniform, down-only WPF
+`Viewbox`. At startup the outer window is limited to the current desktop work
+area. Displays with enough logical space retain the normal size; smaller work
+areas caused by resolution or DPI scaling shrink the complete interface,
+including wizard actions and overlays, without adding main-window scrollbars.
 
 ## Runtime configuration
 
@@ -118,11 +130,37 @@ SMB credentials, a WinPE authorization PIN, or browser credentials. Those
 values remain server-side and are returned only when the active deployment is
 authorized.
 
+The image-apply strategy is also server-side. `IRONAPI_IMAGE_APPLY_MODE` in
+`Core\Api\.env` is returned once in the final deployment manifest as
+`imageApplyMode`; it is not embedded in the WinPE image. `direct` keeps DISM on
+the SMB path. `staged` downloads the WIM with unbuffered robocopy, verifies its
+manifest SHA-256, and then gives DISM the local path. Missing or unsupported
+manifest mode values fall back to `direct` with a WinPE warning. IronAPI does
+not issue a staged manifest without a valid image SHA-256, and WinPE validates
+that field again before modifying the target disk.
+
+`direct` retains the established single `image_apply` stage. Its network
+measurement remains open while DISM reads the image from SMB. `staged` uses two
+separate stages:
+
+1. `image_download` checks free space, creates a deployment-specific local
+   directory, copies with `robocopy /J` through an `image.wim.partial` name,
+   accepts robocopy exit codes 0 through 7, verifies size and SHA-256, and only
+   then renames the file to `image.wim`;
+2. `image_apply` passes that completed local file to the shared DISM wrapper.
+
+Only `image_download` collects network bytes and throughput in staged mode.
+Local DISM time and progress remain separate. The staged WIM is removed after
+a successful apply. On failure the cleanup policy runs and the staging path,
+partial/final path where applicable, and failure reason are written to the log.
+The deployment record and final report retain the resolved `imageApplyMode`.
+
 ## What happens during deployment
 
 Before disk modification, WinPE:
 
-1. waits for networking and contacts the configured IronAPI;
+1. initializes networking once with `wpeinit`, then contacts the configured
+   IronAPI with the bounded authorization-policy retry described above;
 2. reads the server-owned WinPE authorization policy;
 3. authenticates by deployment account, PIN, or the explicitly configured
    credential-free mode;
@@ -132,9 +170,11 @@ Before disk modification, WinPE:
    erase;
 7. submits the target-disk snapshot plus the final image, index, driver,
    program, and domain-join selection;
-8. receives a deployment ID, then requests a server-validated manifest;
-9. receives the configured read-only SMB account details, checks the image
-   size and the selected driver package's total size and INF count.
+8. receives a deployment ID and the configured read-only SMB account details;
+9. identifies the adapters and negotiated link speeds used to reach IronAPI
+   and SMB, and immediately sends this adapter-only snapshot to IronAPI;
+10. connects the SMB share, requests a server-validated manifest, and checks
+   the image size and the selected driver package's total size and INF count.
 
 Only then does the destructive phase begin:
 
@@ -144,7 +184,9 @@ Only then does the destructive phase begin:
    non-target disk cannot block the selected disk's Windows and EFI letters.
 3. WinPE substitutes the validated disk number into a temporary DiskPart
    script, then erases and partitions that disk for UEFI/GPT.
-4. DISM applies the selected Windows image.
+4. WinPE either applies the image directly from SMB, or downloads and verifies
+   it locally first, according to the manifest strategy; DISM then applies the
+   selected Windows image.
 5. DISM stages the selected driver package, when one was selected.
 6. WinPE writes deployment state into `C:\IronDeploy`.
 7. WinPE downloads and applies the authorized unattend file.
@@ -160,9 +202,17 @@ DiskPart output is copied into the WinPE log. If DiskPart returns a non-zero
 exit code, the exit code and final output lines are included in the deployment
 error reported to IronAPI.
 
-WinPE reports stage transitions, failures, and aggregate network diagnostics
-to IronAPI. The details of what each API request returns belong in
-[API.md](API.md).
+The adapter-only network snapshot is best-effort telemetry and cannot block
+deployment. It is sent after the deployment ID exists but before SMB catalog
+validation and before any disk is modified, so negotiated 100/1000 Mbps link
+speed can survive a later hard power-off. Before sending the snapshot, WinPE
+always writes the negotiated API/SMB link speed to the WPF deployment log. A
+link below decimal 1 Gbps, or an unavailable speed, is emitted as a highlighted
+warning; one shared API/SMB adapter produces one combined log entry. WinPE also
+reports stage transitions, failures, per-stage metrics, and a final aggregate
+network report. The final report overwrites the early adapter fields with its
+copy of the adapter data. The details of what each API request returns belong
+in [API.md](API.md).
 
 ## Post-install boundary
 
