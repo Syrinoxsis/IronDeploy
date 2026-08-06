@@ -40,6 +40,7 @@ from app.main import (
     _browser_permission,
     authorize_browser_request,
     authorize_deployment_client,
+    deploy_suggest_name,
     is_client_allowed,
 )
 
@@ -69,6 +70,53 @@ def make_http_request(
 
 
 class ClientAccessTests(unittest.TestCase):
+    def test_known_deployments_are_returned_without_ldap(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        session_factory = sessionmaker(bind=engine, expire_on_commit=False)
+        with session_factory() as session:
+            deployment = Deployment(
+                computer_name="pc00042",
+                serial_number="SERIAL-42",
+                mac_address="AA:BB:CC:DD:EE:FF",
+                ip_address="192.0.2.42",
+                image_name="win11.wim",
+                domain_join=False,
+                status=DEPLOYMENT_COMPLETED,
+                started_at=datetime.now(timezone.utc),
+                completed_at=datetime.now(timezone.utc),
+            )
+            session.add(deployment)
+            session.commit()
+
+            settings = SimpleNamespace(
+                ldap_enabled=False,
+                name_prefix="pc",
+                name_width=5,
+            )
+            with (
+                patch("app.main.require_deployment_token"),
+                patch("app.main.get_settings", return_value=settings),
+            ):
+                suggestion = deploy_suggest_name(
+                    make_http_request("/api/deploy/suggest-name"),
+                    serial_number="SERIAL-42",
+                    mac_address="AA:BB:CC:DD:EE:FF",
+                    session=session,
+                )
+
+        self.assertEqual(suggestion.suggested_name, "")
+        self.assertFalse(suggestion.ldap_enabled)
+        self.assertIn("not configured", suggestion.ldap_error or "")
+        known = suggestion.known_computer_names or []
+        self.assertTrue(
+            any(
+                item.computer_name == "pc00042"
+                and item.matched_by == "serial_number"
+                for item in known
+            )
+        )
+
     def test_loopback_is_always_allowed(self) -> None:
         self.assertTrue(is_client_allowed("127.0.0.1"))
         self.assertTrue(is_client_allowed("::1"))

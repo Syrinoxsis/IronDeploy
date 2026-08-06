@@ -1147,10 +1147,7 @@ def deploy_suggest_name(
     session: Session = Depends(get_session),
 ) -> NameSuggestion:
     require_deployment_token(request, session, "authorized", "winpe")
-    try:
-        suggestion = suggest_computer_name(get_settings())
-    except DirectoryLookupError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    settings = get_settings()
     normalized_mac = None
     if mac_address:
         try:
@@ -1159,11 +1156,23 @@ def deploy_suggest_name(
             normalized_mac = mac_address.strip().upper()
 
     normalized_serial = DeploymentBeginRequest.validate_serial_number(serial_number)
-    suggestion.known_computer_names = find_known_computer_names(
+    known_computer_names = find_known_computer_names(
         session,
         normalized_serial,
         normalized_mac,
     )
+    try:
+        suggestion = suggest_computer_name(settings)
+    except DirectoryLookupError as exc:
+        suggestion = NameSuggestion(
+            last_domain_name=None,
+            suggested_name="",
+            max_existing_number=None,
+            source="manual",
+            ldap_enabled=settings.ldap_enabled,
+            ldap_error=str(exc),
+        )
+    suggestion.known_computer_names = known_computer_names
     return suggestion
 
 
