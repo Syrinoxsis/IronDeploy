@@ -51,13 +51,22 @@ per-deployment manifest; the choice is not embedded in the WinPE image.
 The dashboard summarizes deployment outcomes and keeps recent runs searchable
 by computer, hardware, image, status, stage, and start time.
 
+![IronDeploy dashboard showing deployment status and recent runs](Core/Docs/screenshots/dashboard.PNG)
+
+Selecting a run opens its deployment overview, stage timings, and final
+post-install software results.
+
+![IronDeploy deployment details showing hardware, image, disk, and completed stages](Core/Docs/screenshots/DeplomentDetails.png)
+
+![IronDeploy post-install software results with durations and exit codes](Core/Docs/screenshots/post-installProgramResult.png)
+
 Once a deployment ID is registered, WinPE reports the negotiated API and SMB
 adapter link speeds before disk partitioning. Deployment details can therefore
 show whether the path negotiated at 100 Mbps or 1 Gbps even before the final
 network-diagnostics report is available. The WPF deployment log always shows
 the detected speed and highlights links below 1 Gbps as warnings.
 
-![IronDeploy dashboard showing deployment status and recent runs](Core/Docs/screenshots/dashboard.PNG)
+![IronDeploy network diagnostics showing adapter traffic, latency, API requests, and SMB connectivity](Core/Docs/screenshots/G_NETWORKDETAILS.png)
 
 ## Prerequisites
 
@@ -185,6 +194,14 @@ The Windows images page accepts WIM and ESD files, lets administrators choose a
 default deployment edition, and can convert imported ESD images to WIM.
 
 ![IronDeploy Windows image management page](Core/Docs/screenshots/Windows_images.PNG)
+
+### Managing post-install programs
+
+The post-install software page lets administrators upload installers, configure
+their unattended launch arguments, and maintain the programs offered to WinPE
+operators during deployment.
+
+![IronDeploy post-install software management page](Core/Docs/screenshots/post-installProgram.png)
 
 ## Security must-haves
 
