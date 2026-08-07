@@ -78,7 +78,9 @@ Install these Microsoft components on the deployment server:
 You also need:
 
 - Windows PowerShell 5.1;
-- Python 3.11.7 (supported); Python 3.14.7 is currently being tested;
+- Python 3.11.7 (supported); Python 3.14.7 has passed the current test suite
+  and setup-flow checks and is considered provisionally compatible pending
+  broader production validation;
 - a way to boot the generated x64 WinPE image, such as WDS/PXE, ISO, or USB.
 
 IronDeploy does not redistribute Windows ADK, WinPE, Windows installation
