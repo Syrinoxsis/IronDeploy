@@ -1,5 +1,5 @@
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
 python-dotenv==1.2.2
-pywin32==308
+pywin32==312
 SQLAlchemy==2.0.41
