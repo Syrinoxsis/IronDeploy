@@ -71,7 +71,7 @@ const ruTranslations = {
   "Distinguished name for new computer accounts. Example: OU=Workstations,OU=Clients,DC=example,DC=test.": "Отличительное имя для новых учётных записей компьютеров. Пример: OU=Workstations,OU=Clients,DC=example,DC=test.",
   "Advanced settings": "Расширенные настройки",
   "Allowed client networks": "Разрешённые сети клиентов",
-  "Comma-separated CIDR networks. Example: 192.0.2.0/24,198.51.100.0/24.": "CIDR-сети через запятую. Пример: 192.0.2.0/24,198.51.100.0/24.",
+  "Comma-separated CIDR networks. Leave empty to accept clients from all networks. Example: 192.0.2.0/24,198.51.100.0/24.": "CIDR-сети через запятую. Оставьте поле пустым, чтобы принимать клиентов из любых сетей. Пример: 192.0.2.0/24,198.51.100.0/24.",
   "Access log": "Журнал доступа",
   "Uvicorn request log. Usually false for cleaner logs.": "Журнал запросов Uvicorn. Обычно false для более чистых логов.",
   "Database URL": "URL базы данных",

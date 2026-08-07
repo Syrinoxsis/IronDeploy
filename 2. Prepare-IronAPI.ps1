@@ -2,15 +2,13 @@
 
 <#
 .SYNOPSIS
-Prepares WinPE and the IronAPI Python environment.
+Prepares the IronAPI Python environment.
 
 .DESCRIPTION
-Runs the existing IronDeploy WinPE initializer, then creates
-Core\Api\.venv when needed and installs the API requirements.
+Creates Core\Api\.venv when needed and installs the API requirements.
 
-This script does not rebuild the WinPE WIM or ISO, configure IronAPI, or start
-IronAPI. Use 2. Start-IronDeploySetupWeb.ps1 for configuration after
-preparation.
+This script does not configure or start IronAPI. Use
+3. Start-IronDeploySetupWeb.ps1 for configuration after preparation.
 #>
 
 [CmdletBinding()]
@@ -19,19 +17,13 @@ param()
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$IronDeployRoot = Join-Path $PSScriptRoot "Core"
-$WinPEInitializer = Join-Path `
-    $IronDeployRoot `
-    "WinPE\Build\Initialize-IronDeployWinPE.ps1"
-$ApiRoot = Join-Path $IronDeployRoot "Api"
+$ApiRoot = Join-Path $PSScriptRoot "Core\Api"
 $ApiVenvRoot = Join-Path $ApiRoot ".venv"
 $ApiPython = Join-Path $ApiVenvRoot "Scripts\python.exe"
 $ApiRequirements = Join-Path $ApiRoot "requirements.txt"
 
-foreach ($requiredFile in @($WinPEInitializer, $ApiRequirements)) {
-    if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf)) {
-        throw "Required IronDeploy file is missing: $requiredFile"
-    }
+if (-not (Test-Path -LiteralPath $ApiRequirements -PathType Leaf)) {
+    throw "IronAPI requirements file is missing: $ApiRequirements"
 }
 
 function Get-PythonLauncher {
@@ -48,14 +40,36 @@ function Get-PythonLauncher {
     throw "Python 3 was not found in PATH."
 }
 
-Write-Host "Preparing IronDeploy WinPE working tree." -ForegroundColor Cyan
-& $WinPEInitializer
-if ($LASTEXITCODE -ne 0) {
-    throw "IronDeploy WinPE initialization failed with exit code $LASTEXITCODE."
+$VenvExists = Test-Path -LiteralPath $ApiPython -PathType Leaf
+if ($VenvExists) {
+    $launcher = @($ApiPython)
+}
+else {
+    $launcher = @(Get-PythonLauncher)
 }
 
-if (-not (Test-Path -LiteralPath $ApiPython -PathType Leaf)) {
-    $launcher = @(Get-PythonLauncher)
+if ($launcher.Count -gt 1) {
+    $pythonVersion = (& $launcher[0] $launcher[1] --version 2>&1 | Out-String).Trim()
+}
+else {
+    $pythonVersion = (& $launcher[0] --version 2>&1 | Out-String).Trim()
+}
+
+if ($LASTEXITCODE -ne 0) {
+    throw "Failed to query the selected Python; exit code $LASTEXITCODE."
+}
+
+$launcherDisplay = ($launcher | ForEach-Object {
+    if ($_ -match "\s") {
+        return '"{0}"' -f $_
+    }
+
+    return $_
+}) -join " "
+Write-Host "Selected Python: $launcherDisplay ($pythonVersion)" `
+    -ForegroundColor Cyan
+
+if (-not $VenvExists) {
     Write-Host "Creating IronAPI virtual environment: $ApiVenvRoot" `
         -ForegroundColor Cyan
 
@@ -88,7 +102,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host ""
-Write-Host "IronDeploy preparation completed." -ForegroundColor Green
+Write-Host "IronAPI preparation completed." -ForegroundColor Green
 Write-Host (
-    "Next: run & '.\2. Start-IronDeploySetupWeb.ps1' to configure IronDeploy."
+    "Next: run & '.\3. Start-IronDeploySetupWeb.ps1' to configure IronDeploy."
 )

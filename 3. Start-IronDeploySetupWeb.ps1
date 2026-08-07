@@ -2,7 +2,7 @@
 
 <#
 .SYNOPSIS
-Starts step 2 of the IronDeploy setup flow from the repository root.
+Starts step 3 of the IronDeploy setup flow from the repository root.
 
 .DESCRIPTION
 Forwards all supplied parameters to the canonical SetupWeb launcher under the

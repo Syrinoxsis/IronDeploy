@@ -39,6 +39,25 @@ class AccessModeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "direct or staged"):
             normalize_api({"IRONAPI_IMAGE_APPLY_MODE": "auto"})
 
+    def test_empty_allowed_client_networks_are_preserved(self) -> None:
+        result = normalize_api({"IRONAPI_ALLOWED_CLIENT_NETWORKS": ""})
+        self.assertEqual(result["IRONAPI_ALLOWED_CLIENT_NETWORKS"], "")
+
+        result = normalize_api(
+            {
+                "IRONAPI_ALLOWED_CLIENT_NETWORKS": (
+                    " 192.0.2.0/24, 2001:db8::/32 "
+                )
+            }
+        )
+        self.assertEqual(
+            result["IRONAPI_ALLOWED_CLIENT_NETWORKS"],
+            "192.0.2.0/24,2001:db8::/32",
+        )
+
+        with self.assertRaises(ValueError):
+            normalize_api({"IRONAPI_ALLOWED_CLIENT_NETWORKS": "not-a-cidr"})
+
     def test_http_direct_uses_selected_network_bind_and_insecure_cookie(self) -> None:
         result = normalize_api(
             {

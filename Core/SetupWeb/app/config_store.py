@@ -54,9 +54,11 @@ API_NAMES = (
 
 # Active Directory integration is optional. Leaving these empty disables LDAP
 # name checks and Offline Domain Join, which is what a deployment without a
-# domain needs; every other setting still has to be present.
+# domain needs. An empty client-network list explicitly allows every network;
+# every other setting still has to be present.
 OPTIONAL_API_NAMES = frozenset(
     {
+        "IRONAPI_ALLOWED_CLIENT_NETWORKS",
         "IRONAPI_LDAP_SERVER",
         "IRONAPI_LDAP_BASE_DN",
         "IRONAPI_ODJ_DOMAIN",
@@ -650,8 +652,6 @@ def normalize_api(values: dict[str, Any]) -> dict[str, str]:
         if network:
             ipaddress.ip_network(network, strict=False)
             cleaned.append(network)
-    if not cleaned:
-        raise ValueError("IRONAPI_ALLOWED_CLIENT_NETWORKS cannot be empty.")
     result["IRONAPI_ALLOWED_CLIENT_NETWORKS"] = ",".join(cleaned)
 
     width = parse_int(result["IRONAPI_NAME_WIDTH"], "IRONAPI_NAME_WIDTH")

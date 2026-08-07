@@ -2,7 +2,7 @@
 
 <#
 .SYNOPSIS
-Starts step 3, IronAPI, from the repository root.
+Starts step 4, IronAPI, from the repository root.
 
 .DESCRIPTION
 Convenience launcher that forwards to
@@ -24,10 +24,10 @@ always uses port 8000.
 Enables the uvicorn access log regardless of IRONAPI_ACCESS_LOG.
 
 .EXAMPLE
-& ".\3. Start-IronAPI.ps1"
+& ".\4. Start-IronAPI.ps1"
 
 .EXAMPLE
-& ".\3. Start-IronAPI.ps1" -Port 8080 -AccessLog
+& ".\4. Start-IronAPI.ps1" -Port 8080 -AccessLog
 #>
 
 [CmdletBinding()]

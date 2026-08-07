@@ -29,6 +29,7 @@ from sqlalchemy.orm import sessionmaker
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from app.config import _get_allowed_client_networks
 from app.deployments import Base, DEPLOYMENT_COMPLETED, Deployment
 from app.auth import (
     DeploymentToken,
@@ -134,6 +135,18 @@ class ClientAccessTests(unittest.TestCase):
         )
         with patch("app.main.get_settings", return_value=settings):
             self.assertFalse(is_client_allowed("203.0.113.10"))
+
+    def test_empty_network_list_allows_every_valid_address(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"IRONAPI_ALLOWED_CLIENT_NETWORKS": ""},
+        ):
+            self.assertEqual(_get_allowed_client_networks(), ())
+
+        settings = SimpleNamespace(allowed_client_networks=())
+        with patch("app.main.get_settings", return_value=settings):
+            self.assertTrue(is_client_allowed("203.0.113.10"))
+            self.assertTrue(is_client_allowed("2001:db8::10"))
 
     def test_invalid_or_missing_address_is_rejected(self) -> None:
         self.assertFalse(is_client_allowed(None))

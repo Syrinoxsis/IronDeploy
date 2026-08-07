@@ -584,7 +584,7 @@ foreach ($requiredFile in @(
 if ($LASTEXITCODE -ne 0) {
     throw (
         "IronAPI pywin32 dependencies are unavailable. Run " +
-        "& '.\1. Prepare-IronDeploy.ps1' first."
+        "& '.\2. Prepare-IronAPI.ps1' first."
     )
 }
 

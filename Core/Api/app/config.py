@@ -57,15 +57,15 @@ def _get_int_or_default(name: str, default: int) -> int:
 
 
 def _get_allowed_client_networks() -> tuple[IPv4Network | IPv6Network, ...]:
-    value = _get_required_env("IRONAPI_ALLOWED_CLIENT_NETWORKS")
-    networks = tuple(
+    value = _get_required_env(
+        "IRONAPI_ALLOWED_CLIENT_NETWORKS",
+        allow_empty=True,
+    )
+    return tuple(
         ip_network(item.strip(), strict=False)
         for item in value.split(",")
         if item.strip()
     )
-    if not networks:
-        raise RuntimeError("IRONAPI_ALLOWED_CLIENT_NETWORKS cannot be empty")
-    return networks
 
 
 class Settings(BaseModel):

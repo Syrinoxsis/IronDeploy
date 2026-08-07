@@ -8,7 +8,7 @@ Removes the IronAPI Windows Service registration.
 Stops the IronAPI service when it is running and unregisters it from the
 Windows Service Control Manager. Only the service registration is removed.
 The repository, configuration, database, Windows images, drivers, programs,
-Offline Domain Join blobs, and logs are left untouched, so step 4 can register
+Offline Domain Join blobs, and logs are left untouched, so step 5 can register
 the service again at any time.
 
 This script is not part of installation. Run it only when the service must be
@@ -142,5 +142,5 @@ Write-Host (
     "and repository files were not deleted."
 ) -ForegroundColor Green
 Write-Host (
-    "Run step 4 to register the service again."
+    "Run step 5 to register the service again."
 ) -ForegroundColor DarkGray

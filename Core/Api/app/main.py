@@ -184,9 +184,13 @@ def is_client_allowed(client_ip: str | None) -> bool:
     if address.is_loopback:
         return True
 
+    allowed_networks = get_settings().allowed_client_networks
+    if not allowed_networks:
+        return True
+
     return any(
         address.version == network.version and address in network
-        for network in get_settings().allowed_client_networks
+        for network in allowed_networks
     )
 
 

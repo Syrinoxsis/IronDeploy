@@ -87,22 +87,30 @@ images, or Windows licences.
 ## Installation
 
 Download or clone the repository, open an elevated Windows PowerShell session
-in its root, and run scripts 1 through 4 in order. Script 5 is an optional
+in its root, and run scripts 1 through 5 in order. Script 6 is an optional
 maintenance utility and is not part of installation.
 
-### 1. Prepare IronDeploy
+### 1. Prepare the WinPE working tree
 
 ```powershell
-& ".\1. Prepare-IronDeploy.ps1"
+& ".\1. Prepare-IronDeployWinPE.ps1"
 ```
 
-Initializes the WinPE working tree, creates the IronAPI Python environment, and
-installs its dependencies.
+Initializes the WinPE working tree. It does not rebuild the WIM or ISO.
 
-### 2. Configure IronDeploy
+### 2. Prepare IronAPI
 
 ```powershell
-& ".\2. Start-IronDeploySetupWeb.ps1"
+& ".\2. Prepare-IronAPI.ps1"
+```
+
+Creates the IronAPI Python virtual environment when needed and installs its
+dependencies.
+
+### 3. Configure IronDeploy
+
+```powershell
+& ".\3. Start-IronDeploySetupWeb.ps1"
 ```
 
 Starts the local SetupWeb configuration page. Configure IronAPI, the SMB share,
@@ -112,19 +120,19 @@ administrator account.
 After saving, finish setup in the browser so SetupWeb closes automatically.
 Alternatively, you may stop it with `Ctrl+C`.
 
-### 3. Test IronAPI in the foreground
+### 4. Test IronAPI in the foreground
 
 ```powershell
-& ".\3. Start-IronAPI.ps1"
+& ".\4. Start-IronAPI.ps1"
 ```
 
 Starts IronAPI in the current console. Verify that it starts correctly, then
 stop it with `Ctrl+C`.
 
-### 4. Install the IronAPI Windows service
+### 5. Install the IronAPI Windows service
 
 ```powershell
-& ".\4. Install-IronAPIService.ps1"
+& ".\5. Install-IronAPIService.ps1"
 ```
 
 Installs IronAPI as an automatically started Windows service under a dedicated
@@ -136,17 +144,17 @@ rejected.
 
 ### Optional maintenance: remove the Windows service
 
-Script 5 is not part of installation. Use it only when the IronAPI service must
+Script 6 is not part of installation. Use it only when the IronAPI service must
 be stopped and unregistered, for example before moving IronDeploy to another
 host or changing the service identity from scratch:
 
 ```powershell
-& ".\5. Delete-IronAPIService.ps1"
+& ".\6. Delete-IronAPIService.ps1"
 ```
 
 It removes only the service registration. Configuration, the database, images,
 drivers, programs, Offline Domain Join blobs, logs, and repository files are
-preserved, so step 4 can register the service again at any time.
+preserved, so step 5 can register the service again at any time.
 
 ### Required accounts and file access
 

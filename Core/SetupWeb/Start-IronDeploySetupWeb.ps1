@@ -55,8 +55,36 @@ function New-RandomLocalPort {
     throw "Unable to find a free localhost TCP port."
 }
 
-if (-not (Test-Path -LiteralPath $PythonPath -PathType Leaf)) {
-    $launcher = Get-PythonLauncher
+$VenvExists = Test-Path -LiteralPath $PythonPath -PathType Leaf
+if ($VenvExists) {
+    $launcher = @($PythonPath)
+}
+else {
+    $launcher = @(Get-PythonLauncher)
+}
+
+if ($launcher.Count -gt 1) {
+    $pythonVersion = (& $launcher[0] $launcher[1] --version 2>&1 | Out-String).Trim()
+}
+else {
+    $pythonVersion = (& $launcher[0] --version 2>&1 | Out-String).Trim()
+}
+
+if ($LASTEXITCODE -ne 0) {
+    throw "Failed to query the selected Python; exit code $LASTEXITCODE."
+}
+
+$launcherDisplay = ($launcher | ForEach-Object {
+    if ($_ -match "\s") {
+        return '"{0}"' -f $_
+    }
+
+    return $_
+}) -join " "
+Write-Host "Selected Python: $launcherDisplay ($pythonVersion)" `
+    -ForegroundColor Cyan
+
+if (-not $VenvExists) {
     Write-Host "Creating SetupWeb virtual environment: $VenvRoot" -ForegroundColor Cyan
     if ($launcher.Count -gt 1) {
         & $launcher[0] $launcher[1] -m venv $VenvRoot

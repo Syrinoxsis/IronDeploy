@@ -9,10 +9,10 @@ start IronAPI, install the Windows service, or rebuild WinPE.
 
 ## Starting SetupWeb
 
-From the repository root, run step 2:
+From the repository root, run step 3:
 
 ```powershell
-& ".\2. Start-IronDeploySetupWeb.ps1"
+& ".\3. Start-IronDeploySetupWeb.ps1"
 ```
 
 The launcher forwards to `Core\SetupWeb\Start-IronDeploySetupWeb.ps1`. On
@@ -22,8 +22,8 @@ selects a random localhost port, and opens the default browser.
 Useful launcher options are:
 
 ```powershell
-& ".\2. Start-IronDeploySetupWeb.ps1" -NoBrowser
-& ".\2. Start-IronDeploySetupWeb.ps1" -SkipDependencyInstall
+& ".\3. Start-IronDeploySetupWeb.ps1" -NoBrowser
+& ".\3. Start-IronDeploySetupWeb.ps1" -SkipDependencyInstall
 ```
 
 `-NoBrowser` prints the URL instead of opening it. Dependency installation can
@@ -62,6 +62,12 @@ The UI owns the first-time settings needed by both IronAPI and WinPE:
 - WinPE image, driver, program, and drive-letter paths;
 - local administrator policy for post-install;
 - Windows time zone in the unattend template.
+
+`Allowed client networks` is part of the main **Service endpoint** settings.
+Enter comma-separated IPv4 or IPv6 CIDRs to restrict access. Leaving the field
+empty writes `IRONAPI_ALLOWED_CLIENT_NETWORKS=` and allows clients from every
+network; the `(?)` help beside the field repeats this behavior. Loopback is
+always allowed even when CIDRs are configured.
 
 The later IronAPI `/image-config` page owns the operational image-apply choice.
 It stores `direct` or `staged` as `IRONAPI_IMAGE_APPLY_MODE` in
@@ -122,16 +128,16 @@ Finish closes the local SetupWeb session. The next flow step is the foreground
 IronAPI test:
 
 ```powershell
-& ".\3. Start-IronAPI.ps1"
+& ".\4. Start-IronAPI.ps1"
 ```
 
 After the foreground test succeeds, IronAPI may be installed as a service with
-step 4. See [API.md](API.md) for startup, service identity, and runtime
+step 5. See [API.md](API.md) for startup, service identity, and runtime
 behavior.
 
 ## Reopening configuration
 
-Run step 2 again whenever configuration must change. SetupWeb reads the current
+Run step 3 again whenever configuration must change. SetupWeb reads the current
 files and creates backups on save. Restart IronAPI after changing settings it
 loads at process startup. Rebuild the WinPE artifact only when a setting copied
 into `deploy.config.ps1` must be delivered to new boot media.

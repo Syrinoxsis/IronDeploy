@@ -11,21 +11,21 @@ and returns the connection details.
 ## Starting IronAPI
 
 SetupWeb should create `Core\Api\.env` before the first start. From the repository
-root, step 3 runs IronAPI in the foreground:
+root, step 4 runs IronAPI in the foreground:
 
 ```powershell
-& ".\3. Start-IronAPI.ps1"
+& ".\4. Start-IronAPI.ps1"
 ```
 
 The launcher reads `Core\Api\.env`, checks `Core\Api\.venv`, creates the `Core\Data`,
 `Core\ODJ\pending`, and `Core\Logs` directories, and starts uvicorn. Stop a foreground
 test with `Ctrl+C`.
 
-After verifying the configuration, step 4 can install the persistent Windows
+After verifying the configuration, step 5 can install the persistent Windows
 service:
 
 ```powershell
-& ".\4. Install-IronAPIService.ps1"
+& ".\5. Install-IronAPIService.ps1"
 ```
 
 The installer accepts a dedicated domain account or, for deployments without
@@ -59,8 +59,10 @@ IronAPI reads `Core\Api\.env`. Its settings are grouped by responsibility:
 | Offline Domain Join | domain, target OU, `djoin.exe`, timeout, blob lifetime |
 | Driver uploads | file, depth, path, concurrency, lifetime, and free-space limits |
 
-Loopback clients are always allowed. Other clients must belong to a CIDR in
-`IRONAPI_ALLOWED_CLIENT_NETWORKS`; rejected clients receive HTTP 403.
+Loopback clients are always allowed. When `IRONAPI_ALLOWED_CLIENT_NETWORKS`
+contains CIDRs, other clients must belong to one of them or receive HTTP 403.
+The variable must be present in `Core\Api\.env`; an empty value written as
+`IRONAPI_ALLOWED_CLIENT_NETWORKS=` allows clients from every network.
 
 ## Data sources
 

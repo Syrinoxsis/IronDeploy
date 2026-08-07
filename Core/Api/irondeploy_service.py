@@ -232,7 +232,7 @@ def main() -> None:
 
     if len(sys.argv) != 2:
         raise SystemExit(
-            "This helper is managed by 4. Install-IronAPIService.ps1."
+            "This helper is managed by 5. Install-IronAPIService.ps1."
         )
     _register_service(sys.argv[1])
 

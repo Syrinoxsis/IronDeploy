@@ -99,6 +99,7 @@
                 <label class="wide"><span class="field-title">Access mode <span class="help" title="Direct HTTP exposes IronAPI on the selected network address. HTTPS reverse proxy keeps IronAPI on 127.0.0.1:8000 and expects an external proxy.">?</span></span><select data-api="IRONAPI_ACCESS_MODE"><option value="http_direct">HTTP direct</option><option value="https_proxy">HTTPS through reverse proxy</option></select></label>
                 <label><span class="field-title">Bind address <span class="help" title="IP address for IronAPI. Example: 127.0.0.1, 198.51.100.10, or 0.0.0.0.">?</span></span><input data-api="IRONAPI_BIND_HOST" /></label>
                 <label><span class="field-title">TCP port <span class="help" title="Integer from 1 to 65535. Example: 8000.">?</span></span><input data-api="IRONAPI_PORT" inputmode="numeric" /></label>
+                <label class="wide"><span class="field-title">Allowed client networks <span class="help" title="Comma-separated CIDR networks. Leave empty to accept clients from all networks. Example: 192.0.2.0/24,198.51.100.0/24.">?</span></span><input data-api="IRONAPI_ALLOWED_CLIENT_NETWORKS" /></label>
               </div>
             </section>
 
@@ -150,7 +151,6 @@
           <details class="advanced-block">
             <summary>Advanced settings</summary>
             <div class="form-grid two">
-              <label><span class="field-title">Allowed client networks <span class="help" title="Comma-separated CIDR networks. Example: 192.0.2.0/24,198.51.100.0/24.">?</span></span><input data-api="IRONAPI_ALLOWED_CLIENT_NETWORKS" /></label>
               <label><span class="field-title">Access log <span class="help" title="Uvicorn request log. Usually false for cleaner logs.">?</span></span><select data-api="IRONAPI_ACCESS_LOG"><option value="false">false</option><option value="true">true</option></select></label>
               <label class="wide"><span class="field-title">Database URL <span class="help" title="SQLAlchemy URL. Example: sqlite:///{IRONDEPLOY_ROOT}/Data/irondeploy.db. Empty restores the .env.example value.">?</span></span><input data-api="IRONAPI_DATABASE_URL" /></label>
               <label><span class="field-title">ODJ blob directory <span class="help" title="Protected local API-server directory, not SMB. Example: {IRONDEPLOY_ROOT}\\ODJ\\pending.">?</span></span><input data-api="IRONAPI_ODJ_BLOB_DIR" /></label>

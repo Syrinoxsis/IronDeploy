@@ -764,34 +764,43 @@ function Configure-ApiLaunch {
         Get-ConfigValue $current "IRONAPI_ACCESS_LOG" "false"
     ) -match "^(?i:true|1|yes|on)$"
     $accessLog = Read-YesNo "Enable Uvicorn access log" $currentAccessLog
-    $allowedNetworks = Read-ConfiguredValue `
-        "Allowed client networks" `
-        "Comma-separated CIDRs allowed to call IronAPI. Loopback is always allowed." `
-        (Get-ConfigValue `
-            $current `
-            "IRONAPI_ALLOWED_CLIENT_NETWORKS" `
-            "192.0.2.0/24") `
-        {
-            param($value)
-            foreach ($item in $value.Split(",")) {
-                if ($item.Trim() -notmatch "^([^/]+)/(\d+)$") {
-                    return "Use CIDR values such as 192.0.2.0/24."
+    $currentAllowedNetworks = Get-ConfigValue `
+        $current `
+        "IRONAPI_ALLOWED_CLIENT_NETWORKS" `
+        "192.0.2.0/24"
+    $allowAllNetworks = Read-YesNo `
+        "Allow IronAPI clients from every network" `
+        ([string]::IsNullOrWhiteSpace($currentAllowedNetworks))
+    if ($allowAllNetworks) {
+        $allowedNetworks = ""
+    }
+    else {
+        $allowedNetworks = Read-ConfiguredValue `
+            "Allowed client networks" `
+            "Comma-separated CIDRs allowed to call IronAPI. Loopback is always allowed." `
+            $currentAllowedNetworks `
+            {
+                param($value)
+                foreach ($item in $value.Split(",")) {
+                    if ($item.Trim() -notmatch "^([^/]+)/(\d+)$") {
+                        return "Use CIDR values such as 192.0.2.0/24."
+                    }
+                    $address = $null
+                    if (![Net.IPAddress]::TryParse($Matches[1], [ref]$address)) {
+                        return "Invalid network address: $($Matches[1])."
+                    }
+                    $prefix = [int]$Matches[2]
+                    $maximum = if (
+                        $address.AddressFamily -eq
+                        [Net.Sockets.AddressFamily]::InterNetwork
+                    ) { 32 } else { 128 }
+                    if ($prefix -lt 0 -or $prefix -gt $maximum) {
+                        return "Invalid prefix length for $address."
+                    }
                 }
-                $address = $null
-                if (![Net.IPAddress]::TryParse($Matches[1], [ref]$address)) {
-                    return "Invalid network address: $($Matches[1])."
-                }
-                $prefix = [int]$Matches[2]
-                $maximum = if (
-                    $address.AddressFamily -eq
-                    [Net.Sockets.AddressFamily]::InterNetwork
-                ) { 32 } else { 128 }
-                if ($prefix -lt 0 -or $prefix -gt $maximum) {
-                    return "Invalid prefix length for $address."
-                }
+                return $null
             }
-            return $null
-        }
+    }
     Set-DotEnvValues @{
         IRONAPI_BIND_HOST = $bindHost
         IRONAPI_PORT = $port
