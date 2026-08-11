@@ -2,6 +2,78 @@ let csrfToken = "";
 let lastConfig = null;
 
 const ruTranslations = {
+  "Network settings": "Сетевые настройки",
+  "Storage and images": "Хранилище и образы",
+  "Computers and domain": "Компьютеры и домен",
+  "Deployment": "Развёртывание",
+  "Configuration overview": "Обзор конфигурации",
+  "Check the source files, set administrator access, and follow the steps in order.": "Проверьте исходные файлы, задайте доступ администратора и последовательно пройдите все шаги.",
+  "Save and continue": "Сохранить и продолжить",
+  "Configure how WinPE and regular clients connect to IronAPI.": "Настройте, как WinPE и обычные клиенты подключаются к IronAPI.",
+  "Access mode": "Режим доступа",
+  "Choose how clients reach IronAPI.": "Выберите способ доступа клиентов к IronAPI.",
+  "Direct HTTP access": "Прямой доступ (HTTP)",
+  "Clients connect directly to IronAPI over HTTP.": "Клиенты подключаются напрямую к IronAPI по HTTP.",
+  "HTTPS through reverse proxy": "HTTPS через обратный прокси",
+  "Clients connect securely through an external proxy.": "Клиенты подключаются по HTTPS через внешний прокси.",
+  "IronAPI addressing": "Адресация IronAPI",
+  "Set the internal listener and the address visible to clients.": "Задайте внутренний интерфейс и адрес, доступный клиентам.",
+  "Internal TCP port": "Внутренний TCP-порт",
+  "External address": "Внешний адрес",
+  "Use a hostname or IP; standard HTTPS port 443 is omitted automatically.": "Укажите имя или IP; стандартный HTTPS-порт 443 автоматически не отображается.",
+  "HTTPS certificate": "Сертификат HTTPS",
+  "WinPE and post-install can verify the proxy certificate before sending credentials.": "WinPE и post-install могут проверить сертификат прокси до передачи учётных данных.",
+  "Validate the certificate on clients": "Проверять сертификат на клиентах",
+  "Recommended for HTTPS deployments.": "Рекомендуется для развёртываний по HTTPS.",
+  "Check certificate": "Проверить сертификат",
+  "Client network access": "Доступ клиентских сетей",
+  "Limit which client networks may call IronAPI.": "Ограничьте сети, из которых клиенты могут обращаться к IronAPI.",
+  "Check connection settings": "Проверить настройки соединения",
+  "Connection topology": "Топология подключения",
+  "Live preview for the selected access mode.": "Предпросмотр для выбранного режима доступа.",
+  "WinPE clients": "WinPE-клиенты",
+  "Regular clients": "Обычные клиенты",
+  "Certificate check": "Проверка сертификата",
+  "YES": "ДА",
+  "NO": "НЕТ",
+  "HTTPS reverse proxy": "HTTPS обратный прокси",
+  "IronAPI server": "Сервер IronAPI",
+  "Certificate validation applies to WinPE and post-install.": "Проверка сертификата применяется к WinPE и post-install.",
+  "Clients connect directly over HTTP; certificate settings are hidden.": "Клиенты подключаются напрямую по HTTP; настройки сертификата скрыты.",
+  "Configure the SMB source, mapped paths, image selection, and driver upload limits.": "Настройте SMB-источник, подключаемые пути, выбор образа и лимиты загрузки драйверов.",
+  "Content paths are derived automatically from the selected drive.": "Пути к содержимому автоматически формируются из выбранного диска.",
+  "Image application": "Применение образа",
+  "Select the image index and how Windows image data is applied.": "Выберите индекс образа и способ применения данных Windows.",
+  "Image index": "Индекс образа",
+  "Image apply mode": "Режим применения образа",
+  "Direct from SMB": "Напрямую из SMB",
+  "Stage locally first": "Сначала скопировать локально",
+  "Define predictable computer names and optional Active Directory integration.": "Задайте понятные имена компьютеров и необязательную интеграцию с Active Directory.",
+  "Build predictable names and preview the next generated value.": "Настройте предсказуемые имена и проверьте следующее значение.",
+  "Leave both groups empty to deploy without Active Directory.": "Оставьте обе группы пустыми для развёртывания без Active Directory.",
+  "Directory advanced settings": "Расширенные настройки каталога",
+  "Set deployment deadlines, Windows first-boot behavior, and service options.": "Задайте сроки развёртывания, поведение первого запуска Windows и параметры сервиса.",
+  "Hard deadlines that regular API activity does not extend.": "Жёсткие сроки, которые не продлеваются обычной активностью API.",
+  "Windows first boot": "Первый запуск Windows",
+  "Choose the time zone and local administrator behavior after image application.": "Выберите часовой пояс и поведение локального администратора после применения образа.",
+  "Windows time zone": "Часовой пояс Windows",
+  "Setup local administrator name": "Имя локального администратора настройки",
+  "Enable setup local administrator": "Включить локального администратора настройки",
+  "Create the temporary setup account used by post-install.": "Создать временную учётную запись для post-install.",
+  "Enable built-in Administrator": "Включить встроенного Administrator",
+  "Enable the Windows built-in Administrator account.": "Включить встроенную учётную запись Administrator Windows.",
+  "Show image application progress": "Показывать ход применения образа",
+  "Display the WinPE graphical progress window.": "Показывать графическое окно прогресса WinPE.",
+  "IronAPI service settings": "Параметры сервиса IronAPI",
+  "Run the repository validation without starting IronAPI.": "Запустите проверку репозитория без запуска IronAPI.",
+  "Waiting": "Ожидание",
+  "Unattend template": "Шаблон unattend",
+  "Back": "Назад",
+  "Save configuration": "Сохранить конфигурацию",
+  "Finish setup": "Завершить настройку",
+  "Certificate is valid until": "Сертификат действителен до",
+  "Connection settings are consistent.": "Настройки соединения согласованы.",
+  "Select a certificate file before checking it.": "Выберите файл сертификата перед проверкой.",
   "Interface language": "Язык интерфейса",
   "Setup sections": "Разделы настройки",
   "Overview": "Обзор",
@@ -172,6 +244,39 @@ const ruTranslations = {
   "SetupWeb session closed. You can close this tab.": "Сессия SetupWeb завершена. Эту вкладку можно закрыть."
 };
 
+Object.assign(ruTranslations, {
+  "1. Access mode": "1. Режим доступа",
+  "2. IronAPI addressing": "2. Адресация IronAPI",
+  "3. HTTPS certificate": "3. Сертификат HTTPS",
+  "4. Client network access": "4. Доступ клиентских сетей",
+  "HTTPS through reverse proxy": "HTTPS через обратный прокси",
+  "Self-signed server certificate": "Самоподписанный сертификат",
+  "HTTPS reverse proxy": "HTTPS обратный прокси",
+  "Choose file": "Выбрать файл",
+  "No file chosen": "Файл не выбран",
+  "Saved certificate": "Сохранённый сертификат",
+  "Unsorted": "Не прошедшее сортировку",
+  "Unsorted settings": "Не прошедшие сортировку настройки",
+  "Continue": "Продолжить",
+  "Current source files and local setup session state.": "Текущие файлы конфигурации и состояние локальной сессии настройки.",
+  "WinPE deploy config": "Конфигурация развёртывания WinPE",
+  "Existing WinPE deployment settings. Network connectivity is configured in step 2.": "Существующие параметры развёртывания WinPE. Сетевое подключение настраивается на шаге 2.",
+  "Existing SetupWeb controls that have not yet been assigned to the new flow.": "Существующие настройки SetupWeb, которые ещё не распределены по новому процессу.",
+  "Existing optional tuning for service timeouts, driver uploads, and WinPE drive mapping.": "Существующие дополнительные параметры тайм-аутов, загрузки драйверов и подключения диска WinPE.",
+  "5. Administrator access": "5. Доступ администратора",
+  "Choose the credentials that IronAPI should use for its superadministrator.": "Укажите данные, которые IronAPI должен использовать для суперадминистратора.",
+  "Choose the login you want to create or use for the IronAPI superadministrator.": "Укажите желаемый логин суперадминистратора IronAPI.",
+  "Choose a password of at least 12 characters. It is stored only as a salted password hash.": "Укажите желаемый пароль длиной не менее 12 символов. Он хранится только в виде хеша с солью.",
+  "This is not a sign-in.": "Это не авторизация.",
+  "You are defining the credentials you want IronAPI to use.": "Вы задаёте произвольные учётные данные, которые хотите использовать в IronAPI.",
+});
+
+window.SetupWebTranslations = ruTranslations;
+
+// The current task-oriented runtime lives in setup-flow.js. Keep the legacy
+// runtime inert here so the mature translation catalog remains available while
+// the new flow uses the same bilingual copy.
+if (false) {
 let currentLanguage = (() => {
   try {
     const saved = localStorage.getItem("setupweb-language");
@@ -520,3 +625,4 @@ document.querySelectorAll("[data-winpe='ShareDrive']").forEach((input) => {
 
 setLanguage(currentLanguage, false);
 load().catch((error) => showMessage(error.message, "error"));
+}

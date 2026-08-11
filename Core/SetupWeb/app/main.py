@@ -10,7 +10,12 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .config_store import IronDeployPaths, load_config, save_config
+from .config_store import (
+    IronDeployPaths,
+    load_config,
+    save_config,
+    validate_certificate,
+)
 from .security import (
     SESSION_COOKIE,
     LocalOnlyMiddleware,
@@ -107,6 +112,24 @@ def validate(_: SessionRequired) -> dict[str, Any]:
         "stdout": completed.stdout,
         "stderr": completed.stderr,
     }
+
+
+@app.post("/api/certificate/validate")
+async def validate_uploaded_certificate(
+    request: Request, _: SessionRequired
+) -> JSONResponse:
+    try:
+        payload = await request.json()
+        if not isinstance(payload, dict):
+            raise ValueError("Invalid payload.")
+        result = validate_certificate(
+            PATHS,
+            str(payload.get("certificateBase64", "")),
+            str(payload.get("certificateType", "")),
+        )
+        return JSONResponse(result)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 
 
 @app.post("/api/finish")

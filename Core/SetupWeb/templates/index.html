@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>IronDeploy SetupWeb</title>
     <link rel="stylesheet" href="/static/setup.css" />
+    <script src="/static/setup.js" defer></script>
+    <script src="/static/setup-flow.js" defer></script>
   </head>
   <body>
     <div class="app-shell">
@@ -16,18 +18,32 @@
             <p>SetupWeb</p>
           </div>
         </div>
-        <nav>
-          <button class="nav-item is-active" data-section="overview">Overview</button>
-          <button class="nav-item" data-section="api">IronAPI</button>
-          <button class="nav-item" data-section="winpe">WinPE</button>
-          <button class="nav-item" data-section="additional">Additional</button>
-          <button class="nav-item" data-section="validation">Validation</button>
+
+        <nav class="step-nav">
+          <button class="step-item is-active" type="button" data-section="overview">
+            <span class="step-number">1</span><span class="step-label">Overview</span>
+          </button>
+          <button class="step-item" type="button" data-section="network">
+            <span class="step-number">2</span><span class="step-label">Network settings</span>
+          </button>
+          <button class="step-item" type="button" data-section="winpe">
+            <span class="step-number">3</span><span class="step-label">WinPE</span>
+          </button>
+          <button class="step-item" type="button" data-section="additional">
+            <span class="step-number">4</span><span class="step-label">Additional</span>
+          </button>
+          <button class="step-item" type="button" data-section="validation">
+            <span class="step-number">5</span><span class="step-label">Validation</span>
+          </button>
+          <button class="step-item" type="button" data-section="unsorted">
+            <span class="step-number">6</span><span class="step-label">Unsorted</span>
+          </button>
         </nav>
       </aside>
 
-      <main>
+      <main class="workspace">
         <header class="topbar">
-          <div>
+          <div class="session-copy">
             <strong>Local setup session</strong>
             <span id="rootPath">Loading...</span>
           </div>
@@ -37,242 +53,347 @@
               <button type="button" class="language-button" data-language="en">EN</button>
             </div>
             <span class="status-pill">127.0.0.1 only</span>
-            <button id="saveButton" class="primary">Save</button>
-            <button id="finishButton" class="secondary">Finish</button>
+            <button id="finishButton" class="secondary compact-button" type="button">Finish</button>
           </div>
         </header>
 
-        <section class="notice" id="messageArea" hidden></section>
+        <section class="notice" id="messageArea" hidden aria-live="polite"></section>
 
         <section class="view is-visible" id="overview">
-          <div class="section-head">
-            <h2>Configuration Overview</h2>
-            <p>Current source files and session state.</p>
+          <div class="page-head">
+            <h2>Configuration overview</h2>
+            <p>Current source files and local setup session state.</p>
           </div>
-          <div class="summary-grid">
-            <div class="summary-panel">
+
+          <div class="overview-status-grid">
+            <article class="status-card">
               <span>IronAPI environment</span>
               <strong id="apiEnvStatus">Unknown</strong>
               <p id="apiEnvPath"></p>
-            </div>
-            <div class="summary-panel">
+            </article>
+            <article class="status-card">
               <span>WinPE deploy config</span>
               <strong id="winpeStatus">Unknown</strong>
               <p id="winpePath"></p>
-            </div>
-            <div class="summary-panel warning">
+            </article>
+            <article class="status-card status-card-warning">
               <span>SMB password</span>
               <strong id="passwordStatus">Not loaded into browser</strong>
               <p>Leave blank to keep the existing saved value.</p>
-            </div>
-            <div class="summary-panel">
+            </article>
+            <article class="status-card">
               <span>Windows unattend template</span>
               <strong id="unattendStatus">Unknown</strong>
               <p id="unattendPath"></p>
-            </div>
+            </article>
+          </div>
+
+          <div class="step-actions align-end">
+            <button class="primary" type="button" data-next="network">Continue</button>
           </div>
         </section>
 
-        <section class="view" id="api">
-          <div class="section-head">
-            <h2>IronAPI Settings</h2>
-            <p>Writes <code>Api\.env</code>. It does not start IronAPI.</p>
+        <section class="view" id="network">
+          <div class="page-head">
+            <h2>Network settings</h2>
+            <p>Configure how WinPE and regular clients connect to IronAPI.</p>
           </div>
-          <div class="settings-grid">
-            <section class="settings-card">
-              <div class="settings-card-head">
-                <h3>Administrator access</h3>
-                <p>Credentials for the account that manages IronAPI users and permissions.</p>
-              </div>
-              <div class="form-grid two compact-grid">
-                <label><span class="field-title">IronAPI superadmin login <span class="help" title="Initial account that exclusively manages users and permissions.">?</span></span><input data-auth="username" autocomplete="username" /></label>
-                <label><span class="field-title">IronAPI superadmin password <span class="help" title="At least 12 characters. Stored only as a salted password hash in Data.">?</span></span><input data-auth="password" type="password" autocomplete="new-password" placeholder="Leave blank to keep current password" /><small id="superadminPasswordStatus">Required</small></label>
-              </div>
-            </section>
 
-            <section class="settings-card">
-              <div class="settings-card-head">
-                <h3>Service endpoint</h3>
-                <p>Address where IronAPI accepts connections from the deployment network.</p>
-              </div>
-              <div class="form-grid two compact-grid">
-                <label class="wide"><span class="field-title">Access mode <span class="help" title="Direct HTTP exposes IronAPI on the selected network address. HTTPS reverse proxy keeps IronAPI on 127.0.0.1:8000 and expects an external proxy.">?</span></span><select data-api="IRONAPI_ACCESS_MODE"><option value="http_direct">HTTP direct</option><option value="https_proxy">HTTPS through reverse proxy</option></select></label>
-                <label><span class="field-title">Bind address <span class="help" title="IP address for IronAPI. Example: 127.0.0.1, 198.51.100.10, or 0.0.0.0.">?</span></span><input data-api="IRONAPI_BIND_HOST" /></label>
-                <label><span class="field-title">TCP port <span class="help" title="Integer from 1 to 65535. Example: 8000.">?</span></span><input data-api="IRONAPI_PORT" inputmode="numeric" /></label>
-                <label class="wide"><span class="field-title">Allowed client networks <span class="help" title="Comma-separated CIDR networks. Leave empty to accept clients from all networks. Example: 192.0.2.0/24,198.51.100.0/24.">?</span></span><input data-api="IRONAPI_ALLOWED_CLIENT_NETWORKS" /></label>
-              </div>
-            </section>
-
-            <section class="settings-card settings-card-wide naming-card">
-              <div class="settings-card-head">
-                <h3>Computer naming</h3>
-                <p>Build predictable names while keeping the generated result visible.</p>
-              </div>
-              <div class="naming-builder">
-                <div class="form-grid three compact-grid">
-                  <label><span class="field-title">Computer prefix <span class="help" title="1-15 letters/digits/hyphens, starts with a letter. Example: pc.">?</span></span><input data-api="IRONAPI_NAME_PREFIX" /></label>
-                  <label><span class="field-title">Number width <span class="help" title="Digits after prefix. Example: 5 makes pc00001.">?</span></span><input data-api="IRONAPI_NAME_WIDTH" inputmode="numeric" /></label>
-                  <label><span class="field-title">Starting number <span class="help" title="First number when no matching LDAP names exist. Example: 1.">?</span></span><input data-api="IRONAPI_NAME_START" inputmode="numeric" /></label>
-                </div>
-                <div class="name-preview" aria-live="polite">
-                  <span>Next generated name</span>
-                  <strong id="computerNamePreview">pc00001</strong>
-                  <small>Existing LDAP names are skipped automatically.</small>
-                </div>
-              </div>
-            </section>
-
-            <section class="settings-card settings-card-wide">
-              <div class="settings-card-head">
-                <h3>Directory and domain join</h3>
-                <p>LDAP lookup and Offline Domain Join settings are kept together.</p>
-                <p class="optional-note">Active Directory is optional. Leave these fields empty to deploy without domain join; IronAPI then rejects any deployment that requests one.</p>
-              </div>
-              <div class="integration-grid">
-                <div class="integration-group">
-                  <h4>LDAP directory</h4>
-                  <div class="form-grid two compact-grid">
-                    <label><span class="field-title">LDAP server <span class="help" title="Domain controller host or IP, no ldap:// prefix. Empty disables LDAP with empty Base DN.">?</span></span><input data-api="IRONAPI_LDAP_SERVER" /></label>
-                    <label><span class="field-title">LDAP base DN <span class="help" title="Search root. Example: DC=example,DC=test. Empty disables LDAP with empty server.">?</span></span><input data-api="IRONAPI_LDAP_BASE_DN" /></label>
-                    <label><span class="field-title">LDAPS <span class="help" title="true uses TCP 636 with trusted LDAP TLS; false uses TCP 389.">?</span></span><select data-api="IRONAPI_LDAP_USE_SSL"><option value="false">false</option><option value="true">true</option></select></label>
-                  </div>
-                  <p>LDAP searches use the Windows identity running IronAPI; no separate domain credential is stored.</p>
-                </div>
-                <div class="integration-group">
-                  <h4>Offline Domain Join</h4>
-                  <div class="form-grid compact-grid">
-                    <label><span class="field-title">ODJ domain <span class="help" title="AD DNS domain passed to API-server djoin.exe. Example: example.test.">?</span></span><input data-api="IRONAPI_ODJ_DOMAIN" /></label>
-                    <label><span class="field-title">ODJ machine OU <span class="help" title="Distinguished name for new computer accounts. Example: OU=Workstations,OU=Clients,DC=example,DC=test.">?</span></span><input data-api="IRONAPI_ODJ_MACHINE_OU" /></label>
+          <div class="network-layout">
+            <div class="settings-flow">
+              <section class="settings-block numbered-block">
+                <div class="block-head">
+                  <div>
+                    <h3>1. Access mode</h3>
+                    <p>Choose how clients reach IronAPI.</p>
                   </div>
                 </div>
+                <input id="accessModeValue" type="hidden" data-api="IRONAPI_ACCESS_MODE" />
+                <div class="choice-grid" role="radiogroup" aria-label="Access mode">
+                  <label class="choice-card">
+                    <input type="radio" name="accessMode" value="http_direct" />
+                    <span class="choice-indicator"></span>
+                    <span><strong>Direct HTTP access</strong><small>Clients connect directly to IronAPI over HTTP.</small></span>
+                  </label>
+                  <label class="choice-card">
+                    <input type="radio" name="accessMode" value="https_proxy" />
+                    <span class="choice-indicator"></span>
+                    <span><strong>HTTPS through reverse proxy</strong><small>Clients connect securely through an external proxy.</small></span>
+                  </label>
+                </div>
+              </section>
+
+              <section class="settings-block numbered-block">
+                <div class="block-head">
+                  <div>
+                    <h3>2. IronAPI addressing</h3>
+                    <p>Set the internal listener and the address visible to clients.</p>
+                  </div>
+                </div>
+                <div class="form-grid two">
+                  <label>
+                    <span class="field-title">Bind address <span class="help" title="HTTPS reverse proxy locks IronAPI to 127.0.0.1. Direct HTTP requires a non-loopback IP address.">?</span></span>
+                    <span class="locked-field"><input data-api="IRONAPI_BIND_HOST" /><span class="lock-mark" aria-hidden="true">●</span></span>
+                  </label>
+                  <label>
+                    <span class="field-title">Internal TCP port <span class="help" title="Internal IronAPI port from 1 to 65535. The reverse proxy forwards traffic to this port.">?</span></span>
+                    <input data-api="IRONAPI_PORT" inputmode="numeric" />
+                  </label>
+                  <label class="wide" id="externalHostField">
+                    <span class="field-title">External address <span class="help" title="Hostname or IP exposed by the HTTPS reverse proxy. Port 443 is implied; append :port only for a non-standard public port.">?</span></span>
+                    <input id="externalHost" autocomplete="off" spellcheck="false" placeholder="deploy.example.test" />
+                    <small>Use a hostname or IP; standard HTTPS port 443 is omitted automatically.</small>
+                  </label>
+                </div>
+              </section>
+
+              <section class="settings-block numbered-block" id="certificateBlock">
+                <div class="block-head">
+                  <div>
+                    <h3>3. HTTPS certificate</h3>
+                    <p>WinPE and post-install can verify the proxy certificate before sending credentials.</p>
+                  </div>
+                </div>
+                <label class="switch-row">
+                  <input data-winpe="ValidateApiServerCertificate" id="validateApiServerCertificate" type="checkbox" />
+                  <span class="switch-control" aria-hidden="true"></span>
+                  <span><strong>Validate the certificate on clients</strong><small>Recommended for HTTPS deployments.</small></span>
+                </label>
+                <div class="form-grid two certificate-grid">
+                  <label>
+                    <span class="field-title">Certificate type <span class="help" title="For self-signed upload the server certificate. For CA upload the trusted root or private CA certificate.">?</span></span>
+                    <select data-winpe="ApiServerCertificateType" id="apiServerCertificateType">
+                      <option value="self_signed">Self-signed server certificate</option>
+                      <option value="ca">CA certificate</option>
+                    </select>
+                  </label>
+                  <div class="field-group">
+                    <span class="field-title">Trusted certificate <span class="help" title="Accepted formats: DER or PEM .cer, .crt, or .pem. Required when validation is enabled.">?</span></span>
+                    <label class="file-control" for="apiServerCertificateFile">
+                      <span class="file-button">Choose file</span>
+                      <span class="file-name" id="certificateFileName">No file chosen</span>
+                    </label>
+                    <input class="visually-hidden-file" id="apiServerCertificateFile" type="file" accept=".cer,.crt,.pem,application/x-x509-ca-cert" />
+                    <small id="apiServerCertificateStatus">Required when validation is enabled</small>
+                  </div>
+                </div>
+                <div class="inline-actions">
+                  <button class="secondary accent-outline" id="checkCertificateButton" type="button">Check certificate</button>
+                  <span class="inline-status" id="certificateCheckStatus" aria-live="polite"></span>
+                </div>
+              </section>
+
+              <section class="settings-block numbered-block" id="clientNetworksBlock">
+                <div class="block-head">
+                  <div>
+                    <h3>4. Client network access</h3>
+                    <p>Limit which client networks may call IronAPI.</p>
+                  </div>
+                </div>
+                <label>
+                  <span class="field-title">Allowed client networks <span class="help" title="Comma-separated CIDR networks. Leave empty to accept clients from all networks. Example: 192.0.2.0/24,198.51.100.0/24.">?</span></span>
+                  <input data-api="IRONAPI_ALLOWED_CLIENT_NETWORKS" placeholder="10.20.0.0/24" />
+                </label>
+              </section>
+
+              <section class="settings-block numbered-block" id="adminAccessBlock">
+                <div class="block-head">
+                  <div>
+                    <h3>5. Administrator access</h3>
+                    <p>Choose the credentials that IronAPI should use for its superadministrator.</p>
+                  </div>
+                </div>
+                <div class="form-grid two">
+                  <label>
+                    <span class="field-title">IronAPI superadmin login <span class="help" title="Choose the login you want to create or use for the IronAPI superadministrator.">?</span></span>
+                    <input data-auth="username" autocomplete="username" />
+                  </label>
+                  <label>
+                    <span class="field-title">IronAPI superadmin password <span class="help" title="Choose a password of at least 12 characters. It is stored only as a salted password hash.">?</span></span>
+                    <input data-auth="password" type="password" autocomplete="new-password" placeholder="Leave blank to keep current password" />
+                    <small id="superadminPasswordStatus">Required</small>
+                  </label>
+                </div>
+                <p class="configuration-note"><strong>This is not a sign-in.</strong> You are defining the credentials you want IronAPI to use.</p>
+              </section>
+
+              <input id="apiBaseUrl" type="hidden" data-winpe="ApiBaseUrl" />
+              <div class="step-actions">
+                <button class="secondary accent-outline" id="checkConnectionButton" type="button">Check connection settings</button>
+                <span class="inline-status" id="networkCheckStatus" aria-live="polite"></span>
+                <button class="primary push-right" type="button" data-save-next="winpe">Save and continue</button>
               </div>
-            </section>
-          </div>
-          <details class="advanced-block">
-            <summary>Advanced settings</summary>
-            <div class="form-grid two">
-              <label><span class="field-title">Access log <span class="help" title="Uvicorn request log. Usually false for cleaner logs.">?</span></span><select data-api="IRONAPI_ACCESS_LOG"><option value="false">false</option><option value="true">true</option></select></label>
-              <label class="wide"><span class="field-title">Database URL <span class="help" title="SQLAlchemy URL. Example: sqlite:///{IRONDEPLOY_ROOT}/Data/irondeploy.db. Empty restores the .env.example value.">?</span></span><input data-api="IRONAPI_DATABASE_URL" /></label>
-              <label><span class="field-title">ODJ blob directory <span class="help" title="Protected local API-server directory, not SMB. Example: {IRONDEPLOY_ROOT}\\ODJ\\pending.">?</span></span><input data-api="IRONAPI_ODJ_BLOB_DIR" /></label>
-              <label><span class="field-title">API server djoin.exe path <span class="help" title="Absolute path on the API server, not WinPE. Example: C:\\Windows\\System32\\djoin.exe.">?</span></span><input data-api="IRONAPI_ODJ_DJOIN_PATH" /></label>
             </div>
-          </details>
+
+            <aside class="topology-panel" aria-label="Connection topology preview">
+              <div class="topology-head">
+                <h3>Connection topology</h3>
+                <p>Live preview for the selected access mode.</p>
+              </div>
+              <div class="topology-branches">
+                <div class="topology-branch">
+                  <div class="client-node">
+                    <span class="icon-box"><svg aria-hidden="true" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"></rect><path d="M8 21h8M12 17v4"></path></svg></span>
+                    <strong>WinPE clients</strong>
+                  </div>
+                  <div class="certificate-gate" id="certificateGate">
+                  <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><path d="m9 12 2 2 4-4"></path></svg>
+                  <span>Certificate check</span>
+                  <strong id="certificateGateValue">YES</strong>
+                  </div>
+                </div>
+                <div class="topology-branch">
+                  <div class="client-node">
+                    <span class="icon-box"><svg aria-hidden="true" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"></rect><path d="M8 21h8M12 17v4"></path></svg></span>
+                    <strong>Regular clients</strong>
+                  </div>
+                  <span class="regular-route-label" id="regularRouteProtocol">HTTPS</span>
+                </div>
+              </div>
+              <div class="topology-route">
+                <div class="route-node proxy-node" id="proxyNode">
+                  <svg class="proxy-icon" aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="10" rx="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                  <svg class="direct-icon" aria-hidden="true" viewBox="0 0 24 24" hidden><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"></path></svg>
+                  <span>HTTPS reverse proxy</span>
+                  <strong id="publicEndpoint">https://deploy.example.test</strong>
+                </div>
+                <div class="route-node server-node">
+                  <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 4h14v16H5z"></path><path d="M9 8h6M9 12h6M9 16h3"></path></svg>
+                  <span>IronAPI server</span>
+                  <strong id="internalEndpoint">127.0.0.1:8000</strong>
+                </div>
+              </div>
+              <p class="topology-note" id="topologyNote">Certificate validation applies to WinPE and post-install.</p>
+            </aside>
+          </div>
         </section>
 
         <section class="view" id="winpe">
-          <div class="section-head">
-            <h2>WinPE Deploy Config</h2>
-            <p>Writes a credential-free <code>WinPE\Runtime\deploy.config.ps1</code>. SMB credentials stay in <code>Api\.env</code>.</p>
+          <div class="page-head">
+            <h2>WinPE deploy config</h2>
+            <p>Existing WinPE deployment settings. Network connectivity is configured in step 2.</p>
           </div>
-          <div class="settings-grid">
-            <section class="settings-card settings-card-wide">
-              <div class="settings-card-head">
-                <h3>Deployment lifecycle</h3>
-                <p>Hard Bearer deadlines. Regular API activity does not extend either window.</p>
-              </div>
-              <div class="form-grid two compact-grid">
+          <div class="settings-flow single-column">
+            <section class="settings-block">
+              <div class="block-head"><div><h3>Deployment lifecycle</h3><p>Hard Bearer deadlines. Regular API activity does not extend either window.</p></div></div>
+              <div class="form-grid two">
                 <label><span class="field-title">Authorization window (minutes) <span class="help" title="Minutes allowed between successful WinPE login and /begin. Range 5-30. Default 10.">?</span></span><input data-api="IRONAPI_DEPLOYMENT_AUTHORIZATION_TIMEOUT_MINUTES" inputmode="numeric" /></label>
                 <label><span class="field-title">Total deployment timeout (minutes) <span class="help" title="Hard limit from /begin through post-install. Range 30-240. Default 90. Requests do not extend it.">?</span></span><input data-api="IRONAPI_DEPLOYMENT_TIMEOUT_MINUTES" inputmode="numeric" /></label>
               </div>
             </section>
-
-            <section class="settings-card settings-card-wide">
-              <div class="settings-card-head">
-                <h3>SMB deployment share</h3>
-                <p>Network source for Windows images, drivers, and optional installers. Credentials remain server-side and are released only to an authorized deployment.</p>
-              </div>
-              <div class="form-grid two compact-grid">
+            <section class="settings-block">
+              <div class="block-head"><div><h3>SMB deployment share</h3><p>Network source for Windows images, drivers, and optional installers. Credentials remain server-side.</p></div></div>
+              <div class="form-grid two">
                 <label class="wide"><span class="field-title">SMB share UNC path <span class="help" title="UNC path exposed to WinPE. Example: \\DEPLOY-SERVER\\IronDeploy.">?</span></span><input data-winpe="SharePath" /></label>
                 <label><span class="field-title">Read-only SMB account <span class="help" title="Account WinPE uses to read the share. Example: DOMAIN\\irondeploy_ro or SERVER\\iron_ro.">?</span></span><input data-winpe="ShareUser" /></label>
                 <label><span class="field-title">SMB password <span class="help" title="Stored server-side in Api\.env and returned only to an authenticated deployment. Leave blank to keep existing.">?</span></span><input data-winpe="SharePassword" type="password" autocomplete="new-password" placeholder="Leave blank to keep existing" /></label>
               </div>
             </section>
-
-            <section class="settings-card">
-              <div class="settings-card-head">
-                <h3>IronAPI connection</h3>
-                <p>Endpoint used by WinPE during deployment and by Windows during post-install.</p>
-              </div>
-              <div class="form-grid compact-grid">
-                <label><span class="field-title">IronAPI URL <span class="help" title="URL reachable from WinPE. Example: http://198.51.100.10:8000.">?</span></span><input data-winpe="ApiBaseUrl" /></label>
-                <label><span class="field-title">Validate IronAPI certificate <span class="help" title="When enabled, WinPE and post-install verify the HTTPS certificate chain and server name.">?</span></span><select data-winpe="ValidateApiServerCertificate" id="validateApiServerCertificate"><option value="false">No</option><option value="true">Yes</option></select></label>
-              </div>
-            </section>
-
-            <section class="settings-card">
-              <div class="settings-card-head">
-                <h3>Certificate trust</h3>
-                <p>Trust material used when certificate validation is enabled for HTTPS.</p>
-              </div>
-              <div class="form-grid compact-grid">
-                <label><span class="field-title">Certificate type <span class="help" title="For self-signed upload the server certificate. For CA upload the trusted root or private CA certificate.">?</span></span><select data-winpe="ApiServerCertificateType" id="apiServerCertificateType"><option value="self_signed">Self-signed server certificate</option><option value="ca">CA certificate</option></select></label>
-                <label><span class="field-title">Trusted certificate <span class="help" title="Accepted formats: DER or PEM .cer, .crt, or .pem. Required when validation is enabled.">?</span></span><input id="apiServerCertificateFile" type="file" accept=".cer,.crt,.pem,application/x-x509-ca-cert" /><small id="apiServerCertificateStatus">Required when validation is enabled</small></label>
-              </div>
-            </section>
-
           </div>
+          <div class="step-actions"><button class="secondary" type="button" data-next="network">Back</button><button class="primary push-right" type="button" data-save-next="additional">Save and continue</button></div>
+        </section>
+
+        <section class="view" id="unsorted">
+          <div class="page-head">
+            <h2>Unsorted settings</h2>
+            <p>Existing SetupWeb controls that have not yet been assigned to the new flow.</p>
+          </div>
+          <div class="settings-flow single-column">
+            <section class="settings-block">
+              <div class="block-head"><div><h3>Computer naming</h3><p>Build predictable names and preview the next generated value.</p></div></div>
+              <div class="naming-layout">
+                <div class="form-grid three">
+                  <label><span class="field-title">Computer prefix</span><input data-api="IRONAPI_NAME_PREFIX" /></label>
+                  <label><span class="field-title">Number width</span><input data-api="IRONAPI_NAME_WIDTH" inputmode="numeric" /></label>
+                  <label><span class="field-title">Starting number</span><input data-api="IRONAPI_NAME_START" inputmode="numeric" /></label>
+                </div>
+                <div class="name-preview"><span>Next generated name</span><strong id="computerNamePreview">pc00001</strong><small>Existing LDAP names are skipped automatically.</small></div>
+              </div>
+            </section>
+            <section class="settings-block">
+              <div class="block-head"><div><h3>Directory and domain join</h3><p>Leave both groups empty to deploy without Active Directory.</p></div></div>
+              <div class="integration-grid">
+                <div class="integration-group">
+                  <h4>LDAP directory</h4>
+                  <div class="form-grid two">
+                    <label><span class="field-title">LDAP server</span><input data-api="IRONAPI_LDAP_SERVER" /></label>
+                    <label><span class="field-title">LDAP base DN</span><input data-api="IRONAPI_LDAP_BASE_DN" /></label>
+                    <label><span class="field-title">LDAPS</span><select data-api="IRONAPI_LDAP_USE_SSL"><option value="false">No</option><option value="true">Yes</option></select></label>
+                  </div>
+                </div>
+                <div class="integration-group">
+                  <h4>Offline Domain Join</h4>
+                  <div class="form-grid">
+                    <label><span class="field-title">ODJ domain</span><input data-api="IRONAPI_ODJ_DOMAIN" /></label>
+                    <label><span class="field-title">ODJ machine OU</span><input data-api="IRONAPI_ODJ_MACHINE_OU" /></label>
+                  </div>
+                </div>
+              </div>
+            </section>
+            <details class="advanced-block">
+              <summary>Advanced settings</summary>
+              <div class="form-grid two advanced-content">
+                <label><span class="field-title">Access log <span class="help" title="Uvicorn request log. Usually false for cleaner logs.">?</span></span><select data-api="IRONAPI_ACCESS_LOG"><option value="false">No</option><option value="true">Yes</option></select></label>
+                <label class="wide"><span class="field-title">Database URL <span class="help" title="SQLAlchemy URL. Empty restores the .env.example value.">?</span></span><input data-api="IRONAPI_DATABASE_URL" /></label>
+                <label><span class="field-title">ODJ blob directory <span class="help" title="Protected local API-server directory, not SMB.">?</span></span><input data-api="IRONAPI_ODJ_BLOB_DIR" /></label>
+                <label><span class="field-title">API server djoin.exe path <span class="help" title="Absolute path on the API server, not WinPE.">?</span></span><input data-api="IRONAPI_ODJ_DJOIN_PATH" /></label>
+              </div>
+            </details>
+          </div>
+          <div class="step-actions"><button class="secondary" type="button" data-next="validation">Back</button><button class="primary push-right" id="saveUnsortedButton" type="button">Save configuration</button></div>
         </section>
 
         <section class="view" id="additional">
-          <div class="section-head">
+          <div class="page-head">
             <h2>Additional settings</h2>
-            <p>Optional tuning for service timeouts, driver uploads, and WinPE drive mapping.</p>
+            <p>Existing optional tuning for service timeouts, driver uploads, and WinPE drive mapping.</p>
           </div>
-          <div class="settings-grid">
-            <section class="settings-card settings-card-wide">
-              <div class="settings-card-head">
-                <h3>Service timeouts</h3>
-                <p>Limits for external LDAP and Offline Domain Join operations.</p>
-              </div>
-              <div class="form-grid two compact-grid">
+          <div class="settings-flow single-column">
+            <section class="settings-block">
+              <div class="block-head"><div><h3>Service timeouts</h3><p>Limits for external LDAP and Offline Domain Join operations.</p></div></div>
+              <div class="form-grid three">
                 <label><span class="field-title">LDAP timeout <span class="help" title="Connection timeout in seconds, 1-60. Example: 5.">?</span></span><input data-api="IRONAPI_LDAP_CONNECT_TIMEOUT" inputmode="numeric" /></label>
                 <label><span class="field-title">ODJ timeout <span class="help" title="djoin /provision timeout in seconds, 1-300. Example: 60.">?</span></span><input data-api="IRONAPI_ODJ_PROVISION_TIMEOUT" inputmode="numeric" /></label>
-                <label><span class="field-title">ODJ blob lifetime <span class="help" title="Short provision-to-download lifetime in minutes, 5-1440. Default 5. It is independent of the total deployment timeout.">?</span></span><input data-api="IRONAPI_ODJ_BLOB_MAX_AGE_MINUTES" inputmode="numeric" /></label>
+                <label><span class="field-title">ODJ blob lifetime <span class="help" title="Provision-to-download lifetime in minutes, 5-1440.">?</span></span><input data-api="IRONAPI_ODJ_BLOB_MAX_AGE_MINUTES" inputmode="numeric" /></label>
               </div>
             </section>
-
-            <section class="settings-card settings-card-wide">
-              <div class="settings-card-head">
-                <h3>Driver upload limits</h3>
-                <p>Safety limits for temporary driver package uploads. Changes take effect after restarting IronAPI.</p>
-              </div>
-              <div class="form-grid two compact-grid">
-                <label><span class="field-title">Maximum files per package <span class="help" title="Maximum number of files in one package, 1-1000000. Recommended: 25000.">?</span></span><input data-api="IRONAPI_DRIVER_MAX_FILES" inputmode="numeric" /></label>
-                <label><span class="field-title">Maximum directory depth <span class="help" title="Maximum nested directory depth inside a package, 1-100. Recommended: 16.">?</span></span><input data-api="IRONAPI_DRIVER_MAX_DEPTH" inputmode="numeric" /></label>
-                <label><span class="field-title">Maximum full path <span class="help" title="Maximum final Windows path length in characters, 64-32767. Recommended: 240.">?</span></span><input data-api="IRONAPI_DRIVER_MAX_FULL_PATH" inputmode="numeric" /></label>
-                <label><span class="field-title">Abandoned upload age <span class="help" title="Hours without activity before an unfinished upload is marked abandoned, 1-8760. Recommended: 24.">?</span></span><input data-api="IRONAPI_DRIVER_UPLOAD_TTL_HOURS" inputmode="numeric" /></label>
-                <label><span class="field-title">Maximum unfinished uploads <span class="help" title="Maximum unfinished driver uploads on the server, 1-100. Recommended: 3.">?</span></span><input data-api="IRONAPI_DRIVER_MAX_ACTIVE_UPLOADS" inputmode="numeric" /></label>
-                <label><span class="field-title">Minimum free disk space <span class="help" title="Free space required on the Share\\Drivers volume before starting an upload, 1-10240 GiB. Recommended: 25.">?</span></span><input data-api="IRONAPI_DRIVER_MIN_FREE_SPACE_GIB" inputmode="numeric" /></label>
+            <section class="settings-block">
+              <div class="block-head"><div><h3>Driver upload limits</h3><p>Safety limits for temporary driver package uploads.</p></div></div>
+              <div class="form-grid three">
+                <label><span class="field-title">Maximum files per package</span><input data-api="IRONAPI_DRIVER_MAX_FILES" inputmode="numeric" /></label>
+                <label><span class="field-title">Maximum directory depth</span><input data-api="IRONAPI_DRIVER_MAX_DEPTH" inputmode="numeric" /></label>
+                <label><span class="field-title">Maximum full path</span><input data-api="IRONAPI_DRIVER_MAX_FULL_PATH" inputmode="numeric" /></label>
+                <label><span class="field-title">Abandoned upload age</span><input data-api="IRONAPI_DRIVER_UPLOAD_TTL_HOURS" inputmode="numeric" /></label>
+                <label><span class="field-title">Maximum unfinished uploads</span><input data-api="IRONAPI_DRIVER_MAX_ACTIVE_UPLOADS" inputmode="numeric" /></label>
+                <label><span class="field-title">Minimum free disk space</span><input data-api="IRONAPI_DRIVER_MIN_FREE_SPACE_GIB" inputmode="numeric" /></label>
               </div>
             </section>
-
-            <section class="settings-card settings-card-wide">
-              <div class="settings-card-head">
-                <h3>WinPE drive mapping</h3>
-                <p>The mapped drive is configurable. Content paths are derived automatically and shown for verification.</p>
-              </div>
-              <div class="form-grid two compact-grid">
+            <section class="settings-block">
+              <div class="block-head"><div><h3>WinPE drive mapping</h3><p>The mapped drive is configurable. Content paths are derived automatically.</p></div></div>
+              <div class="form-grid three">
                 <label><span class="field-title">WinPE drive <span class="help" title="Temporary mapped drive letter in WinPE. Example: Z:.">?</span></span><input data-winpe="ShareDrive" /></label>
-                <label><span class="field-title">Images path <span class="help" title="Derived from WinPE drive. Example: Z:\\Images.">?</span></span><input data-winpe="ImagesPath" disabled /></label>
-                <label><span class="field-title">Drivers path <span class="help" title="Derived from WinPE drive. Example: Z:\\Drivers.">?</span></span><input data-winpe="DriversPath" disabled /></label>
+                <label><span class="field-title">Images path</span><input data-winpe="ImagesPath" disabled /></label>
+                <label><span class="field-title">Drivers path</span><input data-winpe="DriversPath" disabled /></label>
               </div>
             </section>
           </div>
+          <div class="step-actions"><button class="secondary" type="button" data-next="winpe">Back</button><button class="primary push-right" type="button" data-save-next="validation">Save and continue</button></div>
         </section>
 
-
         <section class="view" id="validation">
-          <div class="section-head with-action">
-            <div>
-              <h2>Validation</h2>
-              <p>Runs <code>Tools\Test-IronDeploy.ps1</code> without starting IronAPI.</p>
-            </div>
-            <button id="validateButton" class="secondary">Run validation</button>
+          <div class="page-head with-action">
+            <div><h2>Validation</h2><p>Run the repository validation without starting IronAPI.</p></div>
+            <button id="validateButton" class="primary" type="button">Run validation</button>
+          </div>
+          <div class="validation-summary">
+            <div><span>IronAPI environment</span><strong id="validationApiStatus">Waiting</strong></div>
+            <div><span>WinPE deploy config</span><strong id="validationWinpeStatus">Waiting</strong></div>
+            <div><span>Unattend template</span><strong id="validationUnattendStatus">Waiting</strong></div>
           </div>
           <pre id="validationOutput" class="terminal">Validation output will appear here.</pre>
+          <div class="step-actions"><button class="secondary" type="button" data-next="additional">Back</button><button class="secondary push-right" id="saveOnlyButton" type="button">Save configuration</button><button class="primary" id="finishValidationButton" type="button">Finish setup</button></div>
         </section>
       </main>
     </div>
-    <script src="/static/setup.js"></script>
   </body>
 </html>

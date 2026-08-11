@@ -583,7 +583,6 @@ def normalize_api(values: dict[str, Any]) -> dict[str, str]:
     result["IRONAPI_ACCESS_MODE"] = access_mode
     if access_mode == "https_proxy":
         result["IRONAPI_BIND_HOST"] = "127.0.0.1"
-        result["IRONAPI_PORT"] = "8000"
         result["IRONAPI_COOKIE_SECURE"] = "true"
     else:
         result["IRONAPI_COOKIE_SECURE"] = "false"
@@ -689,6 +688,38 @@ def normalize_api(values: dict[str, Any]) -> dict[str, str]:
         raise ValueError("IRONAPI_NAME_PREFIX is invalid.")
     result["IRONAPI_NAME_PREFIX"] = prefix.lower()
     return result
+
+
+def validate_certificate(
+    paths: IronDeployPaths,
+    encoded: str,
+    certificate_type: str,
+) -> dict[str, Any]:
+    candidate = str(encoded or "").strip()
+    if not candidate:
+        candidate = read_ps_config(paths.winpe_config).get(
+            "ApiServerCertificateBase64", ""
+        )
+    if not candidate:
+        raise ValueError("Select a certificate file before checking it.")
+
+    certificate_type = str(certificate_type or "").strip().lower()
+    if certificate_type not in CERTIFICATE_TYPES:
+        raise ValueError("Certificate type must be self_signed or ca.")
+
+    _, certificate = normalize_certificate_base64(candidate)
+    self_signed = certificate["subject"] == certificate["issuer"]
+    if certificate_type == "self_signed" and not self_signed:
+        raise ValueError(
+            "Self-signed mode requires a certificate whose subject and issuer "
+            "are the same."
+        )
+
+    return {
+        "valid": True,
+        "selfSigned": self_signed,
+        "notAfter": certificate["not_after"].isoformat(),
+    }
 
 
 def normalize_winpe(

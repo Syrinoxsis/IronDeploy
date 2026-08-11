@@ -17,6 +17,7 @@ from app.config_store import (
     normalize_api,
     normalize_winpe,
     save_config,
+    validate_certificate,
 )
 
 
@@ -130,7 +131,7 @@ class AccessModeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "IRONAPI_DRIVER_MAX_FULL_PATH"):
             normalize_api({"IRONAPI_DRIVER_MAX_FULL_PATH": "63"})
 
-    def test_https_proxy_forces_loopback_port_and_secure_cookie(self) -> None:
+    def test_https_proxy_forces_loopback_and_preserves_internal_port(self) -> None:
         result = normalize_api(
             {
                 "IRONAPI_ACCESS_MODE": "https_proxy",
@@ -140,8 +141,25 @@ class AccessModeTests(unittest.TestCase):
         )
 
         self.assertEqual(result["IRONAPI_BIND_HOST"], "127.0.0.1")
-        self.assertEqual(result["IRONAPI_PORT"], "8000")
+        self.assertEqual(result["IRONAPI_PORT"], "9443")
         self.assertEqual(result["IRONAPI_COOKIE_SECURE"], "true")
+
+    @patch("app.config_store.inspect_certificate_der")
+    def test_certificate_can_be_checked_without_saving(
+        self, inspect_certificate
+    ) -> None:
+        now = datetime.now(timezone.utc)
+        inspect_certificate.return_value = {
+            "subject": ((("commonName", "deploy.example.test"),),),
+            "issuer": ((("commonName", "deploy.example.test"),),),
+            "not_before": now - timedelta(days=1),
+            "not_after": now + timedelta(days=30),
+        }
+
+        result = validate_certificate(self.paths, "AQID", "self_signed")
+
+        self.assertTrue(result["valid"])
+        self.assertTrue(result["selfSigned"])
 
     def test_winpe_url_scheme_must_match_access_mode(self) -> None:
         values = {
