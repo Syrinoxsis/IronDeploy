@@ -182,6 +182,39 @@ class AccessModeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "requires an https://"):
             normalize_winpe(self.paths, values, "https_proxy")
 
+    def test_smb_user_must_be_qualified(self) -> None:
+        values = {
+            "SharePath": r"\\server\IronDeploy",
+            "ShareDrive": "Z:",
+            "ShareUser": "iron_ro",
+            "SharePassword": "not-a-placeholder-password",
+            "ApiBaseUrl": "http://198.51.100.5:8000",
+            "ValidateApiServerCertificate": "false",
+        }
+
+        with self.assertRaisesRegex(ValueError, r"SERVER\\user or DOMAIN\\user"):
+            normalize_winpe(self.paths, values, "http_direct")
+
+        values["ShareUser"] = "iron_ro@example.test"
+        with self.assertRaisesRegex(ValueError, r"SERVER\\user or DOMAIN\\user"):
+            normalize_winpe(self.paths, values, "http_direct")
+
+        values["ShareUser"] = r"SERVER\ iron_ro"
+        with self.assertRaisesRegex(ValueError, r"SERVER\\user or DOMAIN\\user"):
+            normalize_winpe(self.paths, values, "http_direct")
+
+        values["ShareUser"] = r"SERVER\iron_ro"
+        result = normalize_winpe(self.paths, values, "http_direct")
+        self.assertEqual(result["ShareUser"], r"SERVER\iron_ro")
+
+        values["SharePath"] = r"\\999.1.1.1\IronDeploy"
+        with self.assertRaisesRegex(ValueError, "SMB IPv4 address is invalid"):
+            normalize_winpe(self.paths, values, "http_direct")
+
+        values["SharePath"] = r"\\192.168.1.10\IronDeploy"
+        result = normalize_winpe(self.paths, values, "http_direct")
+        self.assertEqual(result["SharePath"], r"\\192.168.1.10\IronDeploy")
+
     def test_certificate_validation_requires_https_and_certificate(self) -> None:
         values = {
             "SharePath": r"\\server\IronDeploy",

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import ipaddress
 import base64
 import hashlib
+import ipaddress
 import json
 import os
 import re
@@ -158,6 +158,7 @@ TIME_ZONES = (
 TIME_ZONE_IDS = {item[0] for item in TIME_ZONES}
 AUTH_PASSWORD_ITERATIONS = 600_000
 AUTH_USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9._-]{3,64}$")
+SMB_SERVER_ADDRESS_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
 @dataclass(frozen=True)
@@ -722,6 +723,36 @@ def validate_certificate(
     }
 
 
+def normalize_smb_server_address(value: str) -> str:
+    server_address = str(value or "").strip()
+    if (
+        not server_address
+        or len(server_address) > 253
+        or not SMB_SERVER_ADDRESS_PATTERN.fullmatch(server_address)
+    ):
+        raise ValueError("SMB address must be a hostname, FQDN, or IPv4 address.")
+
+    if re.fullmatch(r"[0-9.]+", server_address) and "." in server_address:
+        try:
+            ipaddress.IPv4Address(server_address)
+        except ipaddress.AddressValueError as exc:
+            raise ValueError("SMB IPv4 address is invalid.") from exc
+        return server_address
+
+    labels = server_address.split(".")
+    if any(
+        not label
+        or len(label) > 63
+        or label.startswith("-")
+        or label.endswith("-")
+        for label in labels
+    ):
+        raise ValueError(
+            "SMB address must be a valid hostname, FQDN, or IPv4 address."
+        )
+    return server_address
+
+
 def normalize_winpe(
     paths: IronDeployPaths,
     values: dict[str, Any],
@@ -746,12 +777,22 @@ def normalize_winpe(
             candidate = current.get(name, "")
         result[name] = candidate
 
-    if not re.match(r"^\\\\[^\\]+\\[^\\]+", result["SharePath"]):
+    share_path_match = re.fullmatch(r"\\\\([^\\]+)\\([^\\]+)", result["SharePath"])
+    if share_path_match is None:
         raise ValueError("SharePath must be a UNC path such as \\\\SERVER\\IronDeploy.")
+    normalize_smb_server_address(share_path_match.group(1))
     if not re.match(r"^[A-Za-z]:$", result["ShareDrive"]):
         raise ValueError("ShareDrive must be one drive letter followed by a colon.")
-    if not result["ShareUser"]:
-        raise ValueError("ShareUser cannot be empty.")
+    account_match = re.fullmatch(
+        r"([^\\/@\r\n]+)\\([^\\/@\r\n]+)",
+        result["ShareUser"],
+    )
+    if (
+        account_match is None
+        or account_match.group(1) != account_match.group(1).strip()
+        or account_match.group(2) != account_match.group(2).strip()
+    ):
+        raise ValueError("ShareUser must use SERVER\\user or DOMAIN\\user format.")
     if not result["SharePassword"]:
         result["SharePassword"] = current.get("SharePassword", "")
     if not result["SharePassword"] or "CHANGE_ME" in result["SharePassword"]:

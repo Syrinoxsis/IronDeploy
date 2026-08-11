@@ -189,6 +189,21 @@ button {
   font-size: 13px;
 }
 
+.derived-value {
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  border: 1px solid #cbd8df;
+  border-radius: 6px;
+  background: #eef7f5;
+  color: var(--accent-dark);
+  padding: 8px 10px;
+  overflow-wrap: anywhere;
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-size: 13px;
+  font-weight: 650;
+}
+
 .session-copy span {
   max-width: 50vw;
   overflow: hidden;
@@ -701,6 +716,98 @@ summary:focus-visible {
   font-size: 12px;
 }
 
+.inline-status.is-error {
+  color: var(--danger);
+}
+
+.smb-actions {
+  margin: 14px -20px -16px;
+  border-top: 1px solid #d8e5e7;
+  background: #fff;
+  padding: 12px 20px 14px;
+  flex-wrap: wrap;
+}
+
+.smb-actions .inline-status {
+  flex-basis: 100%;
+  margin-top: -2px;
+}
+
+.smb-actions .inline-status:empty {
+  display: none;
+}
+
+.smb-fields {
+  align-items: start;
+  gap: 14px 16px;
+}
+
+.smb-fields > label {
+  align-content: start;
+}
+
+.smb-fields .field-title {
+  align-items: flex-start;
+  line-height: 1.4;
+}
+
+.winpe-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 330px);
+  align-items: start;
+  gap: 20px;
+}
+
+.smb-result-panel {
+  position: sticky;
+  top: 18px;
+  overflow: hidden;
+  min-width: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.smb-result-head {
+  border-bottom: 1px solid #d8e5e7;
+  background: #f1f6f7;
+  padding: 12px 16px 11px;
+}
+
+.smb-result-head h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.smb-result-head p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.smb-result-body {
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+}
+
+.smb-result-item {
+  display: grid;
+  gap: 6px;
+}
+
+.smb-result-panel .derived-value {
+  min-height: 48px;
+  align-items: flex-start;
+  border-color: #bfd6d5;
+  background: #fff;
+}
+
+.winpe-step-actions {
+  margin-top: 14px;
+}
+
 button.primary,
 button.secondary {
   min-height: 38px;
@@ -1144,6 +1251,11 @@ button.accent-outline {
     gap: 18px;
   }
 
+  .winpe-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(250px, 290px);
+    gap: 18px;
+  }
+
   .toggle-list {
     grid-template-columns: 1fr;
   }
@@ -1202,11 +1314,19 @@ button.accent-outline {
     grid-template-columns: 1fr;
   }
 
+  .winpe-layout {
+    grid-template-columns: 1fr;
+  }
+
   .topology-panel {
     position: static;
     border-top: 1px solid var(--border);
     border-left: 0;
     padding: 20px 0 0;
+  }
+
+  .smb-result-panel {
+    position: static;
   }
 }
 

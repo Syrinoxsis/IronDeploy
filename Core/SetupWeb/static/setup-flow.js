@@ -169,6 +169,160 @@
     document.querySelector("[data-winpe='DriversPath']").value = `${drive}\\Drivers`;
   }
 
+  function smbPartsFromUnc(value) {
+    const match = String(value || "").trim().match(/^\\\\([^\\]+)\\([^\\]+)$/);
+    return match ? { serverAddress: match[1], shareName: match[2] } : null;
+  }
+
+  function isValidSmbServerAddress(value) {
+    if (!value || value.length > 253 || !/^[A-Za-z0-9._-]+$/.test(value)) return false;
+    if (/^[0-9.]+$/.test(value) && value.includes(".")) {
+      const octets = value.split(".");
+      return octets.length === 4 && octets.every((octet) => {
+        if (!/^\d{1,3}$/.test(octet)) return false;
+        return Number(octet) >= 0 && Number(octet) <= 255;
+      });
+    }
+    return value.split(".").every((label) => (
+      label.length >= 1 &&
+      label.length <= 63 &&
+      !label.startsWith("-") &&
+      !label.endsWith("-")
+    ));
+  }
+
+  function syncSmbPath() {
+    const serverName = document.querySelector("#smbServerName").value.trim();
+    const shareName = document.querySelector("#smbShareName").value.trim();
+    const uncPath = serverName && shareName ? `\\\\${serverName}\\${shareName}` : "";
+    document.querySelector("#smbSharePath").value = uncPath;
+    document.querySelector("#smbUncPreview").textContent =
+      uncPath || t("Enter an SMB address and share name");
+    return uncPath;
+  }
+
+  function renderSmbSettings(config) {
+    const existingPath = String(config.winpe?.SharePath || "");
+    const existingParts = smbPartsFromUnc(existingPath);
+    const serverName = existingParts?.serverAddress ||
+      String(config.localSmb?.serverName || "localhost");
+    const localPath = String(config.localSmb?.localPath || `${config.root}\\Share`);
+    document.querySelector("#smbServerName").value = serverName;
+    document.querySelector("#smbShareName").value = existingParts?.shareName || "IronDeploy";
+    document.querySelector("#smbLocalPath").textContent = localPath;
+    document.querySelector("#smbPasswordStatus").textContent = t(
+      config.secrets?.hasWinpeSharePassword
+        ? "Saved password will be used when this field is empty"
+        : "Password is required"
+    );
+    document.querySelector("#smbActionStatus").textContent = "";
+    document.querySelector("#smbActionStatus").classList.remove("is-error");
+    syncSmbPath();
+  }
+
+  function validateSmbSettings() {
+    const serverAddress = document.querySelector("#smbServerName");
+    const shareName = document.querySelector("#smbShareName");
+    const account = document.querySelector("[data-winpe='ShareUser']");
+    const normalizedServerAddress = serverAddress.value.trim();
+    const normalizedShareName = shareName.value.trim();
+    const normalizedAccount = account.value.trim();
+    const shareNameValid = /^[A-Za-z0-9._-]{1,80}$/.test(normalizedShareName);
+    const accountParts = normalizedAccount.match(/^([^\\/@\r\n]+)\\([^\\/@\r\n]+)$/);
+    const accountValid = Boolean(
+      accountParts &&
+      accountParts[1] === accountParts[1].trim() &&
+      accountParts[2] === accountParts[2].trim()
+    );
+    const serverAddressValid = isValidSmbServerAddress(normalizedServerAddress);
+    serverAddress.setCustomValidity(serverAddressValid ? "" : t(
+      "Use a hostname, FQDN, or IPv4 address."
+    ));
+    shareName.setCustomValidity(shareNameValid ? "" : t(
+      "Use 1-80 letters, digits, dots, underscores, or hyphens."
+    ));
+    account.setCustomValidity(accountValid ? "" : t(
+      "Use SERVER\\user or DOMAIN\\user format."
+    ));
+    if (!serverAddressValid) {
+      serverAddress.reportValidity();
+      throw new Error("The SMB connection address is invalid.");
+    }
+    if (!shareNameValid) {
+      shareName.reportValidity();
+      throw new Error("The SMB share name is invalid.");
+    }
+    if (!accountValid) {
+      account.reportValidity();
+      throw new Error("The SMB account must use SERVER\\user or DOMAIN\\user format.");
+    }
+    serverAddress.value = normalizedServerAddress;
+    shareName.value = normalizedShareName;
+    account.value = normalizedAccount;
+    syncSmbPath();
+    return {
+      serverAddress: normalizedServerAddress,
+      shareName: normalizedShareName,
+      account: normalizedAccount,
+    };
+  }
+
+  function setSmbActionStatus(message, error = false) {
+    const status = document.querySelector("#smbActionStatus");
+    status.textContent = t(message);
+    status.classList.toggle("is-error", error);
+  }
+
+  async function runSmbAction(kind) {
+    clearMessage();
+    let values;
+    try {
+      values = validateSmbSettings();
+    } catch (error) {
+      setSmbActionStatus(error.message, true);
+      return;
+    }
+
+    const testMode = kind === "test";
+    const button = document.querySelector(testMode
+      ? "#testSmbAccessButton"
+      : "#configureSmbShareButton");
+    button.disabled = true;
+    setSmbActionStatus(testMode ? "Checking SMB access..." : "Configuring local SMB share...");
+    try {
+      const payload = {
+        serverAddress: values.serverAddress,
+        shareName: values.shareName,
+        account: values.account,
+      };
+      if (testMode) {
+        payload.password = document.querySelector("[data-winpe='SharePassword']").value;
+      }
+      const result = await apiFetch(
+        testMode ? "/api/smb/test-access" : "/api/smb/configure-local-share",
+        { method: "POST", body: JSON.stringify(payload) }
+      );
+      if (testMode) {
+        const missing = Array.isArray(result.missingFolders) && result.missingFolders.length
+          ? ` ${t("Missing folders")}: ${result.missingFolders.join(", ")}.`
+          : "";
+        setSmbActionStatus(`${t("SMB access verified.")}${missing}`);
+      } else {
+        const normalizedAccount = result.aclAccount && result.aclAccount !== values.account
+          ? ` ${t("Permissions assigned to")}: ${result.aclAccount}.`
+          : "";
+        const actionMessage = result.status === "created"
+          ? "Local SMB share created."
+          : "Local SMB share permissions updated.";
+        setSmbActionStatus(`${t(actionMessage)}${normalizedAccount}`);
+      }
+    } catch (error) {
+      setSmbActionStatus(error.message, true);
+    } finally {
+      button.disabled = false;
+    }
+  }
+
   function cleanExternalAddress(value) {
     let result = String(value || "").trim();
     if (!result) return "";
@@ -428,6 +582,7 @@
     }
     document.querySelector("#accessModeValue").value =
       config.api.IRONAPI_ACCESS_MODE || "http_direct";
+    renderSmbSettings(config);
     applyAccessMode();
     applyCertificateState();
     renderStoragePaths();
@@ -449,6 +604,7 @@
   async function saveConfiguration() {
     clearMessage();
     validateNetworkSettings();
+    validateSmbSettings();
     renderStoragePaths();
     const payload = {
       api: collectFields("[data-api]", "api"),
@@ -575,6 +731,26 @@
   });
   document.querySelector("#checkCertificateButton").addEventListener("click", checkCertificate);
   document.querySelector("#checkConnectionButton").addEventListener("click", checkConnectionSettings);
+  document.querySelector("#testSmbAccessButton").addEventListener("click", () => runSmbAction("test"));
+  document.querySelector("#configureSmbShareButton").addEventListener("click", () => runSmbAction("configure"));
+
+  document.querySelector("#smbShareName").addEventListener("input", () => {
+    document.querySelector("#smbShareName").setCustomValidity("");
+    setSmbActionStatus("");
+    syncSmbPath();
+  });
+  document.querySelector("#smbServerName").addEventListener("input", (event) => {
+    event.currentTarget.setCustomValidity("");
+    setSmbActionStatus("");
+    syncSmbPath();
+  });
+  document.querySelector("[data-winpe='ShareUser']").addEventListener("input", (event) => {
+    event.currentTarget.setCustomValidity("");
+    setSmbActionStatus("");
+  });
+  document.querySelector("[data-winpe='SharePassword']").addEventListener("input", () => {
+    setSmbActionStatus("");
+  });
 
   document.querySelectorAll(
     "[data-api='IRONAPI_NAME_PREFIX'], [data-api='IRONAPI_NAME_WIDTH'], [data-api='IRONAPI_NAME_START']"
