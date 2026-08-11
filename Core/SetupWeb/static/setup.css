@@ -398,6 +398,12 @@ h2 {
   margin-left: -17px;
 }
 
+.numbered-block[data-step="1"] .block-head h3::before { content: "1. "; }
+.numbered-block[data-step="2"] .block-head h3::before { content: "2. "; }
+.numbered-block[data-step="3"] .block-head h3::before { content: "3. "; }
+.numbered-block[data-step="4"] .block-head h3::before { content: "4. "; }
+.numbered-block[data-step="5"] .block-head h3::before { content: "5. "; }
+
 .block-head h3 {
   margin: 0;
   font-size: 16px;
@@ -1247,6 +1253,15 @@ button.accent-outline {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 14px;
+}
+
+.overview-status-block .overview-status-grid,
+.validation-status-block .validation-summary {
+  margin-bottom: 0;
+}
+
+.overview-status-block .overview-status-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .validation-summary div {

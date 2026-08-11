@@ -36,7 +36,7 @@
             <span class="step-number">5</span><span class="step-label">Validation</span>
           </button>
           <button class="step-item" type="button" data-section="additional">
-            <span class="step-number">6</span><span class="step-label">Additional</span>
+            <span class="step-number">6</span><span class="step-label">Additional (optional)</span>
           </button>
         </nav>
       </aside>
@@ -65,22 +65,27 @@
             <p>Current source files and local setup session state.</p>
           </div>
 
-          <div class="overview-status-grid">
-            <article class="status-card">
-              <span>IronAPI environment</span>
-              <strong id="apiEnvStatus">Unknown</strong>
-              <p id="apiEnvPath"></p>
-            </article>
-            <article class="status-card">
-              <span>WinPE deploy config</span>
-              <strong id="winpeStatus">Unknown</strong>
-              <p id="winpePath"></p>
-            </article>
-            <article class="status-card status-card-warning">
-              <span>SMB password</span>
-              <strong id="passwordStatus">Not loaded into browser</strong>
-              <p>Leave blank to keep the existing saved value.</p>
-            </article>
+          <div class="settings-flow">
+            <section class="settings-block numbered-block overview-status-block" data-step="1">
+              <div class="block-head"><div><h3>Configuration status</h3><p>Source files and protected values.</p></div></div>
+              <div class="overview-status-grid">
+                <article class="status-card">
+                  <span>IronAPI environment</span>
+                  <strong id="apiEnvStatus">Unknown</strong>
+                  <p id="apiEnvPath"></p>
+                </article>
+                <article class="status-card">
+                  <span>WinPE deploy config</span>
+                  <strong id="winpeStatus">Unknown</strong>
+                  <p id="winpePath"></p>
+                </article>
+                <article class="status-card status-card-warning">
+                  <span>SMB password</span>
+                  <strong id="passwordStatus">Not loaded into browser</strong>
+                  <p>Leave blank to keep the existing saved value.</p>
+                </article>
+              </div>
+            </section>
           </div>
 
           <div class="step-actions align-end">
@@ -269,7 +274,7 @@
             <p>Existing WinPE deployment settings. Network connectivity is configured in step 2.</p>
           </div>
           <div class="winpe-layout">
-            <section class="settings-block smb-settings-block">
+            <section class="settings-block numbered-block smb-settings-block" data-step="1">
               <div class="block-head"><div><h3>SMB deployment share</h3><p>Network source for Windows images, drivers, and optional installers. Credentials remain server-side.</p></div></div>
               <div class="form-grid two smb-fields">
                 <label><span class="field-title">SMB connection address <span class="help" title="Hostname, FQDN, or IPv4 address WinPE should use to reach this computer.">?</span></span><input id="smbServerName" maxlength="253" placeholder="DEPLOY01 or 192.168.1.10" /><small>Defaults to this computer name; replace it when DNS is unavailable.</small></label>
@@ -302,7 +307,7 @@
             <p>Define predictable computer names and optional Active Directory integration.</p>
           </div>
           <div class="settings-flow single-column">
-            <section class="settings-block">
+            <section class="settings-block numbered-block" data-step="1">
               <div class="block-head"><div><h3>Computer naming</h3><p>Build predictable names and preview the next generated value.</p></div></div>
               <div class="naming-layout">
                 <div class="form-grid three">
@@ -313,7 +318,7 @@
                 <div class="name-preview"><span>Next generated name</span><strong id="computerNamePreview">pc00001</strong><small>Existing LDAP names are skipped automatically.</small></div>
               </div>
             </section>
-            <section class="settings-block">
+            <section class="settings-block numbered-block" data-step="2">
               <div class="block-head"><div><h3>Directory and domain join</h3><p>Leave both groups empty to deploy without Active Directory.</p></div></div>
               <div class="integration-grid">
                 <div class="integration-group">
@@ -358,14 +363,14 @@
             <p>Existing optional tuning for service timeouts, driver uploads, and WinPE drive mapping.</p>
           </div>
           <div class="settings-flow single-column">
-            <section class="settings-block">
+            <section class="settings-block numbered-block" data-step="1">
               <div class="block-head"><div><h3>Deployment lifecycle</h3><p>Hard Bearer deadlines. Regular API activity does not extend either window.</p></div></div>
               <div class="form-grid two">
                 <label><span class="field-title">Authorization window (minutes) <span class="help" title="Minutes allowed between successful WinPE login and /begin. Range 5-30. Default 10.">?</span></span><input data-api="IRONAPI_DEPLOYMENT_AUTHORIZATION_TIMEOUT_MINUTES" inputmode="numeric" /></label>
                 <label><span class="field-title">Total deployment timeout (minutes) <span class="help" title="Hard limit from /begin through post-install. Range 30-240. Default 90. Requests do not extend it.">?</span></span><input data-api="IRONAPI_DEPLOYMENT_TIMEOUT_MINUTES" inputmode="numeric" /></label>
               </div>
             </section>
-            <section class="settings-block">
+            <section class="settings-block numbered-block" data-step="2">
               <div class="block-head"><div><h3>Service timeouts</h3><p>Limits for external LDAP and Offline Domain Join operations.</p></div></div>
               <div class="form-grid three">
                 <label><span class="field-title">LDAP timeout <span class="help" title="Connection timeout in seconds, 1-60. Example: 5.">?</span></span><input data-api="IRONAPI_LDAP_CONNECT_TIMEOUT" inputmode="numeric" /></label>
@@ -373,7 +378,7 @@
                 <label><span class="field-title">ODJ blob lifetime <span class="help" title="Provision-to-download lifetime in minutes, 5-1440.">?</span></span><input data-api="IRONAPI_ODJ_BLOB_MAX_AGE_MINUTES" inputmode="numeric" /></label>
               </div>
             </section>
-            <section class="settings-block">
+            <section class="settings-block numbered-block" data-step="3">
               <div class="block-head"><div><h3>Advanced settings</h3></div></div>
               <div class="form-grid two">
                 <label><span class="field-title">Access log <span class="help" title="Uvicorn request log. Usually false for cleaner logs.">?</span></span><select data-api="IRONAPI_ACCESS_LOG"><option value="false">No</option><option value="true">Yes</option></select></label>
@@ -382,7 +387,7 @@
                 <label><span class="field-title">API server djoin.exe path <span class="help" title="Absolute path on the API server, not WinPE.">?</span></span><input data-api="IRONAPI_ODJ_DJOIN_PATH" /></label>
               </div>
             </section>
-            <section class="settings-block">
+            <section class="settings-block numbered-block" data-step="4">
               <div class="block-head"><div><h3>Driver upload limits</h3><p>Safety limits for temporary driver package uploads.</p></div></div>
               <div class="form-grid three">
                 <label><span class="field-title">Maximum files per package</span><input data-api="IRONAPI_DRIVER_MAX_FILES" inputmode="numeric" /></label>
@@ -393,7 +398,7 @@
                 <label><span class="field-title">Minimum free disk space</span><input data-api="IRONAPI_DRIVER_MIN_FREE_SPACE_GIB" inputmode="numeric" /></label>
               </div>
             </section>
-            <section class="settings-block">
+            <section class="settings-block numbered-block" data-step="5">
               <div class="block-head"><div><h3>WinPE drive mapping</h3><p>The mapped drive is configurable. Content paths are derived automatically.</p></div></div>
               <div class="form-grid three">
                 <label><span class="field-title">WinPE drive <span class="help" title="Temporary mapped drive letter in WinPE. Example: Z:.">?</span></span><input data-winpe="ShareDrive" /></label>
@@ -411,13 +416,19 @@
             <p>Run the repository validation without starting IronAPI.</p>
           </div>
           <div class="validation-layout">
-            <div class="validation-main">
-              <div class="validation-summary">
-                <div><span>IronAPI environment</span><strong id="validationApiStatus">Waiting</strong></div>
-                <div><span>WinPE deploy config</span><strong id="validationWinpeStatus">Waiting</strong></div>
-                <div><span>Unattend template</span><strong id="validationUnattendStatus">Waiting</strong></div>
-              </div>
-              <pre id="validationOutput" class="terminal">Validation output will appear here.</pre>
+            <div class="validation-main settings-flow">
+              <section class="settings-block numbered-block validation-status-block" data-step="1">
+                <div class="block-head"><div><h3>Configuration status</h3><p>Source files and protected values.</p></div></div>
+                <div class="validation-summary">
+                  <div><span>IronAPI environment</span><strong id="validationApiStatus">Waiting</strong></div>
+                  <div><span>WinPE deploy config</span><strong id="validationWinpeStatus">Waiting</strong></div>
+                  <div><span>Unattend template</span><strong id="validationUnattendStatus">Waiting</strong></div>
+                </div>
+              </section>
+              <section class="settings-block numbered-block validation-output-block" data-step="2">
+                <div class="block-head"><div><h3>Validation output</h3><p>Repository check results appear below.</p></div></div>
+                <pre id="validationOutput" class="terminal">Validation output will appear here.</pre>
+              </section>
             </div>
             <aside class="validation-actions-panel" aria-label="Validation actions">
               <div class="validation-actions-head">
