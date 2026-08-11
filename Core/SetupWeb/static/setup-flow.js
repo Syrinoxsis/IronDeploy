@@ -122,9 +122,9 @@
     });
   }
 
-  function collectFields(selector, datasetName) {
+  function collectFields(container, selector, datasetName) {
     const values = {};
-    document.querySelectorAll(selector).forEach((input) => {
+    container.querySelectorAll(selector).forEach((input) => {
       values[input.dataset[datasetName]] =
         input.type === "checkbox" ? input.checked : input.value;
     });
@@ -607,13 +607,8 @@
     const winpeStatus = config.files.winpeConfigCreated
       ? "Created from example"
       : config.files.winpeConfigExists ? "Configured" : "Missing";
-    const unattendStatus = config.files.unattendExists
-      ? "Configured"
-      : "Using example until saved";
-
     setStatusText("#apiEnvStatus", apiStatus);
     setStatusText("#winpeStatus", winpeStatus);
-    setStatusText("#unattendStatus", unattendStatus);
     setStatusText("#passwordStatus", config.secrets.hasWinpeSharePassword
       ? "Saved, not displayed"
       : "Required");
@@ -622,10 +617,11 @@
       : "Required; at least 12 characters");
     setStatusText("#validationApiStatus", apiStatus);
     setStatusText("#validationWinpeStatus", winpeStatus);
-    setStatusText("#validationUnattendStatus", unattendStatus);
+    setStatusText("#validationUnattendStatus", config.files.unattendExists
+      ? "Configured"
+      : "Using example until saved");
     document.querySelector("#apiEnvPath").textContent = config.files.apiEnv;
     document.querySelector("#winpePath").textContent = config.files.winpeConfig;
-    document.querySelector("#unattendPath").textContent = config.files.unattend;
 
     setField("[data-api]", config.api);
     setField("[data-winpe]", config.winpe);
@@ -658,26 +654,44 @@
     document.querySelector(`[data-section='${section}']`)?.classList.add("is-complete");
   }
 
-  async function saveConfiguration() {
+  async function saveConfiguration(sectionName = currentSection) {
     clearMessage();
-    validateNetworkSettings();
-    validateSmbSettings();
-    renderStoragePaths();
-    const payload = {
-      api: collectFields("[data-api]", "api"),
-      winpe: collectFields("[data-winpe]", "winpe"),
-      unattend: collectFields("[data-unattend]", "unattend"),
-      auth: collectFields("[data-auth]", "auth"),
-    };
-    const certificateBase64 = await readCertificateBase64();
-    if (
-      payload.winpe.ValidateApiServerCertificate === true &&
-      !certificateBase64 &&
-      !lastConfig?.secrets?.hasApiServerCertificate
-    ) {
-      throw new Error(t("Select a certificate file before saving."));
+    const saveAll = sectionName === "all";
+    const section = saveAll ? document : document.querySelector(`#${sectionName}`);
+    if (!section) throw new Error("The current settings page was not found.");
+
+    if (saveAll || sectionName === "network") validateNetworkSettings();
+    if (saveAll || sectionName === "winpe") validateSmbSettings();
+    if (saveAll || sectionName === "additional") renderStoragePaths();
+
+    const payload = { section: sectionName };
+    for (const [group, selector] of Object.entries({
+      api: "[data-api]",
+      winpe: "[data-winpe]",
+      unattend: "[data-unattend]",
+      auth: "[data-auth]",
+    })) {
+      const values = collectFields(section, selector, group);
+      if (
+        !saveAll &&
+        group === "auth" &&
+        !String(values.username || "").trim() &&
+        !String(values.password || "")
+      ) continue;
+      if (Object.keys(values).length) payload[group] = values;
     }
-    payload.winpe.ApiServerCertificateBase64 = certificateBase64;
+
+    if (saveAll || sectionName === "network") {
+      const certificateBase64 = await readCertificateBase64();
+      if (
+        payload.winpe?.ValidateApiServerCertificate === true &&
+        !certificateBase64 &&
+        !lastConfig?.secrets?.hasApiServerCertificate
+      ) {
+        throw new Error(t("Select a certificate file before saving."));
+      }
+      payload.winpe.ApiServerCertificateBase64 = certificateBase64;
+    }
     const result = await apiFetch("/api/config", {
       method: "POST",
       body: JSON.stringify(payload),
@@ -819,7 +833,7 @@
   document.querySelector("[data-winpe='ShareDrive']").addEventListener("input", renderStoragePaths);
 
   document.querySelector("#saveOnlyButton").addEventListener("click", () => {
-    saveConfiguration().catch((error) => showMessage(error.message, "error"));
+    saveConfiguration("all").catch((error) => showMessage(error.message, "error"));
   });
   document.querySelector("#saveAdditionalButton").addEventListener("click", () => {
     saveConfiguration().catch((error) => showMessage(error.message, "error"));
@@ -830,7 +844,7 @@
   });
   document.querySelector("#finishValidationButton").addEventListener("click", async () => {
     try {
-      await saveConfiguration();
+      await saveConfiguration("all");
       await finish();
     } catch (error) {
       showMessage(error.message, "error");

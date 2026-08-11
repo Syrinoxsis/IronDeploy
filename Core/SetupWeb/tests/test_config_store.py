@@ -488,6 +488,96 @@ class CredentialMigrationTests(unittest.TestCase):
             self.assertNotIn("$SharePassword", winpe_config)
             self.assertNotIn("$ShareUser", winpe_config)
 
+    def test_network_settings_save_without_smb_credentials(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "Api").mkdir()
+            (root / "WinPE" / "Runtime").mkdir(parents=True)
+            (root / "ServerTemplates" / "Unattend").mkdir(parents=True)
+            shutil.copy2(
+                SETUPWEB_ROOT.parent / "Api" / ".env.example",
+                root / "Api" / ".env.example",
+            )
+            shutil.copy2(
+                SETUPWEB_ROOT.parent
+                / "WinPE"
+                / "Runtime"
+                / "deploy.config.example.ps1",
+                root / "WinPE" / "Runtime" / "deploy.config.example.ps1",
+            )
+            shutil.copy2(
+                SETUPWEB_ROOT.parent
+                / "ServerTemplates"
+                / "Unattend"
+                / "unattend-win11-template.example.xml",
+                root
+                / "ServerTemplates"
+                / "Unattend"
+                / "unattend-win11-template.example.xml",
+            )
+            paths = IronDeployPaths(
+                root=root,
+                api_env=root / "Api" / ".env",
+                api_env_example=root / "Api" / ".env.example",
+                winpe_config=root / "WinPE" / "Runtime" / "deploy.config.ps1",
+                winpe_config_example=root
+                / "WinPE"
+                / "Runtime"
+                / "deploy.config.example.ps1",
+                unattend=root
+                / "ServerTemplates"
+                / "Unattend"
+                / "unattend-win11-template.xml",
+                unattend_example=root
+                / "ServerTemplates"
+                / "Unattend"
+                / "unattend-win11-template.example.xml",
+                backup_dir=root / "Logs" / "ConfigBackups",
+                validation_script=root / "Tools" / "Test-IronDeploy.ps1",
+                auth_bootstrap=root / "Data" / "auth-bootstrap.json",
+            )
+            load_config(paths)
+            paths.api_env.write_text(
+                paths.api_env.read_text(encoding="utf-8").replace(
+                    "IRONAPI_IMAGE_APPLY_MODE=direct",
+                    "IRONAPI_IMAGE_APPLY_MODE=STAGED",
+                ),
+                encoding="utf-8",
+            )
+
+            result = save_config(
+                paths,
+                {
+                    "section": "network",
+                    "api": {
+                        "IRONAPI_ACCESS_MODE": "http_direct",
+                        "IRONAPI_BIND_HOST": "198.51.100.25",
+                        "IRONAPI_PORT": "9000",
+                        "IRONAPI_ALLOWED_CLIENT_NETWORKS": "198.51.100.0/24",
+                    },
+                    "winpe": {
+                        "ApiBaseUrl": "http://198.51.100.25:9000",
+                        "ValidateApiServerCertificate": False,
+                        "ApiServerCertificateType": "self_signed",
+                        "ApiServerCertificateBase64": "",
+                    },
+                },
+            )
+
+            self.assertTrue(result["saved"])
+            api_env = paths.api_env.read_text(encoding="utf-8")
+            winpe_config = paths.winpe_config.read_text(encoding="utf-8")
+            self.assertIn("IRONAPI_BIND_HOST=198.51.100.25", api_env)
+            self.assertIn("IRONAPI_PORT=9000", api_env)
+            self.assertIn("IRONAPI_IMAGE_APPLY_MODE=STAGED", api_env)
+            self.assertIn(
+                "$ApiBaseUrl = 'http://198.51.100.25:9000'",
+                winpe_config,
+            )
+            self.assertIn("IRONAPI_SMB_PASSWORD=CHANGE_ME", api_env)
+            self.assertFalse(paths.auth_bootstrap.exists())
+            self.assertFalse(paths.unattend.exists())
+
 
 if __name__ == "__main__":
     unittest.main()
