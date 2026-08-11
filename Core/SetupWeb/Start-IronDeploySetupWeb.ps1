@@ -3,13 +3,70 @@
 [CmdletBinding()]
 param(
     [int]$TokenTtlSeconds = 120,
-    [int]$SessionTtlSeconds = 900,
+    [int]$SessionTtlSeconds = 1500,
     [switch]$SkipDependencyInstall,
     [switch]$NoBrowser
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+function Test-IsAdministrator {
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = [Security.Principal.WindowsPrincipal]::new($identity)
+    return $principal.IsInRole(
+        [Security.Principal.WindowsBuiltInRole]::Administrator
+    )
+}
+
+function Start-ElevatedSetupWeb {
+    $commandParts = @(
+        "& '$($PSCommandPath.Replace("'", "''"))'"
+        "-TokenTtlSeconds $TokenTtlSeconds"
+        "-SessionTtlSeconds $SessionTtlSeconds"
+    )
+    if ($SkipDependencyInstall) {
+        $commandParts += "-SkipDependencyInstall"
+    }
+    if ($NoBrowser) {
+        $commandParts += "-NoBrowser"
+    }
+
+    $command = $commandParts -join " "
+    $encodedCommand = [Convert]::ToBase64String(
+        [Text.Encoding]::Unicode.GetBytes($command)
+    )
+    $powershell = (Get-Command powershell.exe -ErrorAction Stop).Source
+
+    Write-Host "SetupWeb requires administrator rights; requesting UAC approval." `
+        -ForegroundColor Yellow
+    try {
+        $process = Start-Process `
+            -FilePath $powershell `
+            -ArgumentList @(
+                "-NoLogo",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-EncodedCommand",
+                $encodedCommand
+            ) `
+            -WorkingDirectory $PSScriptRoot `
+            -Verb RunAs `
+            -WindowStyle Normal `
+            -Wait `
+            -PassThru
+    }
+    catch {
+        throw "Administrator approval is required to start SetupWeb. $($_.Exception.Message)"
+    }
+
+    exit $process.ExitCode
+}
+
+if (-not (Test-IsAdministrator)) {
+    Start-ElevatedSetupWeb
+}
 
 $SetupWebRoot = $PSScriptRoot
 $VenvRoot = Join-Path $SetupWebRoot ".venv"

@@ -92,7 +92,6 @@ Write-Host "Root: $IronDeployRoot"
     @("WinPE\Runtime\startnet.cmd", "Leaf"),
     @("Share\Images", "Container"),
     @("Share\Drivers", "Container"),
-    @("ServerTemplates\Unattend\unattend-win11-template.xml", "Leaf"),
     @("ServerTemplates\PostInstall\SetupComplete.cmd", "Leaf"),
     @("ServerTemplates\PostInstall\postinstall.ps1", "Leaf"),
     @("Data", "Container"),

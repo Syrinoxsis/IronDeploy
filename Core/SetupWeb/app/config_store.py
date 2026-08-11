@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import ipaddress
 import base64
 import hashlib
+import ipaddress
 import json
 import os
 import re
@@ -158,6 +158,7 @@ TIME_ZONES = (
 TIME_ZONE_IDS = {item[0] for item in TIME_ZONES}
 AUTH_PASSWORD_ITERATIONS = 600_000
 AUTH_USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9._-]{3,64}$")
+SMB_SERVER_ADDRESS_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
 @dataclass(frozen=True)
@@ -437,42 +438,84 @@ def save_config(paths: IronDeployPaths, payload: dict[str, Any]) -> dict[str, An
     ):
         raise ValueError("Invalid payload.")
 
-    current_api = read_dotenv(paths.api_env)
-    effective_api_updates = dict(current_api)
-    effective_api_updates.update(api_updates)
-    normalized_api = normalize_api(effective_api_updates)
-    effective_winpe_updates = dict(winpe_updates)
-    for winpe_name, api_name in {
+    smb_names = {
         "SharePath": "IRONAPI_SMB_SHARE_PATH",
         "ShareUser": "IRONAPI_SMB_USER",
         "SharePassword": "IRONAPI_SMB_PASSWORD",
-    }.items():
-        if not str(effective_winpe_updates.get(winpe_name, "")).strip():
-            existing = current_api.get(api_name, "")
-            if existing and "CHANGE_ME" not in existing:
-                effective_winpe_updates[winpe_name] = existing
-    normalized_winpe = normalize_winpe(
-        paths,
-        effective_winpe_updates,
-        normalized_api["IRONAPI_ACCESS_MODE"],
+    }
+    current_api = read_dotenv(paths.api_env)
+
+    normalized_api: dict[str, str] | None = None
+    normalized_api_updates: dict[str, str] = {}
+    if api_updates:
+        effective_api_updates = dict(current_api)
+        effective_api_updates.update(api_updates)
+        normalized_api = normalize_api(effective_api_updates)
+        normalized_api_updates = {
+            name: normalized_api[name]
+            for name in api_updates
+            if name in normalized_api
+        }
+        if "IRONAPI_ACCESS_MODE" in api_updates:
+            normalized_api_updates["IRONAPI_COOKIE_SECURE"] = normalized_api[
+                "IRONAPI_COOKIE_SECURE"
+            ]
+
+    access_mode = (
+        normalized_api["IRONAPI_ACCESS_MODE"]
+        if normalized_api is not None
+        else current_api.get("IRONAPI_ACCESS_MODE", "")
+        or read_dotenv(paths.api_env_example).get(
+            "IRONAPI_ACCESS_MODE", "http_direct"
+        )
     )
-    normalized_api["IRONAPI_SMB_SHARE_PATH"] = normalized_winpe["SharePath"]
-    normalized_api["IRONAPI_SMB_USER"] = normalized_winpe["ShareUser"]
-    normalized_api["IRONAPI_SMB_PASSWORD"] = normalized_winpe["SharePassword"]
-    normalized_unattend = normalize_unattend(paths, unattend_updates)
-    normalized_auth = normalize_auth(paths, auth_updates)
+
+    normalized_winpe: dict[str, str] | None = None
+    smb_api_updates: dict[str, str] = {}
+    if winpe_updates:
+        effective_winpe_updates = dict(winpe_updates)
+        for winpe_name, api_name in smb_names.items():
+            if not str(effective_winpe_updates.get(winpe_name, "")).strip():
+                existing = current_api.get(api_name, "")
+                if existing and "CHANGE_ME" not in existing:
+                    effective_winpe_updates[winpe_name] = existing
+
+        smb_is_in_scope = any(name in winpe_updates for name in smb_names)
+        normalized_winpe = normalize_winpe(
+            paths,
+            effective_winpe_updates,
+            access_mode,
+            require_smb_configuration=smb_is_in_scope,
+        )
+        if smb_is_in_scope:
+            smb_api_updates = {
+                api_name: normalized_winpe[winpe_name]
+                for winpe_name, api_name in smb_names.items()
+            }
+    normalized_unattend = (
+        normalize_unattend(paths, unattend_updates) if unattend_updates else None
+    )
+    normalized_auth = normalize_auth(paths, auth_updates) if auth_updates else None
 
     backups: list[str] = []
-    backup = save_api_env(paths, normalized_api)
-    if backup:
-        backups.append(backup)
-    backup = save_winpe_config(paths, normalized_winpe)
-    if backup:
-        backups.append(backup)
-    backup = save_unattend_settings(paths, normalized_unattend)
-    if backup:
-        backups.append(backup)
-    save_auth_bootstrap(paths.auth_bootstrap, normalized_auth)
+    api_values_to_save = dict(normalized_api_updates)
+    api_values_to_save.update(smb_api_updates)
+    if api_values_to_save:
+        backup = save_api_env(paths, api_values_to_save)
+        if backup:
+            backups.append(backup)
+    if normalized_winpe is not None and any(
+        name not in smb_names for name in winpe_updates
+    ):
+        backup = save_winpe_config(paths, normalized_winpe)
+        if backup:
+            backups.append(backup)
+    if normalized_unattend is not None:
+        backup = save_unattend_settings(paths, normalized_unattend)
+        if backup:
+            backups.append(backup)
+    if normalized_auth is not None:
+        save_auth_bootstrap(paths.auth_bootstrap, normalized_auth)
     return {"saved": True, "backups": backups, "config": load_config(paths)}
 
 
@@ -583,7 +626,6 @@ def normalize_api(values: dict[str, Any]) -> dict[str, str]:
     result["IRONAPI_ACCESS_MODE"] = access_mode
     if access_mode == "https_proxy":
         result["IRONAPI_BIND_HOST"] = "127.0.0.1"
-        result["IRONAPI_PORT"] = "8000"
         result["IRONAPI_COOKIE_SECURE"] = "true"
     else:
         result["IRONAPI_COOKIE_SECURE"] = "false"
@@ -691,10 +733,73 @@ def normalize_api(values: dict[str, Any]) -> dict[str, str]:
     return result
 
 
+def validate_certificate(
+    paths: IronDeployPaths,
+    encoded: str,
+    certificate_type: str,
+) -> dict[str, Any]:
+    candidate = str(encoded or "").strip()
+    if not candidate:
+        candidate = read_ps_config(paths.winpe_config).get(
+            "ApiServerCertificateBase64", ""
+        )
+    if not candidate:
+        raise ValueError("Select a certificate file before checking it.")
+
+    certificate_type = str(certificate_type or "").strip().lower()
+    if certificate_type not in CERTIFICATE_TYPES:
+        raise ValueError("Certificate type must be self_signed or ca.")
+
+    _, certificate = normalize_certificate_base64(candidate)
+    self_signed = certificate["subject"] == certificate["issuer"]
+    if certificate_type == "self_signed" and not self_signed:
+        raise ValueError(
+            "Self-signed mode requires a certificate whose subject and issuer "
+            "are the same."
+        )
+
+    return {
+        "valid": True,
+        "selfSigned": self_signed,
+        "notAfter": certificate["not_after"].isoformat(),
+    }
+
+
+def normalize_smb_server_address(value: str) -> str:
+    server_address = str(value or "").strip()
+    if (
+        not server_address
+        or len(server_address) > 253
+        or not SMB_SERVER_ADDRESS_PATTERN.fullmatch(server_address)
+    ):
+        raise ValueError("SMB address must be a hostname, FQDN, or IPv4 address.")
+
+    if re.fullmatch(r"[0-9.]+", server_address) and "." in server_address:
+        try:
+            ipaddress.IPv4Address(server_address)
+        except ipaddress.AddressValueError as exc:
+            raise ValueError("SMB IPv4 address is invalid.") from exc
+        return server_address
+
+    labels = server_address.split(".")
+    if any(
+        not label
+        or len(label) > 63
+        or label.startswith("-")
+        or label.endswith("-")
+        for label in labels
+    ):
+        raise ValueError(
+            "SMB address must be a valid hostname, FQDN, or IPv4 address."
+        )
+    return server_address
+
+
 def normalize_winpe(
     paths: IronDeployPaths,
     values: dict[str, Any],
     access_mode: str | None = None,
+    require_smb_configuration: bool = True,
 ) -> dict[str, str]:
     current = read_ps_config(paths.winpe_config_example)
     configured = read_ps_config(paths.winpe_config)
@@ -715,16 +820,28 @@ def normalize_winpe(
             candidate = current.get(name, "")
         result[name] = candidate
 
-    if not re.match(r"^\\\\[^\\]+\\[^\\]+", result["SharePath"]):
-        raise ValueError("SharePath must be a UNC path such as \\\\SERVER\\IronDeploy.")
+    if require_smb_configuration:
+        share_path_match = re.fullmatch(r"\\\\([^\\]+)\\([^\\]+)", result["SharePath"])
+        if share_path_match is None:
+            raise ValueError("SharePath must be a UNC path such as \\\\SERVER\\IronDeploy.")
+        normalize_smb_server_address(share_path_match.group(1))
     if not re.match(r"^[A-Za-z]:$", result["ShareDrive"]):
         raise ValueError("ShareDrive must be one drive letter followed by a colon.")
-    if not result["ShareUser"]:
-        raise ValueError("ShareUser cannot be empty.")
-    if not result["SharePassword"]:
-        result["SharePassword"] = current.get("SharePassword", "")
-    if not result["SharePassword"] or "CHANGE_ME" in result["SharePassword"]:
-        raise ValueError("SharePassword is required for the IronAPI SMB settings.")
+    if require_smb_configuration:
+        account_match = re.fullmatch(
+            r"([^\\/@\r\n]+)\\([^\\/@\r\n]+)",
+            result["ShareUser"],
+        )
+        if (
+            account_match is None
+            or account_match.group(1) != account_match.group(1).strip()
+            or account_match.group(2) != account_match.group(2).strip()
+        ):
+            raise ValueError("ShareUser must use SERVER\\user or DOMAIN\\user format.")
+        if not result["SharePassword"]:
+            result["SharePassword"] = current.get("SharePassword", "")
+        if not result["SharePassword"] or "CHANGE_ME" in result["SharePassword"]:
+            raise ValueError("SharePassword is required for the IronAPI SMB settings.")
     if not re.match(r"^https?://[^/]+(?::\d+)?$", result["ApiBaseUrl"]):
         raise ValueError("ApiBaseUrl must look like http://198.51.100.10:8000.")
 

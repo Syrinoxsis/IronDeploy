@@ -15,9 +15,10 @@ From the repository root, run step 3:
 & ".\3. Start-IronDeploySetupWeb.ps1"
 ```
 
-The launcher forwards to `Core\SetupWeb\Start-IronDeploySetupWeb.ps1`. On
-demand, that script creates `Core\SetupWeb\.venv`, installs its requirements,
-selects a random localhost port, and opens the default browser.
+The launcher forwards to `Core\SetupWeb\Start-IronDeploySetupWeb.ps1`. It asks
+for administrator approval through Windows UAC, then creates
+`Core\SetupWeb\.venv` on demand, installs its requirements, selects a random
+localhost port, and opens the default browser.
 
 Useful launcher options are:
 
@@ -49,13 +50,15 @@ The UI owns the first-time settings needed by both IronAPI and WinPE:
 
 - initial IronAPI superadmin username and password;
 - listener/access mode, address, port, and allowed client networks;
-- SMB share path and configured account details; the administrator must create
-  the share and account separately and grant read-only access in both SMB and
-  NTFS permissions;
+- SMB share path and configured account details; SetupWeb can publish the fixed
+  local `Core\Share` folder and grant read access, but the Windows account must
+  already exist;
 - computer naming, LDAP, and Offline Domain Join settings. Active Directory is
   optional: leaving the LDAP server and base DN empty disables name checks, and
   leaving the Offline Domain Join domain and OU empty disables domain joins.
-  SetupWeb keeps these fields empty rather than substituting the example values;
+  SetupWeb keeps these fields empty rather than substituting the example values.
+  The ODJ security action can restrict `Core\ODJ` to SYSTEM, Administrators, and
+  an existing Windows account that runs IronAPI;
 - deployment and authorization timeouts;
 - driver-upload safety limits;
 - WinPE API address and certificate trust;
@@ -102,8 +105,10 @@ SetupWeb writes settings to the component that consumes them:
 - SMB credentials stay in `Core\Api\.env`; they are never embedded in WinPE.
 - The image-apply strategy stays in `Core\Api\.env`; IronAPI returns it in the
   deployment manifest instead of SetupWeb embedding it in WinPE.
-- SetupWeb records the SMB connection details but does not create the share,
-  account, or access permissions.
+- SetupWeb can publish the fixed local `Core\Share` folder and grant read access
+  to an existing `SERVER\user` or `DOMAIN\user` account. It does not create the
+  account or configure shares on remote servers. The saved UNC path may use the
+  current server's hostname, FQDN, or IPv4 address.
 - WinPE stores the API address and trust policy, not deployment authorization
   credentials.
 - Unattend remains under `Core\ServerTemplates`, where IronAPI can return it only to

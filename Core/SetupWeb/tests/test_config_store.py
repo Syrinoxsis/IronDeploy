@@ -17,6 +17,7 @@ from app.config_store import (
     normalize_api,
     normalize_winpe,
     save_config,
+    validate_certificate,
 )
 
 
@@ -130,7 +131,7 @@ class AccessModeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "IRONAPI_DRIVER_MAX_FULL_PATH"):
             normalize_api({"IRONAPI_DRIVER_MAX_FULL_PATH": "63"})
 
-    def test_https_proxy_forces_loopback_port_and_secure_cookie(self) -> None:
+    def test_https_proxy_forces_loopback_and_preserves_internal_port(self) -> None:
         result = normalize_api(
             {
                 "IRONAPI_ACCESS_MODE": "https_proxy",
@@ -140,8 +141,25 @@ class AccessModeTests(unittest.TestCase):
         )
 
         self.assertEqual(result["IRONAPI_BIND_HOST"], "127.0.0.1")
-        self.assertEqual(result["IRONAPI_PORT"], "8000")
+        self.assertEqual(result["IRONAPI_PORT"], "9443")
         self.assertEqual(result["IRONAPI_COOKIE_SECURE"], "true")
+
+    @patch("app.config_store.inspect_certificate_der")
+    def test_certificate_can_be_checked_without_saving(
+        self, inspect_certificate
+    ) -> None:
+        now = datetime.now(timezone.utc)
+        inspect_certificate.return_value = {
+            "subject": ((("commonName", "deploy.example.test"),),),
+            "issuer": ((("commonName", "deploy.example.test"),),),
+            "not_before": now - timedelta(days=1),
+            "not_after": now + timedelta(days=30),
+        }
+
+        result = validate_certificate(self.paths, "AQID", "self_signed")
+
+        self.assertTrue(result["valid"])
+        self.assertTrue(result["selfSigned"])
 
     def test_winpe_url_scheme_must_match_access_mode(self) -> None:
         values = {
@@ -163,6 +181,39 @@ class AccessModeTests(unittest.TestCase):
         values["ApiBaseUrl"] = "http://198.51.100.5:8000"
         with self.assertRaisesRegex(ValueError, "requires an https://"):
             normalize_winpe(self.paths, values, "https_proxy")
+
+    def test_smb_user_must_be_qualified(self) -> None:
+        values = {
+            "SharePath": r"\\server\IronDeploy",
+            "ShareDrive": "Z:",
+            "ShareUser": "iron_ro",
+            "SharePassword": "not-a-placeholder-password",
+            "ApiBaseUrl": "http://198.51.100.5:8000",
+            "ValidateApiServerCertificate": "false",
+        }
+
+        with self.assertRaisesRegex(ValueError, r"SERVER\\user or DOMAIN\\user"):
+            normalize_winpe(self.paths, values, "http_direct")
+
+        values["ShareUser"] = "iron_ro@example.test"
+        with self.assertRaisesRegex(ValueError, r"SERVER\\user or DOMAIN\\user"):
+            normalize_winpe(self.paths, values, "http_direct")
+
+        values["ShareUser"] = r"SERVER\ iron_ro"
+        with self.assertRaisesRegex(ValueError, r"SERVER\\user or DOMAIN\\user"):
+            normalize_winpe(self.paths, values, "http_direct")
+
+        values["ShareUser"] = r"SERVER\iron_ro"
+        result = normalize_winpe(self.paths, values, "http_direct")
+        self.assertEqual(result["ShareUser"], r"SERVER\iron_ro")
+
+        values["SharePath"] = r"\\999.1.1.1\IronDeploy"
+        with self.assertRaisesRegex(ValueError, "SMB IPv4 address is invalid"):
+            normalize_winpe(self.paths, values, "http_direct")
+
+        values["SharePath"] = r"\\192.168.1.10\IronDeploy"
+        result = normalize_winpe(self.paths, values, "http_direct")
+        self.assertEqual(result["SharePath"], r"\\192.168.1.10\IronDeploy")
 
     def test_certificate_validation_requires_https_and_certificate(self) -> None:
         values = {
@@ -436,6 +487,96 @@ class CredentialMigrationTests(unittest.TestCase):
             self.assertNotIn("server-side-password", winpe_config)
             self.assertNotIn("$SharePassword", winpe_config)
             self.assertNotIn("$ShareUser", winpe_config)
+
+    def test_network_settings_save_without_smb_credentials(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "Api").mkdir()
+            (root / "WinPE" / "Runtime").mkdir(parents=True)
+            (root / "ServerTemplates" / "Unattend").mkdir(parents=True)
+            shutil.copy2(
+                SETUPWEB_ROOT.parent / "Api" / ".env.example",
+                root / "Api" / ".env.example",
+            )
+            shutil.copy2(
+                SETUPWEB_ROOT.parent
+                / "WinPE"
+                / "Runtime"
+                / "deploy.config.example.ps1",
+                root / "WinPE" / "Runtime" / "deploy.config.example.ps1",
+            )
+            shutil.copy2(
+                SETUPWEB_ROOT.parent
+                / "ServerTemplates"
+                / "Unattend"
+                / "unattend-win11-template.example.xml",
+                root
+                / "ServerTemplates"
+                / "Unattend"
+                / "unattend-win11-template.example.xml",
+            )
+            paths = IronDeployPaths(
+                root=root,
+                api_env=root / "Api" / ".env",
+                api_env_example=root / "Api" / ".env.example",
+                winpe_config=root / "WinPE" / "Runtime" / "deploy.config.ps1",
+                winpe_config_example=root
+                / "WinPE"
+                / "Runtime"
+                / "deploy.config.example.ps1",
+                unattend=root
+                / "ServerTemplates"
+                / "Unattend"
+                / "unattend-win11-template.xml",
+                unattend_example=root
+                / "ServerTemplates"
+                / "Unattend"
+                / "unattend-win11-template.example.xml",
+                backup_dir=root / "Logs" / "ConfigBackups",
+                validation_script=root / "Tools" / "Test-IronDeploy.ps1",
+                auth_bootstrap=root / "Data" / "auth-bootstrap.json",
+            )
+            load_config(paths)
+            paths.api_env.write_text(
+                paths.api_env.read_text(encoding="utf-8").replace(
+                    "IRONAPI_IMAGE_APPLY_MODE=direct",
+                    "IRONAPI_IMAGE_APPLY_MODE=STAGED",
+                ),
+                encoding="utf-8",
+            )
+
+            result = save_config(
+                paths,
+                {
+                    "section": "network",
+                    "api": {
+                        "IRONAPI_ACCESS_MODE": "http_direct",
+                        "IRONAPI_BIND_HOST": "198.51.100.25",
+                        "IRONAPI_PORT": "9000",
+                        "IRONAPI_ALLOWED_CLIENT_NETWORKS": "198.51.100.0/24",
+                    },
+                    "winpe": {
+                        "ApiBaseUrl": "http://198.51.100.25:9000",
+                        "ValidateApiServerCertificate": False,
+                        "ApiServerCertificateType": "self_signed",
+                        "ApiServerCertificateBase64": "",
+                    },
+                },
+            )
+
+            self.assertTrue(result["saved"])
+            api_env = paths.api_env.read_text(encoding="utf-8")
+            winpe_config = paths.winpe_config.read_text(encoding="utf-8")
+            self.assertIn("IRONAPI_BIND_HOST=198.51.100.25", api_env)
+            self.assertIn("IRONAPI_PORT=9000", api_env)
+            self.assertIn("IRONAPI_IMAGE_APPLY_MODE=STAGED", api_env)
+            self.assertIn(
+                "$ApiBaseUrl = 'http://198.51.100.25:9000'",
+                winpe_config,
+            )
+            self.assertIn("IRONAPI_SMB_PASSWORD=CHANGE_ME", api_env)
+            self.assertFalse(paths.auth_bootstrap.exists())
+            self.assertFalse(paths.unattend.exists())
 
 
 if __name__ == "__main__":
