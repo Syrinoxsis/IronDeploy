@@ -67,7 +67,6 @@ const ruTranslations = {
   "IronAPI service settings": "Параметры сервиса IronAPI",
   "Run the repository validation without starting IronAPI.": "Запустите проверку репозитория без запуска IronAPI.",
   "Waiting": "Ожидание",
-  "Unattend template": "Шаблон unattend",
   "Back": "Назад",
   "Save configuration": "Сохранить конфигурацию",
   "Finish setup": "Завершить настройку",

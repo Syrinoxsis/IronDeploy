@@ -617,9 +617,6 @@
       : "Required; at least 12 characters");
     setStatusText("#validationApiStatus", apiStatus);
     setStatusText("#validationWinpeStatus", winpeStatus);
-    setStatusText("#validationUnattendStatus", config.files.unattendExists
-      ? "Configured"
-      : "Using example until saved");
     document.querySelector("#apiEnvPath").textContent = config.files.apiEnv;
     document.querySelector("#winpePath").textContent = config.files.winpeConfig;
 
