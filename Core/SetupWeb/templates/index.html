@@ -29,14 +29,14 @@
           <button class="step-item" type="button" data-section="winpe">
             <span class="step-number">3</span><span class="step-label">WinPE</span>
           </button>
-          <button class="step-item" type="button" data-section="additional">
-            <span class="step-number">4</span><span class="step-label">Additional</span>
+          <button class="step-item" type="button" data-section="unsorted">
+            <span class="step-number">4</span><span class="step-label">Computers and Active Directory</span>
           </button>
           <button class="step-item" type="button" data-section="validation">
             <span class="step-number">5</span><span class="step-label">Validation</span>
           </button>
-          <button class="step-item" type="button" data-section="unsorted">
-            <span class="step-number">6</span><span class="step-label">Unsorted</span>
+          <button class="step-item" type="button" data-section="additional">
+            <span class="step-number">6</span><span class="step-label">Additional</span>
           </button>
         </nav>
       </aside>
@@ -298,13 +298,13 @@
               </div>
             </aside>
           </div>
-          <div class="step-actions winpe-step-actions"><button class="secondary" type="button" data-next="network">Back</button><button class="primary push-right" type="button" data-save-next="additional">Save and continue</button></div>
+          <div class="step-actions winpe-step-actions"><button class="secondary" type="button" data-next="network">Back</button><button class="primary push-right" type="button" data-save-next="unsorted">Save and continue</button></div>
         </section>
 
         <section class="view" id="unsorted">
           <div class="page-head">
-            <h2>Unsorted settings</h2>
-            <p>Existing SetupWeb controls that have not yet been assigned to the new flow.</p>
+            <h2>Computers and Active Directory</h2>
+            <p>Define predictable computer names and optional Active Directory integration.</p>
           </div>
           <div class="settings-flow single-column">
             <section class="settings-block">
@@ -335,20 +335,26 @@
                     <label><span class="field-title">ODJ domain</span><input data-api="IRONAPI_ODJ_DOMAIN" /></label>
                     <label><span class="field-title">ODJ machine OU</span><input data-api="IRONAPI_ODJ_MACHINE_OU" /></label>
                   </div>
+                  <div class="odj-security-panel">
+                    <div class="odj-security-head">
+                      <strong>ODJ folder security</strong>
+                      <small>Restrict the local provisioning blob folder to SYSTEM, Administrators, and the IronAPI process account.</small>
+                    </div>
+                    <label>
+                      <span class="field-title">IronAPI process account <span class="help" title="Windows account that starts IronAPI and runs djoin.exe. Do not use the read-only SMB account.">?</span></span>
+                      <input id="odjProcessAccount" autocomplete="off" placeholder="DOMAIN\irondeploy_api" />
+                      <small id="odjFolderPath"></small>
+                    </label>
+                    <div class="inline-actions odj-security-actions">
+                      <button class="secondary accent-outline" id="secureOdjFolderButton" type="button">Secure ODJ folder</button>
+                      <span class="inline-status" id="odjAclStatus" aria-live="polite"></span>
+                    </div>
+                  </div>
                 </div>
               </div>
             </section>
-            <details class="advanced-block">
-              <summary>Advanced settings</summary>
-              <div class="form-grid two advanced-content">
-                <label><span class="field-title">Access log <span class="help" title="Uvicorn request log. Usually false for cleaner logs.">?</span></span><select data-api="IRONAPI_ACCESS_LOG"><option value="false">No</option><option value="true">Yes</option></select></label>
-                <label class="wide"><span class="field-title">Database URL <span class="help" title="SQLAlchemy URL. Empty restores the .env.example value.">?</span></span><input data-api="IRONAPI_DATABASE_URL" /></label>
-                <label><span class="field-title">ODJ blob directory <span class="help" title="Protected local API-server directory, not SMB.">?</span></span><input data-api="IRONAPI_ODJ_BLOB_DIR" /></label>
-                <label><span class="field-title">API server djoin.exe path <span class="help" title="Absolute path on the API server, not WinPE.">?</span></span><input data-api="IRONAPI_ODJ_DJOIN_PATH" /></label>
-              </div>
-            </details>
           </div>
-          <div class="step-actions"><button class="secondary" type="button" data-next="validation">Back</button><button class="primary push-right" id="saveUnsortedButton" type="button">Save configuration</button></div>
+          <div class="step-actions"><button class="secondary" type="button" data-next="winpe">Back</button><button class="primary push-right" type="button" data-save-next="validation">Save and continue</button></div>
         </section>
 
         <section class="view" id="additional">
@@ -373,6 +379,15 @@
               </div>
             </section>
             <section class="settings-block">
+              <div class="block-head"><div><h3>Advanced settings</h3></div></div>
+              <div class="form-grid two">
+                <label><span class="field-title">Access log <span class="help" title="Uvicorn request log. Usually false for cleaner logs.">?</span></span><select data-api="IRONAPI_ACCESS_LOG"><option value="false">No</option><option value="true">Yes</option></select></label>
+                <label class="wide"><span class="field-title">Database URL <span class="help" title="SQLAlchemy URL. Empty restores the .env.example value.">?</span></span><input data-api="IRONAPI_DATABASE_URL" /></label>
+                <label><span class="field-title">ODJ blob directory <span class="help" title="Protected local API-server directory, not SMB.">?</span></span><input data-api="IRONAPI_ODJ_BLOB_DIR" /></label>
+                <label><span class="field-title">API server djoin.exe path <span class="help" title="Absolute path on the API server, not WinPE.">?</span></span><input data-api="IRONAPI_ODJ_DJOIN_PATH" /></label>
+              </div>
+            </section>
+            <section class="settings-block">
               <div class="block-head"><div><h3>Driver upload limits</h3><p>Safety limits for temporary driver package uploads.</p></div></div>
               <div class="form-grid three">
                 <label><span class="field-title">Maximum files per package</span><input data-api="IRONAPI_DRIVER_MAX_FILES" inputmode="numeric" /></label>
@@ -392,21 +407,38 @@
               </div>
             </section>
           </div>
-          <div class="step-actions"><button class="secondary" type="button" data-next="winpe">Back</button><button class="primary push-right" type="button" data-save-next="validation">Save and continue</button></div>
+          <div class="step-actions"><button class="secondary" type="button" data-next="validation">Back</button><button class="primary push-right" id="saveAdditionalButton" type="button">Save configuration</button></div>
         </section>
 
         <section class="view" id="validation">
-          <div class="page-head with-action">
-            <div><h2>Validation</h2><p>Run the repository validation without starting IronAPI.</p></div>
-            <button id="validateButton" class="primary" type="button">Run validation</button>
+          <div class="page-head">
+            <h2>Validation</h2>
+            <p>Run the repository validation without starting IronAPI.</p>
           </div>
-          <div class="validation-summary">
-            <div><span>IronAPI environment</span><strong id="validationApiStatus">Waiting</strong></div>
-            <div><span>WinPE deploy config</span><strong id="validationWinpeStatus">Waiting</strong></div>
-            <div><span>Unattend template</span><strong id="validationUnattendStatus">Waiting</strong></div>
+          <div class="validation-layout">
+            <div class="validation-main">
+              <div class="validation-summary">
+                <div><span>IronAPI environment</span><strong id="validationApiStatus">Waiting</strong></div>
+                <div><span>WinPE deploy config</span><strong id="validationWinpeStatus">Waiting</strong></div>
+                <div><span>Unattend template</span><strong id="validationUnattendStatus">Waiting</strong></div>
+              </div>
+              <pre id="validationOutput" class="terminal">Validation output will appear here.</pre>
+            </div>
+            <aside class="validation-actions-panel" aria-label="Validation actions">
+              <div class="validation-actions-head">
+                <h3>Validation actions</h3>
+                <p>Run checks, save the configuration, then finish setup.</p>
+              </div>
+              <div class="validation-actions-body">
+                <button id="validateButton" class="primary" type="button">Run validation</button>
+                <button id="saveOnlyButton" class="secondary" type="button">Save configuration</button>
+                <button id="finishValidationButton" class="primary" type="button">Finish setup</button>
+              </div>
+              <div class="validation-actions-footer">
+                <button class="secondary" type="button" data-next="unsorted">Back</button>
+              </div>
+            </aside>
           </div>
-          <pre id="validationOutput" class="terminal">Validation output will appear here.</pre>
-          <div class="step-actions"><button class="secondary" type="button" data-next="additional">Back</button><button class="secondary push-right" id="saveOnlyButton" type="button">Save configuration</button><button class="primary" id="finishValidationButton" type="button">Finish setup</button></div>
         </section>
       </main>
     </div>

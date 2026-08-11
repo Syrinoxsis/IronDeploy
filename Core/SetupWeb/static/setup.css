@@ -1160,6 +1160,49 @@ button.accent-outline {
   text-transform: uppercase;
 }
 
+.odj-security-panel {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+}
+
+.odj-security-head {
+  display: grid;
+  gap: 4px;
+}
+
+.odj-security-head strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.odj-security-head small,
+.odj-security-panel label > small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.odj-security-panel label {
+  display: grid;
+  gap: 7px;
+}
+
+.odj-security-actions {
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.odj-security-actions .inline-status {
+  flex-basis: 100%;
+}
+
+.odj-security-actions .inline-status:empty {
+  display: none;
+}
+
 .toggle-list {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1226,6 +1269,62 @@ button.accent-outline {
 .validation-summary strong {
   margin-top: 5px;
   font-size: 14px;
+}
+
+.validation-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 320px);
+  align-items: start;
+  gap: 20px;
+}
+
+.validation-main {
+  min-width: 0;
+}
+
+.validation-actions-panel {
+  position: sticky;
+  top: 18px;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.validation-actions-head {
+  border-bottom: 1px solid #d8e5e7;
+  background: #f1f6f7;
+  padding: 14px 16px 13px;
+}
+
+.validation-actions-head h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.validation-actions-head p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.validation-actions-body {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+}
+
+.validation-actions-body button,
+.validation-actions-footer button {
+  width: 100%;
+}
+
+.validation-actions-footer {
+  border-top: 1px solid var(--border);
+  background: #fbfcfc;
+  padding: 12px 16px;
 }
 
 .terminal {
@@ -1318,6 +1417,10 @@ button.accent-outline {
     grid-template-columns: 1fr;
   }
 
+  .validation-layout {
+    grid-template-columns: 1fr;
+  }
+
   .topology-panel {
     position: static;
     border-top: 1px solid var(--border);
@@ -1326,6 +1429,10 @@ button.accent-outline {
   }
 
   .smb-result-panel {
+    position: static;
+  }
+
+  .validation-actions-panel {
     position: static;
   }
 }

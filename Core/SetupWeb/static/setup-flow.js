@@ -220,6 +220,62 @@
     syncSmbPath();
   }
 
+  function renderOdjSettings(config) {
+    document.querySelector("#odjProcessAccount").value =
+      String(config.localOdj?.processAccount || "");
+    document.querySelector("#odjFolderPath").textContent =
+      String(config.localOdj?.path || `${config.root}\\ODJ`);
+    const status = document.querySelector("#odjAclStatus");
+    status.textContent = "";
+    status.classList.remove("is-error");
+  }
+
+  async function secureOdjFolder() {
+    clearMessage();
+    const accountInput = document.querySelector("#odjProcessAccount");
+    const account = accountInput.value.trim();
+    const accountParts = account.match(/^([^\\/@\r\n]+)\\([^\\/@\r\n]+)$/);
+    const accountValid = Boolean(
+      accountParts &&
+      account.length <= 256 &&
+      accountParts[1] === accountParts[1].trim() &&
+      accountParts[2] === accountParts[2].trim()
+    );
+    accountInput.setCustomValidity(accountValid ? "" : t(
+      "Use DOMAIN\\user or COMPUTER\\user format."
+    ));
+    if (!accountValid) {
+      accountInput.reportValidity();
+      return;
+    }
+
+    if (!window.confirm(t(
+      "Replace ODJ permissions with SYSTEM, Administrators, and this IronAPI account?"
+    ))) {
+      return;
+    }
+
+    const button = document.querySelector("#secureOdjFolderButton");
+    const statusElement = document.querySelector("#odjAclStatus");
+    button.disabled = true;
+    statusElement.classList.remove("is-error");
+    statusElement.textContent = t("Securing ODJ folder...");
+    try {
+      const result = await apiFetch("/api/odj/secure-folder", {
+        method: "POST",
+        body: JSON.stringify({ account }),
+      });
+      const aclAccount = String(result.aclAccount || account);
+      accountInput.value = aclAccount;
+      statusElement.textContent = `${t("ODJ folder secured for")} ${aclAccount}.`;
+    } catch (error) {
+      statusElement.textContent = error.message;
+      statusElement.classList.add("is-error");
+    } finally {
+      button.disabled = false;
+    }
+  }
+
   function validateSmbSettings() {
     const serverAddress = document.querySelector("#smbServerName");
     const shareName = document.querySelector("#smbShareName");
@@ -583,6 +639,7 @@
     document.querySelector("#accessModeValue").value =
       config.api.IRONAPI_ACCESS_MODE || "http_direct";
     renderSmbSettings(config);
+    renderOdjSettings(config);
     applyAccessMode();
     applyCertificateState();
     renderStoragePaths();
@@ -733,6 +790,10 @@
   document.querySelector("#checkConnectionButton").addEventListener("click", checkConnectionSettings);
   document.querySelector("#testSmbAccessButton").addEventListener("click", () => runSmbAction("test"));
   document.querySelector("#configureSmbShareButton").addEventListener("click", () => runSmbAction("configure"));
+  document.querySelector("#secureOdjFolderButton").addEventListener("click", secureOdjFolder);
+  document.querySelector("#odjProcessAccount").addEventListener("input", (event) => {
+    event.currentTarget.setCustomValidity("");
+  });
 
   document.querySelector("#smbShareName").addEventListener("input", () => {
     document.querySelector("#smbShareName").setCustomValidity("");
@@ -760,7 +821,7 @@
   document.querySelector("#saveOnlyButton").addEventListener("click", () => {
     saveConfiguration().catch((error) => showMessage(error.message, "error"));
   });
-  document.querySelector("#saveUnsortedButton").addEventListener("click", () => {
+  document.querySelector("#saveAdditionalButton").addEventListener("click", () => {
     saveConfiguration().catch((error) => showMessage(error.message, "error"));
   });
   document.querySelector("#validateButton").addEventListener("click", validateRepository);

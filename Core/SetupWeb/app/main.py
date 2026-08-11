@@ -30,6 +30,7 @@ from .smb_tools import (
     get_local_smb_info,
     test_local_share_access,
 )
+from .odj_tools import OdjToolError, get_local_odj_info, secure_odj_acl
 
 SETUPWEB_ROOT = Path(__file__).resolve().parents[1]
 STATIC_ROOT = SETUPWEB_ROOT / "static"
@@ -82,6 +83,7 @@ def get_session(request: Request) -> dict[str, Any]:
 def get_config(_: SessionRequired) -> dict[str, Any]:
     config = load_config(PATHS)
     config["localSmb"] = get_local_smb_info(PATHS)
+    config["localOdj"] = get_local_odj_info(PATHS)
     return config
 
 
@@ -91,6 +93,7 @@ async def post_config(request: Request, _: SessionRequired) -> JSONResponse:
         payload = await request.json()
         result = save_config(PATHS, payload)
         result["config"]["localSmb"] = get_local_smb_info(PATHS)
+        result["config"]["localOdj"] = get_local_odj_info(PATHS)
         return JSONResponse(result)
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
@@ -146,6 +149,28 @@ def smb_error_response(exc: SmbToolError) -> JSONResponse:
         {"detail": str(exc), "code": exc.code},
         status_code=exc.status_code,
     )
+
+
+def odj_error_response(exc: OdjToolError) -> JSONResponse:
+    return JSONResponse(
+        {"detail": str(exc), "code": exc.code},
+        status_code=exc.status_code,
+    )
+
+
+@app.post("/api/odj/secure-folder")
+async def secure_odj_folder(
+    request: Request, _: SessionRequired
+) -> JSONResponse:
+    try:
+        payload = await request.json()
+        if not isinstance(payload, dict):
+            raise OdjToolError("invalid_request", "Invalid ODJ ACL request.")
+        return JSONResponse(
+            secure_odj_acl(PATHS, str(payload.get("account", "")))
+        )
+    except OdjToolError as exc:
+        return odj_error_response(exc)
 
 
 @app.post("/api/smb/configure-local-share")
