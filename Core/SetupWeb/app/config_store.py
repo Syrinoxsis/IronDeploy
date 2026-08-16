@@ -76,10 +76,6 @@ WINPE_NAMES = (
     "ApiServerCertificateType",
     "ImagesPath",
     "DriversPath",
-    "ImageIndex",
-    "SetupLocalAdminName",
-    "EnableBuiltInAdministrator",
-    "EnableSetupLocalAdmin",
     "EnableGuiImageApplyProgress",
 )
 
@@ -295,10 +291,6 @@ def read_ps_config(path: Path) -> dict[str, str]:
         )
         if string_match:
             values[string_match.group(1)] = string_match.group(3).replace("''", "'")
-            continue
-        int_match = re.match(r"^\s*\$ImageIndex\s*=\s*(\d+)\s*$", line)
-        if int_match:
-            values["ImageIndex"] = int_match.group(1)
             continue
         bool_match = re.match(
             r"^\s*\$([A-Za-z][A-Za-z0-9_]*)\s*=\s*\$(true|false)\s*$",
@@ -594,10 +586,6 @@ def save_winpe_config(paths: IronDeployPaths, values: dict[str, str]) -> str | N
         f"$ApiServerCertificateBase64 = {ps_literal(values['ApiServerCertificateBase64'])}",
         f"$ImagesPath = {ps_literal(values['ImagesPath'])}",
         f"$DriversPath = {ps_literal(values['DriversPath'])}",
-        f"$ImageIndex = {values['ImageIndex']}",
-        f"$SetupLocalAdminName = {ps_literal(values['SetupLocalAdminName'])}",
-        f"$EnableBuiltInAdministrator = ${values['EnableBuiltInAdministrator']}",
-        f"$EnableSetupLocalAdmin = ${values['EnableSetupLocalAdmin']}",
         f"$EnableGuiImageApplyProgress = ${values['EnableGuiImageApplyProgress']}",
     ]
     atomic_write(paths.winpe_config, "\n".join(lines) + "\n")
@@ -804,15 +792,6 @@ def normalize_winpe(
     current = read_ps_config(paths.winpe_config_example)
     configured = read_ps_config(paths.winpe_config)
     current.update(configured)
-    if (
-        "EnableSetupLocalAdmin" not in configured
-        and "DisableSetupLocalAdmin" in configured
-    ):
-        current["EnableSetupLocalAdmin"] = (
-            "false" if normalize_bool(configured["DisableSetupLocalAdmin"]) == "true"
-            else "true"
-        )
-
     result: dict[str, str] = {}
     for name in WINPE_NAMES:
         candidate = str(values.get(name, current.get(name, ""))).strip()
@@ -892,19 +871,6 @@ def normalize_winpe(
         )
     result["ApiServerCertificateBase64"] = certificate_base64
 
-    image_index = parse_int(result["ImageIndex"], "ImageIndex")
-    if image_index < 1:
-        raise ValueError("ImageIndex must be positive.")
-    result["ImageIndex"] = str(image_index)
-
-    setup_admin_name = result["SetupLocalAdminName"]
-    if not re.match(r"^[A-Za-z0-9._-]{1,20}$", setup_admin_name):
-        raise ValueError("SetupLocalAdminName must be 1-20 letters, digits, dot, underscore, or hyphen.")
-
-    result["EnableBuiltInAdministrator"] = normalize_bool(
-        result["EnableBuiltInAdministrator"]
-    )
-    result["EnableSetupLocalAdmin"] = normalize_bool(result["EnableSetupLocalAdmin"])
     result["EnableGuiImageApplyProgress"] = normalize_bool(
         result["EnableGuiImageApplyProgress"]
     )

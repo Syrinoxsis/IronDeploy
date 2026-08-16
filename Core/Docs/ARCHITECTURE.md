@@ -61,8 +61,8 @@ SQLite summary with completed measurements and its final adapter values.
 | Location | Owner | Contents |
 | --- | --- | --- |
 | `Core\Api\.env` | IronAPI | Listener, SMB, image-apply strategy, LDAP, ODJ, and timeout settings. |
-| `Core\WinPE\Runtime\deploy.config.ps1` | WinPE | API address, payload paths, certificate trust, and offline account policy. |
-| `Core\Data\irondeploy.db` | IronAPI | Accounts, permissions, deployments, stages, and inventory. |
+| `Core\WinPE\Runtime\deploy.config.ps1` | WinPE | API address, payload paths, certificate trust, and WinPE UI behavior. |
+| `Core\Data\irondeploy.db` | IronAPI | Accounts, permissions, deployment profiles, deployments, stages, and inventory. |
 | `Core\ODJ\pending` | IronAPI | Short-lived Offline Domain Join blobs. |
 | `Core\Share` | IronAPI / SMB data plane | Windows images, driver packages, and installers managed by IronAPI and read by WinPE through SMB. |
 | `Core\ServerTemplates` | IronAPI | Authorized unattend and post-install templates. |
@@ -79,6 +79,9 @@ under `Core\WinPE\Runtime`.
   it is not embedded in `deploy.config.ps1`.
 - The image-apply strategy is stored with IronAPI configuration and returned in
   the existing final deployment manifest; it is not embedded in WinPE.
+- Post-install account policy belongs to the default deployment profile in
+  SQLite. IronAPI returns it in the manifest; WinPE does not carry a fallback
+  copy in `deploy.config.ps1`.
 - Browser sessions and WinPE deployment tokens are separate authorization
   mechanisms.
 - ODJ blobs exist only long enough to provision, download, apply, and

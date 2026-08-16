@@ -157,6 +157,7 @@ class DatabaseSafetyTests(unittest.TestCase):
 
         tables = set(inspect(self.engine).get_table_names())
         self.assertIn("deployments", tables)
+        self.assertIn("deployment_profiles", tables)
         self.assertIn(MIGRATION_TABLE, tables)
         deployment_columns = {
             column["name"]
@@ -171,6 +172,18 @@ class DatabaseSafetyTests(unittest.TestCase):
                 )
             ).scalar_one()
         self.assertIn("'image_download'", network_stage_sql)
+        with self.engine.connect() as connection:
+            default_profile = connection.execute(
+                text(
+                    "SELECT name, local_admin_name, "
+                    "enable_builtin_administrator, enable_setup_local_admin "
+                    "FROM deployment_profiles WHERE is_default = 1"
+                )
+            ).one()
+        self.assertEqual(
+            tuple(default_profile),
+            ("Default", "localadmin", 1, 1),
+        )
         self.assertEqual(
             self.applied_versions(),
             [migration.version for migration in MIGRATIONS],

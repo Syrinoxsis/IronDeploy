@@ -78,7 +78,8 @@ IronAPI answers requests from several sources rather than one central catalog:
 | Unattend and post-install files | `Core\ServerTemplates` |
 | Computer-name availability | SQLite history plus LDAP when configured |
 | ODJ result | `djoin.exe`, Active Directory, and `Core\ODJ\pending` |
-| WinPE runtime settings | `Core\WinPE\Runtime\deploy.config.ps1` |
+| WinPE bootstrap settings | `Core\WinPE\Runtime\deploy.config.ps1` |
+| Default post-install account policy | SQLite deployment profile |
 
 The manifest endpoint validates the current selection against the current
 server catalog and returns image/index/hash details, `imageApplyMode`,
@@ -254,6 +255,9 @@ records completed versions in `schema_migrations`.
 Migration 6 makes final-only columns in `deployment_network_summaries` nullable
 so an adapter snapshot can be stored before aggregate measurements finish.
 Existing completed diagnostic rows are copied without changing their values.
+Migration 7 creates the default deployment profile that owns post-install
+account policy. It intentionally starts with Alpha defaults instead of reading
+legacy values from the WinPE runtime configuration.
 
 Before migrating a file-backed database, IronAPI:
 

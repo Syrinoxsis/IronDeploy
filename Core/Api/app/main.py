@@ -93,6 +93,11 @@ from app.domain_join import (
     get_domain_join_blob,
     provision_domain_join_blob,
 )
+from app.deployment_profiles import (
+    DeploymentProfileError,
+    load_default_profile,
+    update_default_profile,
+)
 from app.drivers import (
     DriverError,
     DriverUploadLimits,
@@ -526,17 +531,26 @@ def require_image_config_write(request: Request) -> None:
 
 
 @app.get("/api/image-config")
-def get_image_config() -> dict:
-    return load_image_config()
+def get_image_config(session: Session = Depends(get_session)) -> dict:
+    config = load_image_config()
+    config.update(load_default_profile(session))
+    return config
 
 
 @app.post("/api/image-config")
-async def post_image_config(request: Request) -> JSONResponse:
+async def post_image_config(
+    request: Request,
+    session: Session = Depends(get_session),
+) -> JSONResponse:
     require_image_config_write(request)
     try:
         payload = await request.json()
+        profile = update_default_profile(session, payload)
         result = save_image_config(payload)
-    except ImageConfigError as exc:
+        session.commit()
+        result["config"].update(profile)
+    except (DeploymentProfileError, ImageConfigError) as exc:
+        session.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return JSONResponse(result)
 
@@ -1250,11 +1264,13 @@ def deploy_manifest(
     try:
         catalog = _deployment_catalog()
         image_config = load_image_config()
+        deployment_profile = load_default_profile(session)
     except (
         DeploymentImageError,
         ProgramError,
         DriverError,
         ImageConfigError,
+        DeploymentProfileError,
     ) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -1323,11 +1339,11 @@ def deploy_manifest(
         "programs": selected_programs,
         "driverPackage": selected_driver,
         "postinstall": {
-            "localAdminName": image_config["localAdminName"],
-            "enableBuiltInAdministrator": image_config[
+            "localAdminName": deployment_profile["localAdminName"],
+            "enableBuiltInAdministrator": deployment_profile[
                 "enableBuiltInAdministrator"
             ],
-            "enableSetupLocalAdmin": image_config["enableSetupLocalAdmin"],
+            "enableSetupLocalAdmin": deployment_profile["enableSetupLocalAdmin"],
         },
     }
 

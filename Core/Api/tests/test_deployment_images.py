@@ -87,10 +87,9 @@ class DeploymentImageTests(unittest.TestCase):
             str(self.images_dir / "install.wim"),
         )
 
-    @patch("app.deployment_images._legacy_default_index", return_value=6)
     @patch("app.deployment_images._inspect_image")
     def test_refresh_discovers_manual_files_and_caches_indexes(
-        self, inspect_image, _legacy_index
+        self, inspect_image
     ) -> None:
         inspect_image.return_value = _parse_wim_info(DISM_OUTPUT)
         (self.images_dir / "install.wim").write_bytes(b"wim")
@@ -102,7 +101,7 @@ class DeploymentImageTests(unittest.TestCase):
             "install.esd",
             "install.wim",
         ])
-        self.assertEqual(result["images"][0]["defaultIndex"], 6)
+        self.assertEqual(result["images"][0]["defaultIndex"], 1)
         self.assertTrue(result["images"][0]["canConvert"])
         self.assertFalse(result["images"][1]["canConvert"])
         self.assertEqual(
@@ -114,10 +113,9 @@ class DeploymentImageTests(unittest.TestCase):
         list_deployment_images(self.images_dir, self.metadata_path)
         self.assertEqual(inspect_image.call_count, 2)
 
-    @patch("app.deployment_images._legacy_default_index", return_value=1)
     @patch("app.deployment_images._inspect_image")
     def test_default_index_is_validated_and_persisted(
-        self, inspect_image, _legacy_index
+        self, inspect_image
     ) -> None:
         inspect_image.return_value = _parse_wim_info(DISM_OUTPUT)
         (self.images_dir / "install.wim").write_bytes(b"wim")
@@ -152,10 +150,9 @@ class DeploymentImageTests(unittest.TestCase):
         self.assertEqual(image["indexes"], [])
         self.assertIn("still be in progress", image["inspectionError"])
 
-    @patch("app.deployment_images._legacy_default_index", return_value=1)
     @patch("app.deployment_images._inspect_image")
     def test_wim_rename_preserves_metadata_and_default_index(
-        self, inspect_image, _legacy_index
+        self, inspect_image
     ) -> None:
         inspect_image.return_value = _parse_wim_info(DISM_OUTPUT)
         (self.images_dir / "install.wim").write_bytes(b"wim")

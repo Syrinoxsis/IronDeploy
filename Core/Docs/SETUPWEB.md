@@ -63,7 +63,6 @@ The UI owns the first-time settings needed by both IronAPI and WinPE:
 - driver-upload safety limits;
 - WinPE API address and certificate trust;
 - WinPE image, driver, program, and drive-letter paths;
-- local administrator policy for post-install;
 - Windows time zone in the unattend template.
 
 `Allowed client networks` is part of the main **Service endpoint** settings.
@@ -89,6 +88,10 @@ that behavior.
 | `Core\WinPE\Runtime\deploy.config.ps1` | Credential-free WinPE runtime settings. |
 | `Core\ServerTemplates\Unattend\unattend-win11-template.xml` | Server-side Windows answer-file settings. |
 | `Core\Data\auth-bootstrap.json` | Initial superadmin name and PBKDF2-SHA256 password hash. |
+
+SetupWeb does not write the Windows image index or post-install account policy
+into WinPE. Image indexes are managed per image in IronAPI, while account policy
+is stored in the default deployment profile in SQLite.
 
 Existing `.env`, WinPE config, and unattend files are backed up under
 `Core\Logs\ConfigBackups` before replacement. Writes use temporary files followed

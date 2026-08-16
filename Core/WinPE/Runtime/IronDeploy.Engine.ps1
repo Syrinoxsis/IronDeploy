@@ -114,8 +114,7 @@ $RequiredConfigValues = @(
     "ShareDrive",
     "ApiBaseUrl",
     "ImagesPath",
-    "DriversPath",
-    "ImageIndex"
+    "DriversPath"
 )
 
 foreach ($ConfigName in $RequiredConfigValues) {
@@ -135,22 +134,6 @@ foreach ($ConfigName in $RequiredConfigValues) {
     }
 }
 
-if (-not (Get-Variable -Name SetupLocalAdminName -ErrorAction SilentlyContinue)) {
-    $SetupLocalAdminName = "localadmin"
-}
-if (-not (Get-Variable -Name EnableBuiltInAdministrator -ErrorAction SilentlyContinue)) {
-    $EnableBuiltInAdministrator = $true
-}
-if (-not (Get-Variable -Name EnableSetupLocalAdmin -ErrorAction SilentlyContinue)) {
-    $LegacyDisableSetupLocalAdmin = Get-Variable `
-        -Name DisableSetupLocalAdmin `
-        -ErrorAction SilentlyContinue
-    if ($null -ne $LegacyDisableSetupLocalAdmin) {
-        $EnableSetupLocalAdmin = -not [bool]$LegacyDisableSetupLocalAdmin.Value
-    } else {
-        $EnableSetupLocalAdmin = $true
-    }
-}
 if (-not (Get-Variable -Name EnableGuiImageApplyProgress -ErrorAction SilentlyContinue)) {
     $EnableGuiImageApplyProgress = $true
 }

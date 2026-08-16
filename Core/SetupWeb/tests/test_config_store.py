@@ -487,6 +487,10 @@ class CredentialMigrationTests(unittest.TestCase):
             self.assertNotIn("server-side-password", winpe_config)
             self.assertNotIn("$SharePassword", winpe_config)
             self.assertNotIn("$ShareUser", winpe_config)
+            self.assertNotIn("$ImageIndex", winpe_config)
+            self.assertNotIn("$SetupLocalAdminName", winpe_config)
+            self.assertNotIn("$EnableBuiltInAdministrator", winpe_config)
+            self.assertNotIn("$EnableSetupLocalAdmin", winpe_config)
 
     def test_network_settings_save_without_smb_credentials(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

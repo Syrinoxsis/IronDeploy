@@ -21,10 +21,6 @@ IMAGES_DIR = IRONDEPLOY_ROOT / "Share" / "Images"
 METADATA_NAME = ".irondeploy-images.json"
 METADATA_PATH = IMAGES_DIR / METADATA_NAME
 CONVERSION_LOG_DIR = IRONDEPLOY_ROOT / "Logs" / "ImageConversions"
-DEPLOY_CONFIG_PATH = IRONDEPLOY_ROOT / "WinPE" / "Runtime" / "deploy.config.ps1"
-DEPLOY_CONFIG_EXAMPLE_PATH = (
-    IRONDEPLOY_ROOT / "WinPE" / "Runtime" / "deploy.config.example.ps1"
-)
 
 _INDEX_PATTERN = re.compile(r"^\s*Index\s*:\s*(\d+)\s*$", re.MULTILINE)
 _FIELD_PATTERNS = {
@@ -97,18 +93,6 @@ def _write_metadata(payload: dict[str, Any], path: Path = METADATA_PATH) -> None
         except OSError:
             pass
         raise DeploymentImageError(f"Failed to save image metadata: {exc}") from exc
-
-
-def _legacy_default_index() -> int:
-    pattern = re.compile(r"^\s*\$ImageIndex\s*=\s*(\d+)\s*$", re.MULTILINE)
-    for path in (DEPLOY_CONFIG_PATH, DEPLOY_CONFIG_EXAMPLE_PATH):
-        try:
-            match = pattern.search(path.read_text(encoding="utf-8-sig"))
-        except OSError:
-            continue
-        if match and int(match.group(1)) > 0:
-            return int(match.group(1))
-    return 1
 
 
 def _parse_wim_info(output: str) -> list[dict[str, Any]]:
@@ -223,7 +207,6 @@ def _list_deployment_images(
     metadata = _read_metadata(metadata_path)
     records = metadata["images"]
     metadata_needs_upgrade = metadata.get("version") != 3
-    legacy_index = _legacy_default_index()
     files = sorted(
         (
             item
@@ -280,8 +263,6 @@ def _list_deployment_images(
             default_index = (
                 old_default
                 if old_default in valid_indexes
-                else legacy_index
-                if legacy_index in valid_indexes
                 else indexes[0]["index"]
                 if indexes
                 else old_default

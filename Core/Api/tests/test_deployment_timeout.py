@@ -29,6 +29,7 @@ from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import Session
 
 from app.database import initialize_database
+from app.deployment_profiles import update_default_profile
 from app.auth import (
     DeploymentToken,
     create_deployment_token,
@@ -484,6 +485,7 @@ class DeploymentTimeoutTests(unittest.TestCase):
                     last_deployment_id=deployment.id,
                 )
             )
+            update_default_profile(session, image_config)
             session.commit()
             request = self.deployment_request(session, deployment.id)
 

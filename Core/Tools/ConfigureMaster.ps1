@@ -374,9 +374,6 @@ function Read-PowerShellConfig {
         if ($line -match "^\s*\`$([A-Za-z][A-Za-z0-9_]*)\s*=\s*(['`"])(.*?)\2\s*$") {
             $values[$Matches[1]] = $Matches[3]
         }
-        elseif ($line -match "^\s*\`$ImageIndex\s*=\s*(\d+)\s*$") {
-            $values["ImageIndex"] = $Matches[1]
-        }
         elseif ($line -match "^\s*\`$([A-Za-z][A-Za-z0-9_]*)\s*=\s*\`$(true|false)\s*$") {
             $values[$Matches[1]] = $Matches[2].ToLowerInvariant()
         }
@@ -502,39 +499,6 @@ function Configure-WinPE {
             }
             return $null
         }
-    $imageIndex = Read-ConfiguredValue `
-        "Default Windows image index" `
-        "DISM edition index inside the selected WIM." `
-        (Get-ConfigValue $current "ImageIndex" "4") `
-        {
-            param($value)
-            $number = 0
-            if (![int]::TryParse($value, [ref]$number) -or $number -lt 1) {
-                return "Enter a positive integer."
-            }
-            return $null
-        }
-    $setupLocalAdminName = Read-ConfiguredValue `
-        "Setup local admin name" `
-        "Local recovery account created by unattend; must match the unattend template." `
-        (Get-ConfigValue $current "SetupLocalAdminName" "localadmin") `
-        {
-            param($value)
-            if ($value -notmatch "^[A-Za-z0-9._-]{1,20}$") {
-                return "Use 1-20 letters, digits, dot, underscore, or hyphen."
-            }
-            return $null
-        }
-    $enableBuiltInAdministrator = Read-YesNo `
-        "Enable built-in Windows Administrator account after setup" `
-        (Get-ConfigBoolean $current "EnableBuiltInAdministrator" $true)
-    $enableSetupLocalAdminDefault = Get-ConfigBoolean `
-        $current `
-        "EnableSetupLocalAdmin" `
-        (-not (Get-ConfigBoolean $current "DisableSetupLocalAdmin" $false))
-    $enableSetupLocalAdmin = Read-YesNo `
-        "Keep setup local admin account enabled after setup" `
-        $enableSetupLocalAdminDefault
     $enableGuiImageApplyProgress = Read-YesNo `
         "Show live DISM Apply-Image progress in the WinPE GUI" `
         (Get-ConfigBoolean $current "EnableGuiImageApplyProgress" $true)
@@ -547,10 +511,6 @@ function Configure-WinPE {
         "`$ApiBaseUrl = $(ConvertTo-PowerShellLiteral $apiBaseUrl)",
         "`$ImagesPath = $(ConvertTo-PowerShellLiteral ($shareDrive + '\Images'))",
         "`$DriversPath = $(ConvertTo-PowerShellLiteral ($shareDrive + '\Drivers'))",
-        "`$ImageIndex = $imageIndex",
-        "`$SetupLocalAdminName = $(ConvertTo-PowerShellLiteral $setupLocalAdminName)",
-        "`$EnableBuiltInAdministrator = $(ConvertTo-PowerShellBooleanLiteral $enableBuiltInAdministrator)",
-        "`$EnableSetupLocalAdmin = $(ConvertTo-PowerShellBooleanLiteral $enableSetupLocalAdmin)",
         "`$EnableGuiImageApplyProgress = $(ConvertTo-PowerShellBooleanLiteral $enableGuiImageApplyProgress)"
     )
     Backup-ConfigurationFile $WinPEConfigPath
@@ -881,31 +841,6 @@ function Configure-Unattend {
         $content,
         [Text.UTF8Encoding]::new($false)
     )
-
-    if (Test-Path -LiteralPath $WinPEConfigPath -PathType Leaf) {
-        Backup-ConfigurationFile $WinPEConfigPath
-        $configLines = [Collections.Generic.List[string]]::new()
-        $configLines.AddRange([IO.File]::ReadAllLines($WinPEConfigPath))
-        $adminLine = (
-            "`$SetupLocalAdminName = {0}" -f `
-                (ConvertTo-PowerShellLiteral $adminName)
-        )
-        $updated = $false
-        for ($i = 0; $i -lt $configLines.Count; $i++) {
-            if ($configLines[$i] -match "^\s*\`$SetupLocalAdminName\s*=") {
-                $configLines[$i] = $adminLine
-                $updated = $true
-            }
-        }
-        if (-not $updated) {
-            $configLines.Add($adminLine)
-        }
-        [IO.File]::WriteAllLines(
-            $WinPEConfigPath,
-            $configLines,
-            [Text.UTF8Encoding]::new($false)
-        )
-    }
 
     $password = $null
     Write-Host "Saved: $UnattendPath" -ForegroundColor Green

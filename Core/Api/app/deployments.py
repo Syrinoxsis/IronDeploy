@@ -22,6 +22,7 @@ from sqlalchemy import (
     func,
     or_,
     select,
+    text,
     update,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
@@ -325,6 +326,49 @@ class DeploymentProgram(Base):
     duration_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
     reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class DeploymentProfile(Base):
+    """Server-owned deployment defaults, ready to grow into named profiles."""
+
+    __tablename__ = "deployment_profiles"
+    __table_args__ = (
+        CheckConstraint(
+            "id > 0",
+            name="ck_deployment_profiles_positive_id",
+        ),
+        Index(
+            "uq_deployment_profiles_default",
+            "is_default",
+            unique=True,
+            sqlite_where=text("is_default = 1"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    local_admin_name: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="localadmin"
+    )
+    enable_builtin_administrator: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True
+    )
+    enable_setup_local_admin: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
 
 
 class Computer(Base):

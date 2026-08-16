@@ -121,14 +121,17 @@ including wizard actions and overlays, without adding main-window scrollbars.
 
 - the IronAPI base URL and certificate-validation policy;
 - the drive letter and SMB paths used for images, drivers, and programs;
-- the fallback Windows image index;
-- the local-account policy applied during post-install;
 - whether DISM image-apply progress is reflected in the GUI.
 
 SetupWeb creates this file from `deploy.config.example.ps1`. It must not contain
 SMB credentials, a WinPE authorization PIN, or browser credentials. Those
 values remain server-side and are returned only when the active deployment is
 authorized.
+
+The selected image index and post-install account policy are server-owned.
+IronAPI resolves them from image metadata and the default deployment profile,
+then returns them in the final manifest. Changing those values does not require
+a WinPE rebuild.
 
 The image-apply strategy is also server-side. `IRONAPI_IMAGE_APPLY_MODE` in
 `Core\Api\.env` is returned once in the final deployment manifest as

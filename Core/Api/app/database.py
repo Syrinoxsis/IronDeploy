@@ -475,6 +475,59 @@ def _migration_allow_early_network_adapter_snapshot(
     )
 
 
+def _migration_add_default_deployment_profile(connection: Connection) -> None:
+    if "deployment_profiles" not in inspect(connection).get_table_names():
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE deployment_profiles (
+                id INTEGER NOT NULL PRIMARY KEY,
+                name VARCHAR(64) NOT NULL UNIQUE,
+                description TEXT,
+                is_default BOOLEAN NOT NULL,
+                local_admin_name VARCHAR(20) NOT NULL,
+                enable_builtin_administrator BOOLEAN NOT NULL,
+                enable_setup_local_admin BOOLEAN NOT NULL,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL,
+                CONSTRAINT ck_deployment_profiles_positive_id CHECK (id > 0)
+            )
+            """
+        )
+    connection.exec_driver_sql(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_deployment_profiles_default "
+        "ON deployment_profiles (is_default) WHERE is_default = 1"
+    )
+    existing_default = connection.execute(
+        text("SELECT id FROM deployment_profiles WHERE is_default = 1 LIMIT 1")
+    ).first()
+    if existing_default is None:
+        connection.exec_driver_sql(
+            """
+            INSERT INTO deployment_profiles (
+                id,
+                name,
+                description,
+                is_default,
+                local_admin_name,
+                enable_builtin_administrator,
+                enable_setup_local_admin,
+                created_at,
+                updated_at
+            ) SELECT
+                COALESCE(MAX(id), 0) + 1,
+                'Default',
+                'Default deployment settings',
+                1,
+                'localadmin',
+                1,
+                1,
+                CURRENT_TIMESTAMP,
+                CURRENT_TIMESTAMP
+            FROM deployment_profiles
+            """
+        )
+
+
 MIGRATIONS = (
     Migration(1, "create current schema", _migration_create_schema),
     Migration(2, "add legacy columns", _migration_add_legacy_columns),
@@ -493,6 +546,11 @@ MIGRATIONS = (
         6,
         "allow early network adapter snapshot",
         _migration_allow_early_network_adapter_snapshot,
+    ),
+    Migration(
+        7,
+        "add default deployment profile",
+        _migration_add_default_deployment_profile,
     ),
 )
 
