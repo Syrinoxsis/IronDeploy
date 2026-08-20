@@ -328,6 +328,134 @@ class DeploymentProgram(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
+class PostPowerShellScript(Base):
+    """A managed .ps1 payload available to deployment profiles."""
+
+    __tablename__ = "post_powershell_scripts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    modified_ns: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+
+class DeploymentProfileScript(Base):
+    """Per-profile policy for one managed post-install PowerShell script."""
+
+    __tablename__ = "deployment_profile_scripts"
+    __table_args__ = (
+        CheckConstraint(
+            "selection_mode IN ('automatic', 'operator')",
+            name="ck_deployment_profile_scripts_selection_mode",
+        ),
+        CheckConstraint(
+            "run_phase IN ('before_software', 'after_software')",
+            name="ck_deployment_profile_scripts_run_phase",
+        ),
+        CheckConstraint(
+            "timeout_seconds BETWEEN 1 AND 86400",
+            name="ck_deployment_profile_scripts_timeout",
+        ),
+        UniqueConstraint(
+            "profile_id",
+            "position",
+            name="uq_deployment_profile_scripts_position",
+        ),
+    )
+
+    profile_id: Mapped[int] = mapped_column(
+        ForeignKey("deployment_profiles.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    script_id: Mapped[int] = mapped_column(
+        ForeignKey("post_powershell_scripts.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    selection_mode: Mapped[str] = mapped_column(String(16), nullable=False)
+    run_phase: Mapped[str] = mapped_column(String(24), nullable=False)
+    arguments: Mapped[str] = mapped_column(String(500), nullable=False, default="")
+    timeout_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class DeploymentPowerShellResult(Base):
+    """Immutable script plan plus the best-effort post-install result."""
+
+    __tablename__ = "deployment_powershell_results"
+    __table_args__ = (
+        CheckConstraint(
+            "selection_mode IN ('automatic', 'operator')",
+            name="ck_deployment_powershell_results_selection_mode",
+        ),
+        CheckConstraint(
+            "run_phase IN ('before_software', 'after_software')",
+            name="ck_deployment_powershell_results_run_phase",
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'succeeded', 'failed', 'timed_out', "
+            "'hash_mismatch', 'download_failed')",
+            name="ck_deployment_powershell_results_status",
+        ),
+        UniqueConstraint(
+            "deployment_id",
+            "position",
+            name="uq_deployment_powershell_results_position",
+        ),
+        Index(
+            "ix_deployment_powershell_results_deployment_id",
+            "deployment_id",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        Identity(),
+        primary_key=True,
+    )
+    deployment_id: Mapped[int] = mapped_column(
+        ForeignKey("deployments.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    script_id: Mapped[int | None] = mapped_column(
+        ForeignKey("post_powershell_scripts.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    selection_mode: Mapped[str] = mapped_column(String(16), nullable=False)
+    run_phase: Mapped[str] = mapped_column(String(24), nullable=False)
+    arguments: Mapped[str] = mapped_column(String(500), nullable=False)
+    timeout_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
+    size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="pending")
+    exit_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    duration_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    output_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    output_total_bytes: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0
+    )
+    output_truncated: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reported_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
 class DeploymentProfile(Base):
     """Server-owned deployment defaults, ready to grow into named profiles."""
 
@@ -544,9 +672,10 @@ class DeploymentImageRequest(BaseModel):
 class DeploymentManifestRequest(BaseModel):
     image_name: str = Field(min_length=1, max_length=255)
     program_names: list[str] = Field(default_factory=list, max_length=500)
+    post_powershell_names: list[str] = Field(default_factory=list, max_length=500)
     driver_package: str | None = Field(default=None, min_length=3, max_length=511)
 
-    @field_validator("program_names")
+    @field_validator("program_names", "post_powershell_names")
     @classmethod
     def validate_program_names(cls, values: list[str]) -> list[str]:
         if any(not value or len(value) > 255 for value in values):
@@ -626,6 +755,32 @@ class DeploymentProgramResponse(BaseModel):
     duration_seconds: int
     reason: Literal["hash_mismatch"] | None
     error_message: str | None
+
+
+class DeploymentPowerShellResponse(BaseModel):
+    position: int
+    name: str
+    selection_mode: Literal["automatic", "operator"]
+    run_phase: Literal["before_software", "after_software"]
+    arguments: str
+    timeout_seconds: int
+    sha256: str
+    status: Literal[
+        "pending",
+        "succeeded",
+        "failed",
+        "timed_out",
+        "hash_mismatch",
+        "download_failed",
+    ]
+    exit_code: int | None
+    duration_seconds: int | None
+    output_bytes: int
+    output_total_bytes: int
+    output_truncated: bool
+    error_message: str | None
+    reported_at: datetime | None
+    output_url: str | None
 
 
 class DeploymentStageResponse(BaseModel):
@@ -770,6 +925,7 @@ class DeploymentListItem(BaseModel):
     last_error_message: str | None
     stages: list[DeploymentStageResponse]
     programs: list[DeploymentProgramResponse]
+    post_powershell: list[DeploymentPowerShellResponse]
     network_diagnostics: DeploymentNetworkDiagnosticsResponse | None = None
 
 
@@ -1042,6 +1198,7 @@ def to_deployment_list_item(
     deployment: Deployment,
     stages: list[DeploymentStage] | None = None,
     programs: list[DeploymentProgram] | None = None,
+    post_powershell: list[DeploymentPowerShellResult] | None = None,
     network_summary: DeploymentNetworkSummary | None = None,
     network_stages: list[DeploymentNetworkStage] | None = None,
 ) -> DeploymentListItem:
@@ -1078,6 +1235,34 @@ def to_deployment_list_item(
                 error_message=program.error_message,
             )
             for program in (programs or [])
+        ],
+        post_powershell=[
+            DeploymentPowerShellResponse(
+                position=result.position,
+                name=result.name,
+                selection_mode=result.selection_mode,
+                run_phase=result.run_phase,
+                arguments=result.arguments,
+                timeout_seconds=result.timeout_seconds,
+                sha256=result.sha256,
+                status=result.status,
+                exit_code=result.exit_code,
+                duration_seconds=result.duration_seconds,
+                output_bytes=result.output_bytes,
+                output_total_bytes=result.output_total_bytes,
+                output_truncated=result.output_truncated,
+                error_message=result.error_message,
+                reported_at=(
+                    as_utc(result.reported_at) if result.reported_at else None
+                ),
+                output_url=(
+                    f"/api/deployments/{deployment.id}/post-powershell/"
+                    f"{result.position}/output"
+                    if result.reported_at is not None
+                    else None
+                ),
+            )
+            for result in (post_powershell or [])
         ],
         network_diagnostics=to_network_diagnostics_response(
             network_summary,

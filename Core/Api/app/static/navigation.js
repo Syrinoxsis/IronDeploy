@@ -21,6 +21,13 @@ const navigationItems = [
         icon: '<path d="M12 3v10"></path><path d="m8 9 4 4 4-4"></path><rect x="4" y="16" width="16" height="5" rx="1"></rect>',
     },
     {
+        page: "post-powershell",
+        permission: "post_powershell",
+        label: "Post-PowerShell",
+        href: "/post-powershell",
+        icon: '<path d="M5 4h14v16H5z"></path><path d="m8 9 3 3-3 3M13 15h3"></path>',
+    },
+    {
         page: "drivers",
         permission: "drivers",
         label: "Drivers",

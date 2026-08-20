@@ -528,6 +528,94 @@ def _migration_add_default_deployment_profile(connection: Connection) -> None:
         )
 
 
+def _migration_add_post_powershell(connection: Connection) -> None:
+    connection.exec_driver_sql(
+        """
+        CREATE TABLE IF NOT EXISTS post_powershell_scripts (
+            id INTEGER NOT NULL PRIMARY KEY,
+            name VARCHAR(255) NOT NULL UNIQUE,
+            size_bytes BIGINT NOT NULL,
+            modified_ns BIGINT NOT NULL,
+            sha256 VARCHAR(64) NOT NULL,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL
+        )
+        """
+    )
+    connection.exec_driver_sql(
+        """
+        CREATE TABLE IF NOT EXISTS deployment_profile_scripts (
+            profile_id INTEGER NOT NULL,
+            script_id INTEGER NOT NULL,
+            position INTEGER NOT NULL,
+            selection_mode VARCHAR(16) NOT NULL,
+            run_phase VARCHAR(24) NOT NULL,
+            arguments VARCHAR(500) NOT NULL,
+            timeout_seconds INTEGER NOT NULL,
+            PRIMARY KEY (profile_id, script_id),
+            CONSTRAINT uq_deployment_profile_scripts_position
+                UNIQUE (profile_id, position),
+            CONSTRAINT ck_deployment_profile_scripts_selection_mode
+                CHECK (selection_mode IN ('automatic', 'operator')),
+            CONSTRAINT ck_deployment_profile_scripts_run_phase
+                CHECK (run_phase IN ('before_software', 'after_software')),
+            CONSTRAINT ck_deployment_profile_scripts_timeout
+                CHECK (timeout_seconds BETWEEN 1 AND 86400),
+            FOREIGN KEY(profile_id) REFERENCES deployment_profiles (id)
+                ON DELETE CASCADE,
+            FOREIGN KEY(script_id) REFERENCES post_powershell_scripts (id)
+                ON DELETE CASCADE
+        )
+        """
+    )
+    connection.exec_driver_sql(
+        """
+        CREATE TABLE IF NOT EXISTS deployment_powershell_results (
+            id INTEGER NOT NULL PRIMARY KEY,
+            deployment_id BIGINT NOT NULL,
+            script_id INTEGER,
+            position INTEGER NOT NULL,
+            name VARCHAR(255) NOT NULL,
+            selection_mode VARCHAR(16) NOT NULL,
+            run_phase VARCHAR(24) NOT NULL,
+            arguments VARCHAR(500) NOT NULL,
+            timeout_seconds INTEGER NOT NULL,
+            size_bytes BIGINT NOT NULL,
+            sha256 VARCHAR(64) NOT NULL,
+            status VARCHAR(24) NOT NULL,
+            exit_code INTEGER,
+            duration_seconds INTEGER,
+            output_bytes BIGINT NOT NULL,
+            output_total_bytes BIGINT NOT NULL,
+            output_truncated BOOLEAN NOT NULL,
+            error_message TEXT,
+            reported_at DATETIME,
+            CONSTRAINT uq_deployment_powershell_results_position
+                UNIQUE (deployment_id, position),
+            CONSTRAINT ck_deployment_powershell_results_selection_mode
+                CHECK (selection_mode IN ('automatic', 'operator')),
+            CONSTRAINT ck_deployment_powershell_results_run_phase
+                CHECK (run_phase IN ('before_software', 'after_software')),
+            CONSTRAINT ck_deployment_powershell_results_status CHECK (
+                status IN (
+                    'pending', 'succeeded', 'failed', 'timed_out',
+                    'hash_mismatch', 'download_failed'
+                )
+            ),
+            FOREIGN KEY(deployment_id) REFERENCES deployments (id)
+                ON DELETE CASCADE,
+            FOREIGN KEY(script_id) REFERENCES post_powershell_scripts (id)
+                ON DELETE SET NULL
+        )
+        """
+    )
+    connection.exec_driver_sql(
+        "CREATE INDEX IF NOT EXISTS "
+        "ix_deployment_powershell_results_deployment_id "
+        "ON deployment_powershell_results (deployment_id)"
+    )
+
+
 MIGRATIONS = (
     Migration(1, "create current schema", _migration_create_schema),
     Migration(2, "add legacy columns", _migration_add_legacy_columns),
@@ -552,6 +640,7 @@ MIGRATIONS = (
         "add default deployment profile",
         _migration_add_default_deployment_profile,
     ),
+    Migration(8, "add post-powershell scripts", _migration_add_post_powershell),
 )
 
 

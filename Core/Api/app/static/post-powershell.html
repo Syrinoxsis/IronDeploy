@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" type="image/png" href="/static/irondeploy-api-icon.png">
+    <title>IronDeploy - Post-PowerShell</title>
+    <link rel="stylesheet" href="/static/dashboard.css">
+    <link rel="stylesheet" href="/static/navigation.css">
+    <link rel="stylesheet" href="/static/images.css">
+    <link rel="stylesheet" href="/static/programs.css">
+    <link rel="stylesheet" href="/static/post-powershell.css">
+    <script src="/static/i18n.js"></script>
+    <script src="/static/navigation.js"></script>
+    <script src="/static/post-powershell.js" defer></script>
+</head>
+<body class="images-page programs-page post-powershell-page" data-page="post-powershell">
+    <header class="app-header">
+        <div class="header-inner">
+            <span class="header-page-title">Post-PowerShell</span>
+            <div class="header-actions">
+                <button class="refresh-button" id="refresh-button" type="button">
+                    <svg aria-hidden="true" viewBox="0 0 24 24">
+                        <path d="M20 6v5h-5"></path>
+                        <path d="M19 11a7.5 7.5 0 1 0 .1 3.4"></path>
+                    </svg>
+                    <span>Refresh</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="page-shell">
+        <section class="page-heading">
+            <h1>Post-PowerShell</h1>
+            <p>Run profile-approved PowerShell scripts during Windows SetupComplete.</p>
+        </section>
+
+        <section class="notice" id="message-area" hidden></section>
+
+        <section class="upload-card" aria-labelledby="upload-title">
+            <div>
+                <h2 id="upload-title">Add a PowerShell script</h2>
+                <details class="program-upload-note">
+                    <summary>Execution policy</summary>
+                    <ul>
+                        <li><code>.ps1</code> only, up to 50 MiB.</li>
+                        <li>SHA-256 is checked after HTTP(S) download and before execution.</li>
+                        <li>Failures and timeouts are reported without stopping deployment.</li>
+                        <li>Console output is retained up to 20 MiB per execution.</li>
+                    </ul>
+                </details>
+            </div>
+            <div class="upload-controls powershell-upload-controls">
+                <label class="powershell-field powershell-file-field">
+                    <span>PowerShell file</span>
+                    <input id="script-file" type="file" accept=".ps1">
+                </label>
+                <label class="powershell-field powershell-name-field">
+                    <span>Stored file name</span>
+                    <input id="script-name" type="text" class="arguments-input"
+                           placeholder="Optional; defaults to the selected file"
+                           maxlength="255" spellcheck="false">
+                </label>
+                <label class="powershell-field powershell-arguments-field">
+                    <span>Launch arguments</span>
+                    <input id="script-arguments" type="text" class="arguments-input"
+                           placeholder="Optional, e.g. -Mode Silent -Force"
+                           maxlength="500" spellcheck="false">
+                </label>
+                <label class="powershell-field powershell-phase-field">
+                    <span>Run phase</span>
+                    <select id="script-phase" class="arguments-input">
+                        <option value="before_software">Before software</option>
+                        <option value="after_software" selected>After software</option>
+                    </select>
+                </label>
+                <label class="powershell-field powershell-mode-field">
+                    <span>Selection</span>
+                    <select id="script-mode" class="arguments-input">
+                        <option value="operator" selected>Operator chooses</option>
+                        <option value="automatic">Automatic</option>
+                    </select>
+                </label>
+                <label class="powershell-field powershell-timeout-field">
+                    <span>Timeout, seconds</span>
+                    <input id="script-timeout" type="number" class="arguments-input"
+                           min="1" max="86400" value="600">
+                </label>
+                <div class="powershell-upload-action">
+                    <button class="primary-button" id="upload-button" type="button">
+                        Upload script
+                    </button>
+                </div>
+            </div>
+            <div class="progress-row" id="upload-progress-row" hidden>
+                <progress id="upload-progress" max="100" value="0"></progress>
+                <span id="upload-progress-text">Preparing upload...</span>
+                <button class="cancel-button" id="cancel-upload-button" type="button">
+                    Cancel upload
+                </button>
+            </div>
+        </section>
+
+        <section class="images-card">
+            <div class="section-heading">
+                <div>
+                    <h2>Scripts in <span id="profile-name">Default</span></h2>
+                    <p id="scripts-directory"></p>
+                </div>
+                <span id="script-count">0 scripts</span>
+            </div>
+            <div class="empty-state" id="empty-state" hidden>
+                No PowerShell scripts are configured for this profile.
+            </div>
+            <div class="image-list" id="script-list"></div>
+        </section>
+    </main>
+</body>
+</html>

@@ -35,6 +35,9 @@ const detailElements = {
     programList: document.querySelector("#program-list"),
     programEmpty: document.querySelector("#program-empty"),
     programCount: document.querySelector("#program-count"),
+    powershellList: document.querySelector("#powershell-list"),
+    powershellEmpty: document.querySelector("#powershell-empty"),
+    powershellCount: document.querySelector("#powershell-count"),
     copyState: document.querySelector("#copy-state"),
     networkReportState: document.querySelector("#network-report-state"),
     networkEmpty: document.querySelector("#network-empty"),
@@ -114,7 +117,11 @@ function detailStatusLabel(status) {
         running: "Running",
         skipped: "Skipped",
         installed: "Installed",
+        succeeded: "Succeeded",
         timed_out: "Timed out",
+        hash_mismatch: "SHA-256 mismatch",
+        download_failed: "Download failed",
+        pending: "Pending",
     }[status] || status || "-";
 }
 
@@ -552,6 +559,81 @@ function renderPrograms(programs) {
     }
 }
 
+function renderPowerShell(scripts) {
+    detailElements.powershellList.replaceChildren();
+    detailElements.powershellCount.textContent = `${scripts.length} ${detailText(
+        scripts.length === 1 ? "script" : "scripts",
+    )}`;
+    detailElements.powershellEmpty.hidden = scripts.length !== 0;
+    detailElements.powershellList.hidden = scripts.length === 0;
+
+    for (const script of scripts) {
+        const card = document.createElement("article");
+        card.className = `program-card powershell-result status-${script.status}`;
+        const head = document.createElement("div");
+        head.className = "program-card-head";
+        const name = document.createElement("strong");
+        name.className = "program-name";
+        name.textContent = script.name;
+        const status = document.createElement("span");
+        status.className = "program-status";
+        status.textContent = detailText(detailStatusLabel(script.status));
+        head.append(name, status);
+
+        const meta = document.createElement("div");
+        meta.className = "program-meta";
+        for (const value of [
+            script.run_phase === "before_software" ? "Before software" : "After software",
+            script.selection_mode === "automatic" ? "Automatic" : "Operator selected",
+            `Timeout: ${script.timeout_seconds}s`,
+            `Duration: ${script.duration_seconds ?? "-"}s`,
+            `Exit code: ${script.exit_code ?? "-"}`,
+        ]) {
+            const item = document.createElement("span");
+            item.textContent = detailText(value);
+            meta.append(item);
+        }
+        card.append(head, meta);
+        if (script.error_message) {
+            const error = document.createElement("p");
+            error.className = "program-error";
+            error.textContent = script.error_message;
+            card.append(error);
+        }
+        if (script.output_truncated) {
+            const warning = document.createElement("p");
+            warning.className = "powershell-output-warning";
+            warning.textContent = `Output reached the 20 MiB retention limit. ${script.output_total_bytes.toLocaleString()} bytes were produced; the remainder was discarded.`;
+            card.append(warning);
+        }
+        if (script.output_url) {
+            const output = document.createElement("details");
+            output.className = "powershell-output";
+            const summary = document.createElement("summary");
+            summary.textContent = `Raw output (${script.output_bytes.toLocaleString()} bytes)`;
+            const pre = document.createElement("pre");
+            pre.textContent = "Open to load output...";
+            let loaded = false;
+            output.addEventListener("toggle", async () => {
+                if (!output.open || loaded) return;
+                loaded = true;
+                pre.textContent = "Loading...";
+                try {
+                    const response = await fetch(script.output_url, { cache: "no-store" });
+                    if (!response.ok) throw new Error(`Output request failed (${response.status}).`);
+                    pre.textContent = await response.text();
+                } catch (error) {
+                    pre.textContent = error.message;
+                    pre.classList.add("is-error");
+                }
+            });
+            output.append(summary, pre);
+            card.append(output);
+        }
+        detailElements.powershellList.append(card);
+    }
+}
+
 function renderDeployment(deployment) {
     detailState.startedAt = deployment.started_at;
     detailState.completedAt = deployment.completed_at;
@@ -593,6 +675,7 @@ function renderDeployment(deployment) {
         deployment.last_error_message || "";
     renderStages(deployment.stages || []);
     renderPrograms(deployment.programs || []);
+    renderPowerShell(deployment.post_powershell || []);
     renderNetworkDiagnostics(deployment.network_diagnostics);
 
     detailElements.loading.hidden = true;

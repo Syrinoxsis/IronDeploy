@@ -46,6 +46,7 @@ PERMISSIONS: dict[str, str] = {
     "dashboard": "Dashboard",
     "images": "Windows images",
     "programs": "Post-install software",
+    "post_powershell": "Post-PowerShell",
     "drivers": "Drivers",
     "image_config": "Image settings",
     DEPLOY_PERMISSION: "WinPE deployment only",
