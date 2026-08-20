@@ -2712,6 +2712,33 @@ function Get-IronDeployProgramList {
     return $Programs
 }
 
+function Get-IronDeployPostPowerShellList {
+    $Catalog = Get-IronDeployCatalog
+    return @(
+        $Catalog.postPowerShell | Where-Object { [bool]$_.available } | ForEach-Object {
+            $Phase = if ([string]$_.runPhase -eq "before_software") {
+                "before software"
+            } else {
+                "after software"
+            }
+            $Mode = if ([string]$_.selectionMode -eq "automatic") {
+                "automatic"
+            } else {
+                "operator"
+            }
+            [pscustomobject]@{
+                Name = [string]$_.name
+                Automatic = ([string]$_.selectionMode -eq "automatic")
+                Display = ("{0}   ({1}, {2}, timeout {3}s)" -f `
+                    ([string]$_.name),
+                    $Phase,
+                    $Mode,
+                    ([int]$_.timeoutSeconds))
+            }
+        }
+    )
+}
+
 function Get-IronDeployDriverPackageList {
     $Catalog = Get-IronDeployCatalog
     $DriverPackages = @(
@@ -2761,6 +2788,8 @@ function Invoke-IronDeployment {
 
         [string[]]$SelectedProgramNames = @(),
 
+        [string[]]$SelectedPostPowerShellNames = @(),
+
         [string]$SelectedDriverPackage = ""
     )
 
@@ -2782,6 +2811,11 @@ function Invoke-IronDeployment {
     $UseDomainJoinValue = [bool]$UseDomainJoin
     $SelectedProgramNames = @(
         $SelectedProgramNames | Where-Object {
+            ![string]::IsNullOrWhiteSpace([string]$_)
+        }
+    )
+    $SelectedPostPowerShellNames = @(
+        $SelectedPostPowerShellNames | Where-Object {
             ![string]::IsNullOrWhiteSpace([string]$_)
         }
     )
@@ -2919,6 +2953,7 @@ function Invoke-IronDeployment {
     $ManifestPayload = @{
         image_name = $SelectedImageName
         program_names = @($SelectedProgramNames)
+        post_powershell_names = @($SelectedPostPowerShellNames)
         driver_package = if (
             [string]::IsNullOrWhiteSpace($SelectedDriverPackage)
         ) {
@@ -2965,6 +3000,9 @@ function Invoke-IronDeployment {
     $ImagePath = $SelectedImage.FullName
     $ImageIndexToApply = [int]$DeploymentPlan.image.defaultIndex
     $SelectedPrograms = @($DeploymentPlan.programs | ForEach-Object { $_ })
+    $SelectedPostPowerShell = @(
+        $DeploymentPlan.postPowerShell | ForEach-Object { $_ }
+    )
     $DriverPackagePlan = $DeploymentPlan.driverPackage
     $DriverPackagePath = $null
     $DriverPackageRelativePath = ""
@@ -3441,6 +3479,85 @@ function Invoke-IronDeployment {
     if (!(Test-Path $PostInstallConfigPath)) {
         Fail "Post-install config was not written: $PostInstallConfigPath"
     }
+
+    $PostPowerShellTargetDir = "C:\IronDeploy\PostPowerShell"
+    New-Item -ItemType Directory -Force $PostPowerShellTargetDir | Out-Null
+    $PostPowerShellManifest = @()
+    foreach ($SelectedScript in $SelectedPostPowerShell) {
+        $ScriptName = [string]$SelectedScript.name
+        $ScriptTarget = Join-Path $PostPowerShellTargetDir $ScriptName
+        $ScriptDownload = "$ScriptTarget.download"
+        $ScriptReady = $false
+        $ScriptFailureStatus = ""
+        $ScriptFailure = ""
+        try {
+            $ScriptUrl = "{0}{1}" -f `
+                $ApiBaseUrl.TrimEnd("/"),
+                ([string]$SelectedScript.downloadUrl)
+            Invoke-IronApiWebRequest `
+                -Uri $ScriptUrl `
+                -Method Get `
+                -OutFile $ScriptDownload `
+                -TimeoutSec 120 | Out-Null
+            if (!(Test-Path -LiteralPath $ScriptDownload -PathType Leaf)) {
+                throw "Downloaded script file is missing"
+            }
+            $ActualSize = (Get-Item -LiteralPath $ScriptDownload).Length
+            if ($ActualSize -ne [long]$SelectedScript.size) {
+                throw (
+                    "Downloaded size mismatch: expected {0}, got {1}" -f `
+                        ([long]$SelectedScript.size),
+                        $ActualSize
+                )
+            }
+            $ActualHash = (
+                Get-FileHash -LiteralPath $ScriptDownload -Algorithm SHA256
+            ).Hash.ToLowerInvariant()
+            $ExpectedHash = ([string]$SelectedScript.sha256).ToLowerInvariant()
+            if ($ActualHash -ne $ExpectedHash) {
+                $ScriptFailureStatus = "hash_mismatch"
+                throw "SHA-256 mismatch. Script was not staged."
+            }
+            Move-Item -LiteralPath $ScriptDownload -Destination $ScriptTarget -Force
+            $ScriptReady = $true
+            Write-IronLog (
+                "[OK] Post-PowerShell script staged and verified: {0}" -f `
+                    $ScriptName
+            ) -Level ok
+        } catch {
+            if ([string]::IsNullOrWhiteSpace($ScriptFailureStatus)) {
+                $ScriptFailureStatus = "download_failed"
+            }
+            $ScriptFailure = $_.Exception.Message
+            Remove-Item -LiteralPath $ScriptDownload, $ScriptTarget `
+                -Force -ErrorAction SilentlyContinue
+            Write-IronLog (
+                "[WARN] Post-PowerShell script unavailable: {0}: {1}" -f `
+                    $ScriptName,
+                    $ScriptFailure
+            ) -Level warn
+        }
+        $PostPowerShellManifest += @{
+            position = [int]$SelectedScript.position
+            name = $ScriptName
+            path = $ScriptTarget
+            ready = $ScriptReady
+            preflightStatus = $ScriptFailureStatus
+            preflightError = $ScriptFailure
+            selectionMode = [string]$SelectedScript.selectionMode
+            runPhase = [string]$SelectedScript.runPhase
+            arguments = [string]$SelectedScript.arguments
+            timeoutSeconds = [int]$SelectedScript.timeoutSeconds
+            maxOutputBytes = [long]$SelectedScript.maxOutputBytes
+            sha256 = ([string]$SelectedScript.sha256).ToLowerInvariant()
+            reportUrl = [string]$SelectedScript.reportUrl
+        }
+    }
+    $PostPowerShellManifestPath = Join-Path `
+        $PostPowerShellTargetDir `
+        "post-powershell.json"
+    ConvertTo-Json -InputObject @($PostPowerShellManifest) -Depth 4 |
+        Out-File $PostPowerShellManifestPath -Encoding UTF8 -Force
 
     if ($SelectedPrograms.Count -gt 0) {
         Write-IronLog (

@@ -7,6 +7,10 @@ $PostInstallConfigPath = Join-Path $PSScriptRoot "IronDeployPostInstall.config.p
 $ProgramsDir = "$LogDir\Programs"
 $ProgramsManifestFile = "$ProgramsDir\programs.json"
 $ProgramInstallTimeoutSeconds = 6 * 60
+$PostPowerShellDir = "$LogDir\PostPowerShell"
+$PostPowerShellManifestFile = "$PostPowerShellDir\post-powershell.json"
+$PostPowerShellResultsDir = "$PostPowerShellDir\Results"
+$PostPowerShellDefaultMaxOutputBytes = 20MB
 $CompleteMaxAttempts = 12
 $CompleteRetryDelaySeconds = 10
 
@@ -14,6 +18,7 @@ $CompleteRetryDelaySeconds = 10
 # UTF-8 explicitly so localized Windows and native-command messages remain
 # readable instead of being decoded through the legacy OEM code page.
 $Utf8OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+$StrictUtf8OutputEncoding = New-Object System.Text.UTF8Encoding($false, $true)
 [Console]::OutputEncoding = $Utf8OutputEncoding
 $OutputEncoding = $Utf8OutputEncoding
 
@@ -70,6 +75,62 @@ function Install-IronApiTrustedCertificate {
     $Thumbprint = $Certificate.Thumbprint
     $Certificate.Dispose()
     return $Thumbprint
+}
+
+function Initialize-IronApiTransport {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ApiBaseUrl,
+
+        [bool]$ValidateApiServerCertificate = $false,
+
+        [ValidateSet("self_signed", "ca")]
+        [string]$ApiServerCertificateType = "self_signed",
+
+        [string]$ApiServerCertificateBase64 = ""
+    )
+    if ($ValidateApiServerCertificate -and $ApiBaseUrl -notmatch "^https://") {
+        throw "API certificate validation requires an https:// ApiBaseUrl"
+    }
+    [System.Net.WebRequest]::DefaultWebProxy = $null
+    if ($ApiBaseUrl -notmatch "^https://") {
+        return
+    }
+    [System.Net.ServicePointManager]::SecurityProtocol = `
+        [System.Net.SecurityProtocolType]::Tls12
+    [System.Net.ServicePointManager]::CheckCertificateRevocationList = $false
+    if ($ValidateApiServerCertificate) {
+        $Thumbprint = Install-IronApiTrustedCertificate `
+            -CertificateBase64 $ApiServerCertificateBase64 `
+            -CertificateType $ApiServerCertificateType
+        [System.Net.ServicePointManager]::ServerCertificateValidationCallback = $null
+        Write-Host "IronAPI certificate validation enabled: $Thumbprint" `
+            -ForegroundColor Green
+        return
+    }
+    if (-not ("IronDeploy.InsecureCertificateValidator" -as [type])) {
+        Add-Type -TypeDefinition @'
+using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
+
+namespace IronDeploy {
+    public static class InsecureCertificateValidator {
+        public static readonly RemoteCertificateValidationCallback Callback =
+            new RemoteCertificateValidationCallback(Validate);
+        private static bool Validate(
+            object sender,
+            X509Certificate certificate,
+            X509Chain chain,
+            SslPolicyErrors errors
+        ) { return true; }
+    }
+}
+'@
+    }
+    [System.Net.ServicePointManager]::ServerCertificateValidationCallback = `
+        [IronDeploy.InsecureCertificateValidator]::Callback
+    Write-Host "IronAPI certificate validation bypass enabled" `
+        -ForegroundColor Yellow
 }
 
 function Complete-Deployment {
@@ -473,6 +534,270 @@ function Install-IronDeployPrograms {
     return @($Results)
 }
 
+function Send-IronPostPowerShellReport {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$DeploymentState,
+
+        [Parameter(Mandatory = $true)]
+        [object]$Script,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Status,
+
+        [AllowNull()]
+        [Nullable[int]]$ExitCode,
+
+        [int]$DurationSeconds = 0,
+
+        [Parameter(Mandatory = $true)]
+        [string]$OutputPath,
+
+        [long]$OutputTotalBytes = 0,
+
+        [bool]$OutputTruncated = $false,
+
+        [string]$ErrorMessage = ""
+    )
+    $ReportUrl = "{0}{1}" -f `
+        ([string]$DeploymentState.api_base_url).TrimEnd("/"),
+        ([string]$Script.reportUrl)
+    $Headers = @{
+        Authorization = "Bearer $([string]$DeploymentState.api_deployment_token)"
+        "x-irondeploy-status" = $Status
+        "x-irondeploy-duration-seconds" = [string]$DurationSeconds
+        "x-irondeploy-output-total-bytes" = [string]$OutputTotalBytes
+        "x-irondeploy-output-truncated" = if ($OutputTruncated) { "true" } else { "false" }
+        "x-irondeploy-error" = [Uri]::EscapeDataString($ErrorMessage)
+    }
+    if ($null -ne $ExitCode) {
+        $Headers["x-irondeploy-exit-code"] = [string]$ExitCode
+    }
+    for ($Attempt = 1; $Attempt -le 3; $Attempt++) {
+        try {
+            Invoke-WebRequest `
+                -Uri $ReportUrl `
+                -Method Post `
+                -Headers $Headers `
+                -InFile $OutputPath `
+                -ContentType "text/plain; charset=utf-8" `
+                -TimeoutSec 60 `
+                -UseBasicParsing | Out-Null
+            return $true
+        } catch {
+            Write-Host (
+                "Failed to report {0} (attempt {1}/3): {2}" -f `
+                    ([string]$Script.name),
+                    $Attempt,
+                    $_.Exception.Message
+            ) -ForegroundColor Yellow
+            if ($Attempt -lt 3) { Start-Sleep -Seconds 2 }
+        }
+    }
+    return $false
+}
+
+function Invoke-IronPostPowerShellPhase {
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("before_software", "after_software")]
+        [string]$RunPhase,
+
+        [AllowNull()]
+        [object]$DeploymentState
+    )
+    if (!(Test-Path $PostPowerShellManifestFile -PathType Leaf)) {
+        Write-Host "No post-PowerShell manifest; phase $RunPhase skipped."
+        return
+    }
+    try {
+        $Scripts = @(
+            Get-Content $PostPowerShellManifestFile -Raw | ConvertFrom-Json |
+                ForEach-Object { $_ }
+        )
+    } catch {
+        Write-Host "Failed to read post-PowerShell manifest: $($_.Exception.Message)" `
+            -ForegroundColor Red
+        return
+    }
+    New-Item -ItemType Directory -Force $PostPowerShellResultsDir | Out-Null
+    foreach ($Script in @($Scripts | Where-Object { $_.runPhase -eq $RunPhase })) {
+        $OutputPath = Join-Path `
+            $PostPowerShellResultsDir `
+            ("{0:D4}-{1}.log" -f ([int]$Script.position), ([string]$Script.name))
+        New-Item -ItemType File -Path $OutputPath -Force | Out-Null
+        $Status = "failed"
+        $ExitCode = $null
+        $DurationSeconds = 0
+        $OutputTotalBytes = 0L
+        $OutputTruncated = $false
+        $ErrorMessage = ""
+
+        if (-not [bool]$Script.ready) {
+            $Status = [string]$Script.preflightStatus
+            if ($Status -notin @("hash_mismatch", "download_failed")) {
+                $Status = "download_failed"
+            }
+            $ErrorMessage = [string]$Script.preflightError
+        } else {
+            $ScriptPath = [string]$Script.path
+            try {
+                $ActualHash = (
+                    Get-FileHash -LiteralPath $ScriptPath -Algorithm SHA256
+                ).Hash.ToLowerInvariant()
+                if ($ActualHash -ne ([string]$Script.sha256).ToLowerInvariant()) {
+                    $Status = "hash_mismatch"
+                    $ErrorMessage = "SHA-256 mismatch. Script was not started."
+                    throw $ErrorMessage
+                }
+
+                $MaxOutputBytes = [long]$Script.maxOutputBytes
+                if ($MaxOutputBytes -le 0) {
+                    $MaxOutputBytes = $PostPowerShellDefaultMaxOutputBytes
+                }
+                $TimeoutSeconds = [int]$Script.timeoutSeconds
+                $StartInfo = New-Object System.Diagnostics.ProcessStartInfo
+                $StartInfo.FileName = "powershell.exe"
+                $StartInfo.Arguments = (
+                    "-NoProfile -NonInteractive -ExecutionPolicy Bypass " +
+                    "-File `"$ScriptPath`""
+                )
+                if (![string]::IsNullOrWhiteSpace([string]$Script.arguments)) {
+                    $StartInfo.Arguments += " $([string]$Script.arguments)"
+                }
+                $StartInfo.UseShellExecute = $false
+                $StartInfo.CreateNoWindow = $true
+                $StartInfo.RedirectStandardOutput = $true
+                $StartInfo.RedirectStandardError = $true
+                $StartInfo.StandardOutputEncoding = $Utf8OutputEncoding
+                $StartInfo.StandardErrorEncoding = $Utf8OutputEncoding
+
+                $Process = New-Object System.Diagnostics.Process
+                $Process.StartInfo = $StartInfo
+                $Stopwatch = [Diagnostics.Stopwatch]::StartNew()
+                if (!$Process.Start()) { throw "PowerShell process did not start." }
+                $StdOutTask = $Process.StandardOutput.ReadLineAsync()
+                $StdErrTask = $Process.StandardError.ReadLineAsync()
+                $StdOutDone = $false
+                $StdErrDone = $false
+                $OutputStream = [IO.File]::Open(
+                    $OutputPath,
+                    [IO.FileMode]::Create,
+                    [IO.FileAccess]::Write,
+                    [IO.FileShare]::Read
+                )
+                try {
+                    while (-not ($StdOutDone -and $StdErrDone -and $Process.HasExited)) {
+                        $Tasks = @()
+                        if (!$StdOutDone) { $Tasks += $StdOutTask }
+                        if (!$StdErrDone) { $Tasks += $StdErrTask }
+                        if ($Tasks.Count -gt 0) {
+                            $AnyTask = [Threading.Tasks.Task]::WhenAny(
+                                [Threading.Tasks.Task[]]$Tasks
+                            )
+                            if ($AnyTask.Wait(100)) {
+                                $CompletedTask = $AnyTask.Result
+                                $Line = [string]$CompletedTask.Result
+                                if ($null -eq $CompletedTask.Result) {
+                                    if ($CompletedTask -eq $StdOutTask) { $StdOutDone = $true }
+                                    if ($CompletedTask -eq $StdErrTask) { $StdErrDone = $true }
+                                } else {
+                                    $Bytes = $Utf8OutputEncoding.GetBytes(
+                                        $Line + [Environment]::NewLine
+                                    )
+                                    $OutputTotalBytes += $Bytes.Length
+                                    $Remaining = $MaxOutputBytes - $OutputStream.Length
+                                    if ($Remaining -gt 0) {
+                                        $WriteCount = [int][Math]::Min($Remaining, $Bytes.Length)
+                                        while ($WriteCount -gt 0) {
+                                            try {
+                                                [void]$StrictUtf8OutputEncoding.GetString(
+                                                    $Bytes,
+                                                    0,
+                                                    $WriteCount
+                                                )
+                                                break
+                                            } catch {
+                                                # At most three bytes are removed when the
+                                                # limit cuts through one UTF-8 code point.
+                                                $WriteCount--
+                                            }
+                                        }
+                                        $OutputStream.Write($Bytes, 0, $WriteCount)
+                                    }
+                                    if ($OutputTotalBytes -gt $MaxOutputBytes) {
+                                        $OutputTruncated = $true
+                                    }
+                                }
+                                if ($CompletedTask -eq $StdOutTask -and !$StdOutDone) {
+                                    $StdOutTask = $Process.StandardOutput.ReadLineAsync()
+                                }
+                                if ($CompletedTask -eq $StdErrTask -and !$StdErrDone) {
+                                    $StdErrTask = $Process.StandardError.ReadLineAsync()
+                                }
+                            }
+                        } else {
+                            Start-Sleep -Milliseconds 100
+                        }
+                        if (!$Process.HasExited -and $Stopwatch.Elapsed.TotalSeconds -ge $TimeoutSeconds) {
+                            & taskkill.exe /PID $Process.Id /T /F 2>&1 | Out-Null
+                            $Status = "timed_out"
+                            $ErrorMessage = "Script exceeded timeout of $TimeoutSeconds seconds."
+                        }
+                    }
+                    $Process.WaitForExit()
+                    if ($Status -ne "timed_out") {
+                        $ExitCode = [int]$Process.ExitCode
+                        if ($ExitCode -eq 0) {
+                            $Status = "succeeded"
+                        } else {
+                            $Status = "failed"
+                            $ErrorMessage = "Script exited with code $ExitCode."
+                        }
+                    }
+                } finally {
+                    $OutputStream.Dispose()
+                    $Stopwatch.Stop()
+                    $DurationSeconds = [int][Math]::Min(
+                        86400,
+                        [Math]::Ceiling($Stopwatch.Elapsed.TotalSeconds)
+                    )
+                    $Process.Dispose()
+                }
+            } catch {
+                if ($Status -notin @("hash_mismatch", "timed_out")) {
+                    $Status = "failed"
+                    $ErrorMessage = $_.Exception.Message
+                }
+            }
+        }
+
+        Write-Host (
+            "Post-PowerShell {0}: status={1}; exit={2}; duration={3}s; truncated={4}" -f `
+                ([string]$Script.name),
+                $Status,
+                $(if ($null -eq $ExitCode) { "-" } else { $ExitCode }),
+                $DurationSeconds,
+                $OutputTruncated
+        )
+        if ($null -ne $DeploymentState) {
+            [void](Send-IronPostPowerShellReport `
+                -DeploymentState $DeploymentState `
+                -Script $Script `
+                -Status $Status `
+                -ExitCode $ExitCode `
+                -DurationSeconds $DurationSeconds `
+                -OutputPath $OutputPath `
+                -OutputTotalBytes $OutputTotalBytes `
+                -OutputTruncated $OutputTruncated `
+                -ErrorMessage $ErrorMessage)
+        } else {
+            Write-Host "PowerShell result not reported: deployment state unavailable." `
+                -ForegroundColor Yellow
+        }
+    }
+}
+
 New-Item -ItemType Directory -Force $LogDir | Out-Null
 
 Start-Transcript -Path $LogFile -Append
@@ -487,6 +812,34 @@ Write-Host "Domain: $($cs.Domain)"
 Write-Host "PartOfDomain: $($cs.PartOfDomain)"
 
 ipconfig /all | Out-File "$LogDir\network.txt" -Encoding UTF8
+
+$DeploymentState = $null
+if (Test-Path $DeploymentStateFile -PathType Leaf) {
+    try {
+        $DeploymentState = Get-Content $DeploymentStateFile -Raw | ConvertFrom-Json
+    } catch {
+        Write-Host "Failed to read deployment state: $($_.Exception.Message)" `
+            -ForegroundColor Red
+        $DeploymentState = $null
+    }
+    try {
+        if ($null -eq $DeploymentState) {
+            throw "Deployment state is unavailable."
+        }
+        $CertificateType = [string]$DeploymentState.api_server_certificate_type
+        if ([string]::IsNullOrWhiteSpace($CertificateType)) {
+            $CertificateType = "self_signed"
+        }
+        Initialize-IronApiTransport `
+            -ApiBaseUrl ([string]$DeploymentState.api_base_url) `
+            -ValidateApiServerCertificate ([bool]$DeploymentState.api_validate_server_certificate) `
+            -ApiServerCertificateType $CertificateType `
+            -ApiServerCertificateBase64 ([string]$DeploymentState.api_server_certificate_base64)
+    } catch {
+        Write-Host "Failed to initialize IronAPI transport: $($_.Exception.Message)" `
+            -ForegroundColor Red
+    }
+}
 
 if ($cs.PartOfDomain) {
     # SetupComplete runs before Winlogon starts foreground computer policy.
@@ -509,6 +862,10 @@ try {
         -ForegroundColor Red
 }
 
+Invoke-IronPostPowerShellPhase `
+    -RunPhase "before_software" `
+    -DeploymentState $DeploymentState
+
 try {
     $ProgramResults = @(Install-IronDeployPrograms)
 } catch {
@@ -516,6 +873,10 @@ try {
     Write-Host "Post-install software installation failed: $($_.Exception.Message)" `
         -ForegroundColor Red
 }
+
+Invoke-IronPostPowerShellPhase `
+    -RunPhase "after_software" `
+    -DeploymentState $DeploymentState
 
 "OK: postinstall completed at $(Get-Date)" | Out-File $MarkerFile -Encoding UTF8
 
