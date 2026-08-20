@@ -197,9 +197,14 @@ Only then does the destructive phase begin:
 9. SetupComplete, post-install configuration, and selected installers are
    copied into the offline system.
 10. WinPE compares each copied installer's SHA-256 with the value in the
-   server-approved manifest.
-11. `bcdboot` creates the UEFI boot files.
-12. WinPE moves the deployment into its post-install phase and reboots.
+    server-approved manifest.
+11. Selected and profile-automatic post-PowerShell scripts are downloaded over
+    the configured IronAPI HTTP(S) transport, checked against their manifest
+    size and SHA-256, and staged with a per-deployment execution manifest.
+    An individual script download or hash failure is retained for post-install
+    reporting and does not stop deployment.
+12. `bcdboot` creates the UEFI boot files.
+13. WinPE moves the deployment into its post-install phase and reboots.
 
 DiskPart output is copied into the WinPE log. If DiskPart returns a non-zero
 exit code, the exit code and final output lines are included in the deployment
@@ -223,6 +228,11 @@ Windows Setup runs `Core\ServerTemplates\PostInstall\SetupComplete.cmd`, which
 starts `postinstall.ps1` in the installed system. The script:
 
 - installs the selected EXE/MSI programs and records their results;
+- runs profile-approved PowerShell scripts before or after software with their
+  configured raw arguments and timeout;
+- verifies every `.ps1` SHA-256 again, retains at most 20 MiB of combined
+  stdout/stderr while continuing to drain excess output, and reports each
+  result without failing the deployment;
 - applies the configured local administrator policy;
 - installs the configured IronAPI trust certificate when required;
 - reports completion back to IronAPI;

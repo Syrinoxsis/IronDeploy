@@ -74,6 +74,7 @@ IronAPI answers requests from several sources rather than one central catalog:
 | Images, indexes, and SHA-256 hashes | `Core\Share\Images` plus server-side image metadata |
 | Driver packages | `Core\Share\Drivers` |
 | Programs, arguments, sizes, and hashes | `Core\Share\Programs` and its metadata file |
+| Post-PowerShell payloads and profile policy | Private `Core\Library\PostPowerShell` storage plus SQLite profile bindings |
 | SMB access and image apply strategy | server-side `Core\Api\.env` |
 | Unattend and post-install files | `Core\ServerTemplates` |
 | Computer-name availability | SQLite history plus LDAP when configured |
@@ -83,7 +84,8 @@ IronAPI answers requests from several sources rather than one central catalog:
 
 The manifest endpoint validates the current selection against the current
 server catalog and returns image/index/hash details, `imageApplyMode`,
-driver-package metadata, selected programs, and post-install settings. WinPE
+driver-package metadata, selected programs, selected or automatic PowerShell
+scripts, and post-install settings. WinPE
 checks the image size, checks the driver package's total size and INF count,
 and compares selected program installers with their expected SHA-256 after
 copying. In staged mode WinPE also verifies the downloaded image against the
@@ -91,6 +93,14 @@ manifest SHA-256 before invoking DISM. Post-install checks program hashes again
 and refuses to execute a mismatched installer. Driver packages are validated
 by their server-approved relative path, total size, and INF count rather than
 a content hash.
+
+Post-PowerShell scripts use authenticated IronAPI HTTP(S) routes rather than
+SMB. WinPE verifies each download against the manifest SHA-256, and
+post-install verifies it again immediately before execution. Profile bindings
+hold automatic/operator policy, before/after-software phase, raw arguments,
+and timeout. Failures never change the deployment terminal status. IronAPI
+stores up to 20 MiB of raw output per execution under
+`Core\Logs\PostPowerShell` and loads it lazily on deployment details.
 
 `imageApplyMode` accepts `direct` or `staged` and defaults to `direct` to
 preserve the established behavior. IronAPI refuses to issue a staged manifest
@@ -107,6 +117,7 @@ The IronAPI browser interface provides:
 - WinPE authorization policy;
 - WIM/ESD image upload, WIM rename, index selection, and ESD-to-WIM conversion;
 - program upload, rename, arguments, hash metadata, and removal;
+- Post-PowerShell upload, arguments, phase, selection mode, timeout, and removal;
 - driver vendor/package upload and cleanup;
 - WinPE and image configuration;
 - WIM or ISO rebuild controls.
@@ -126,12 +137,13 @@ Key WinPE-facing routes are:
 | `GET /api/deploy/auth/policy` | Active WinPE authorization mode | SQLite authorization policy |
 | `POST /api/deploy/auth/login` and `/authorize` | Short-lived deployment bearer | IronAPI accounts or the server-owned PIN/credential-free policy |
 | `GET /api/deploy/suggest-name` | Suggested and previously used computer names | Naming configuration, LDAP, and SQLite inventory |
-| `GET /api/deploy/catalog` | Available images, indexes, programs, hashes, and driver-package metadata | `Core\Share` and its server-side metadata |
+| `GET /api/deploy/catalog` | Available images, indexes, programs, PowerShell choices, hashes, and driver-package metadata | `Core\Share`, `Core\Library`, SQLite profiles, and server-side metadata |
 | `POST /api/deploy/begin` | Deployment ID and bound bearer state | Submitted hardware, target-disk snapshot, selection data, and SQLite |
 | `POST /api/deploy/{id}/manifest` | Validated server-approved deployment plan | Current catalog and image settings |
 | `GET /api/deploy/{id}/smb-credentials` | Configured SMB connection details; the account must be read-only | `Core\Api\.env` |
 | `PUT /api/deploy/{id}/network-diagnostics/adapters` | Early API/SMB adapter, IP, route relationship, and negotiated link-speed snapshot | WinPE network interfaces and SQLite |
 | Unattend and post-install routes | Per-deployment answer file and scripts | `Core\ServerTemplates` and image settings |
+| Post-PowerShell routes | Authenticated `.ps1` downloads plus per-script status and bounded raw output | Resolved profile manifest, SQLite, private `Core\Library\PostPowerShell` storage, and `Core\Logs` |
 | Domain-join routes | ODJ provisioning, download, and acknowledgement | Active Directory and `Core\ODJ\pending` |
 | Stage, error, diagnostics, and completion routes | Deployment progress and final result | SQLite deployment state |
 

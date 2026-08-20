@@ -224,6 +224,7 @@ function Initialize-DirectoryLayout {
         "dist",
         "Share\Images",
         "Share\Drivers",
+        "Library\PostPowerShell",
         "ServerTemplates\Unattend",
         "ServerTemplates\PostInstall"
     ) | ForEach-Object {

@@ -46,7 +46,9 @@ SMB share -- payloads-+
 
 WinPE asks IronAPI what may be deployed and reports progress. IronAPI returns
 the authorized catalog, validated manifest, SMB connection details, answer file,
-and optional Offline Domain Join data. Drivers and installers are read from SMB.
+and optional Offline Domain Join data. Drivers and installers are read from
+SMB. Profile-approved post-PowerShell scripts use authenticated IronAPI
+HTTP(S) routes and are verified twice with the manifest SHA-256.
 The manifest also carries the server-owned image-apply strategy: WinPE either
 lets DISM read the image directly from SMB or stages and verifies a complete
 local copy before invoking DISM.
@@ -65,6 +67,8 @@ SQLite summary with completed measurements and its final adapter values.
 | `Core\Data\irondeploy.db` | IronAPI | Accounts, permissions, deployment profiles, deployments, stages, and inventory. |
 | `Core\ODJ\pending` | IronAPI | Short-lived Offline Domain Join blobs. |
 | `Core\Share` | IronAPI / SMB data plane | Windows images, driver packages, and installers managed by IronAPI and read by WinPE through SMB. |
+| `Core\Library\PostPowerShell` | IronAPI | Private managed `.ps1` library delivered only through authenticated HTTP(S). |
+| `Core\Logs\PostPowerShell` | IronAPI | Bounded raw stdout/stderr captured for deployment details. |
 | `Core\ServerTemplates` | IronAPI | Authorized unattend and post-install templates. |
 | `Core\.work` | WinPE build tools | Mutable Windows ADK working tree. |
 | `Core\dist` | WinPE build tools | Replaceable WIM and ISO delivery artifacts. |
@@ -82,6 +86,9 @@ under `Core\WinPE\Runtime`.
 - Post-install account policy belongs to the default deployment profile in
   SQLite. IronAPI returns it in the manifest; WinPE does not carry a fallback
   copy in `deploy.config.ps1`.
+- Post-PowerShell availability and automatic/operator policy belong to the
+  deployment profile. Each deployment retains a snapshot of the resolved
+  script plan and its results.
 - Browser sessions and WinPE deployment tokens are separate authorization
   mechanisms.
 - ODJ blobs exist only long enough to provision, download, apply, and
