@@ -47,6 +47,7 @@
                         <li><code>.ps1</code> only, up to 50 MiB.</li>
                         <li>SHA-256 is checked after HTTP(S) download and before execution.</li>
                         <li>Failures and timeouts are reported without stopping deployment.</li>
+                        <li>Execution timeout can be set from 1 second through 3 hours.</li>
                         <li>Console output is retained up to 20 MiB per execution.</li>
                     </ul>
                 </details>
@@ -85,7 +86,7 @@
                 <label class="powershell-field powershell-timeout-field">
                     <span>Timeout, seconds</span>
                     <input id="script-timeout" type="number" class="arguments-input"
-                           min="1" max="86400" value="600">
+                           min="1" max="10800" value="600">
                 </label>
                 <div class="powershell-upload-action">
                     <button class="primary-button" id="upload-button" type="button">

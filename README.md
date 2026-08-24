@@ -40,11 +40,13 @@ optionally applies Offline Domain Join, stages selected programs, and boots
 into the newly installed operating system. Post-install tasks then install the
 selected software and report their results to IronAPI.
 
-The server-owned image configuration selects how WinPE obtains the Windows
-image. `direct`, the default, lets DISM read it from SMB as before. `staged`
-first copies it to the selected local disk, verifies its SHA-256, and then runs
-DISM against the local copy. IronAPI sends the selected mode in the existing
-per-deployment manifest; the choice is not embedded in the WinPE image.
+The server-owned deployment configuration selects how WinPE obtains Windows
+images and driver packages. New installations default both strategies to
+`staged`. A staged image is copied to the selected local disk, verified by
+SHA-256, and then passed to DISM; staged drivers are copied and checked locally
+before injection. `direct` remains available when DISM should read the content
+from SMB. IronAPI sends both choices in the existing per-deployment manifest;
+they are not embedded in the WinPE image.
 
 ### Deployment dashboard
 

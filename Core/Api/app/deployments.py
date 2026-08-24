@@ -367,7 +367,7 @@ class DeploymentProfileScript(Base):
             name="ck_deployment_profile_scripts_run_phase",
         ),
         CheckConstraint(
-            "timeout_seconds BETWEEN 1 AND 86400",
+            "timeout_seconds BETWEEN 1 AND 10800",
             name="ck_deployment_profile_scripts_timeout",
         ),
         UniqueConstraint(

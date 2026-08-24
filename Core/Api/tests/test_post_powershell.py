@@ -104,17 +104,19 @@ class PostPowerShellTests(unittest.TestCase):
 
     def test_invalid_settings_are_rejected(self) -> None:
         script = self.upload()
-        with self.assertRaises(PostPowerShellError):
-            update_script_settings(
-                self.session,
-                script["id"],
-                {
-                    "selectionMode": "operator",
-                    "runPhase": "after_software",
-                    "timeoutSeconds": 0,
-                    "arguments": "",
-                },
-            )
+        for timeout_seconds in (0, 10801):
+            with self.subTest(timeout_seconds=timeout_seconds):
+                with self.assertRaises(PostPowerShellError):
+                    update_script_settings(
+                        self.session,
+                        script["id"],
+                        {
+                            "selectionMode": "operator",
+                            "runPhase": "after_software",
+                            "timeoutSeconds": timeout_seconds,
+                            "arguments": "",
+                        },
+                    )
 
     def test_missing_selected_file_is_retained_for_nonfatal_reporting(self) -> None:
         script = self.upload()

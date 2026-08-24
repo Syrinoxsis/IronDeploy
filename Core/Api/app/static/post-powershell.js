@@ -116,7 +116,7 @@ function psCreateCard(script) {
     timeout.className = "arguments-input";
     timeout.type = "number";
     timeout.min = "1";
-    timeout.max = "86400";
+    timeout.max = "10800";
     timeout.value = script.timeoutSeconds;
     settings.append(
         psSetting("Launch arguments", args, "powershell-setting-arguments"),

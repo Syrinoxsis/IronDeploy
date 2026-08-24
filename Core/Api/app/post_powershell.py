@@ -28,7 +28,7 @@ MAX_SCRIPT_SIZE_BYTES = 50 * 1024**2
 MAX_OUTPUT_SIZE_BYTES = 20 * 1024**2
 MAX_ARGUMENTS_LENGTH = 500
 MIN_TIMEOUT_SECONDS = 1
-MAX_TIMEOUT_SECONDS = 24 * 60 * 60
+MAX_TIMEOUT_SECONDS = 3 * 60 * 60
 DEFAULT_TIMEOUT_SECONDS = 10 * 60
 ALLOWED_SELECTION_MODES = {"automatic", "operator"}
 ALLOWED_RUN_PHASES = {"before_software", "after_software"}
@@ -92,7 +92,7 @@ def validate_settings(
     except (TypeError, ValueError) as exc:
         raise PostPowerShellError("timeoutSeconds must be an integer.") from exc
     if not MIN_TIMEOUT_SECONDS <= normalized_timeout <= MAX_TIMEOUT_SECONDS:
-        raise PostPowerShellError("timeoutSeconds must be between 1 and 86400.")
+        raise PostPowerShellError("timeoutSeconds must be between 1 and 10800.")
     return (
         normalized_arguments,
         normalized_mode,

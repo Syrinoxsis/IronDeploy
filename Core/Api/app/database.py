@@ -3,13 +3,14 @@ from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+import re
 import sqlite3
 
 from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.engine import Connection, Engine, make_url
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.config import get_settings
+from app.config import IRONDEPLOY_ROOT, get_settings
 from app.deployments import Deployment, update_computer_inventory
 from app.sqlite_migration_0001 import SQLITE_MIGRATION_0001
 
@@ -479,6 +480,64 @@ def _migration_allow_early_network_adapter_snapshot(
     )
 
 
+def _legacy_deployment_profile_defaults() -> dict[str, object]:
+    """Read the three alpha-era profile settings from deploy.config.ps1."""
+
+    # TODO(1.0): remove legacy alpha configuration compatibility.
+    values: dict[str, object] = {
+        "local_admin_name": "localadmin",
+        "enable_builtin_administrator": True,
+        "enable_setup_local_admin": True,
+    }
+    runtime = IRONDEPLOY_ROOT / "WinPE" / "Runtime"
+    for path in (
+        runtime / "deploy.config.example.ps1",
+        runtime / "deploy.config.ps1",
+    ):
+        try:
+            lines = path.read_text(encoding="utf-8-sig").splitlines()
+        except OSError:
+            continue
+
+        configured: dict[str, object] = {}
+        for line in lines:
+            name_match = re.match(
+                r"^\s*\$SetupLocalAdminName\s*=\s*(['\"])(.*?)\1\s*$",
+                line,
+            )
+            if name_match:
+                name = name_match.group(2).replace("''", "'").strip()
+                if re.fullmatch(r"[A-Za-z0-9._-]{1,20}", name):
+                    configured["local_admin_name"] = name
+                continue
+            bool_match = re.match(
+                r"^\s*\$(EnableBuiltInAdministrator|EnableSetupLocalAdmin|"
+                r"DisableSetupLocalAdmin)\s*=\s*\$(true|false)\s*$",
+                line,
+                re.IGNORECASE,
+            )
+            if bool_match:
+                configured[bool_match.group(1).lower()] = (
+                    bool_match.group(2).lower() == "true"
+                )
+
+        if "enablebuiltinadministrator" in configured:
+            values["enable_builtin_administrator"] = configured[
+                "enablebuiltinadministrator"
+            ]
+        if "enablesetuplocaladmin" in configured:
+            values["enable_setup_local_admin"] = configured[
+                "enablesetuplocaladmin"
+            ]
+        elif "disablesetuplocaladmin" in configured:
+            values["enable_setup_local_admin"] = not bool(
+                configured["disablesetuplocaladmin"]
+            )
+        if "local_admin_name" in configured:
+            values["local_admin_name"] = configured["local_admin_name"]
+    return values
+
+
 def _migration_add_default_deployment_profile(connection: Connection) -> None:
     if "deployment_profiles" not in inspect(connection).get_table_names():
         connection.exec_driver_sql(
@@ -505,30 +564,34 @@ def _migration_add_default_deployment_profile(connection: Connection) -> None:
         text("SELECT id FROM deployment_profiles WHERE is_default = 1 LIMIT 1")
     ).first()
     if existing_default is None:
-        connection.exec_driver_sql(
-            """
-            INSERT INTO deployment_profiles (
-                id,
-                name,
-                description,
-                is_default,
-                local_admin_name,
-                enable_builtin_administrator,
-                enable_setup_local_admin,
-                created_at,
-                updated_at
-            ) SELECT
-                COALESCE(MAX(id), 0) + 1,
-                'Default',
-                'Default deployment settings',
-                1,
-                'localadmin',
-                1,
-                1,
-                CURRENT_TIMESTAMP,
-                CURRENT_TIMESTAMP
-            FROM deployment_profiles
-            """
+        defaults = _legacy_deployment_profile_defaults()
+        connection.execute(
+            text(
+                """
+                INSERT INTO deployment_profiles (
+                    id,
+                    name,
+                    description,
+                    is_default,
+                    local_admin_name,
+                    enable_builtin_administrator,
+                    enable_setup_local_admin,
+                    created_at,
+                    updated_at
+                ) SELECT
+                    COALESCE(MAX(id), 0) + 1,
+                    'Default',
+                    'Default deployment settings',
+                    1,
+                    :local_admin_name,
+                    :enable_builtin_administrator,
+                    :enable_setup_local_admin,
+                    CURRENT_TIMESTAMP,
+                    CURRENT_TIMESTAMP
+                FROM deployment_profiles
+                """
+            ),
+            defaults,
         )
 
 
@@ -654,7 +717,7 @@ def _migration_add_post_powershell(connection: Connection) -> None:
             CONSTRAINT ck_deployment_profile_scripts_run_phase
                 CHECK (run_phase IN ('before_software', 'after_software')),
             CONSTRAINT ck_deployment_profile_scripts_timeout
-                CHECK (timeout_seconds BETWEEN 1 AND 86400),
+                CHECK (timeout_seconds BETWEEN 1 AND 10800),
             FOREIGN KEY(profile_id) REFERENCES deployment_profiles (id)
                 ON DELETE CASCADE,
             FOREIGN KEY(script_id) REFERENCES post_powershell_scripts (id)

@@ -98,20 +98,22 @@ Post-PowerShell scripts use authenticated IronAPI HTTP(S) routes rather than
 SMB. WinPE verifies each download against the manifest SHA-256, and
 post-install verifies it again immediately before execution. Profile bindings
 hold automatic/operator policy, before/after-software phase, raw arguments,
-and timeout. Failures never change the deployment terminal status. IronAPI
+and a timeout from 1 second through 3 hours. Failures never change the
+deployment terminal status. IronAPI
 stores up to 20 MiB of raw output per execution under
 `Core\Logs\PostPowerShell` and loads it lazily on deployment details.
 
-`imageApplyMode` accepts `direct` or `staged` and defaults to `direct` to
-preserve the established behavior. IronAPI refuses to issue a staged manifest
-when the selected image has no valid SHA-256. No additional endpoint is used:
-WinPE reads the value once from `POST /api/deploy/{id}/manifest` for the current
-deployment.
+`imageApplyMode` accepts `direct` or `staged`; new installations default to
+`staged`. IronAPI refuses to issue a staged manifest when the selected image
+has no valid SHA-256. No additional endpoint is used: WinPE reads the value
+once from `POST /api/deploy/{id}/manifest` for the current deployment. A WinPE
+runtime receiving a missing or unsupported value falls back to `direct`.
 
 `driverApplyMode` uses the same `direct` or `staged` values and the same
-manifest endpoint. Direct mode keeps DISM on the selected SMB package. Staged
-mode copies the package locally and validates its byte, file, and INF counts
-before offline injection. Missing or unsupported values default to `direct`.
+manifest endpoint, with `staged` as the new-installation default. Direct mode
+keeps DISM on the selected SMB package. Staged mode copies the package locally
+and validates its byte, file, and INF counts before offline injection. A WinPE
+runtime receiving a missing or unsupported value falls back to `direct`.
 
 ## Browser interface
 

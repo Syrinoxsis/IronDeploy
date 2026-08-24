@@ -43,6 +43,13 @@ class DatabaseSafetyTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary_directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary_directory.cleanup)
+        self.irondeploy_root = Path(self.temporary_directory.name) / "IronDeploy"
+        root_patch = patch(
+            "app.database.IRONDEPLOY_ROOT",
+            self.irondeploy_root,
+        )
+        root_patch.start()
+        self.addCleanup(root_patch.stop)
         self.database_path = (
             Path(self.temporary_directory.name) / "irondeploy.db"
         )
@@ -172,8 +179,15 @@ class DatabaseSafetyTests(unittest.TestCase):
                     "WHERE type = 'table' AND name = 'deployment_network_stages'"
                 )
             ).scalar_one()
+            profile_scripts_sql = connection.execute(
+                text(
+                    "SELECT sql FROM sqlite_master WHERE type = 'table' "
+                    "AND name = 'deployment_profile_scripts'"
+                )
+            ).scalar_one()
         self.assertIn("'image_download'", network_stage_sql)
         self.assertIn("'driver_download'", network_stage_sql)
+        self.assertIn("BETWEEN 1 AND 10800", profile_scripts_sql)
         with self.engine.connect() as connection:
             default_profile = connection.execute(
                 text(
@@ -191,6 +205,33 @@ class DatabaseSafetyTests(unittest.TestCase):
             [migration.version for migration in MIGRATIONS],
         )
         self.assertEqual(self.backups(), [])
+
+    def test_default_profile_imports_legacy_alpha_settings(self) -> None:
+        runtime = self.irondeploy_root / "WinPE" / "Runtime"
+        runtime.mkdir(parents=True)
+        (runtime / "deploy.config.ps1").write_text(
+            "\n".join(
+                (
+                    "$SetupLocalAdminName = 'deployadmin'",
+                    "$EnableBuiltInAdministrator = $false",
+                    "$DisableSetupLocalAdmin = $true",
+                    "",
+                )
+            ),
+            encoding="utf-8",
+        )
+
+        initialize_database(self.engine)
+
+        with self.engine.connect() as connection:
+            profile = connection.execute(
+                text(
+                    "SELECT local_admin_name, enable_builtin_administrator, "
+                    "enable_setup_local_admin FROM deployment_profiles "
+                    "WHERE is_default = 1"
+                )
+            ).one()
+        self.assertEqual(tuple(profile), ("deployadmin", 0, 0))
 
     def test_early_adapter_migration_preserves_final_network_report(self) -> None:
         with self.engine.begin() as connection:
