@@ -106,6 +106,7 @@ def _upgrade_sqlite_deployment_constraints(connection: Connection) -> None:
             ip_address VARCHAR(45) NOT NULL,
             image_name VARCHAR(255),
             image_apply_mode VARCHAR(16),
+            driver_apply_mode VARCHAR(16),
             target_disk_number INTEGER,
             target_disk_model VARCHAR(255),
             target_disk_size_bytes BIGINT,
@@ -136,6 +137,7 @@ def _upgrade_sqlite_deployment_constraints(connection: Connection) -> None:
             ip_address,
             image_name,
             image_apply_mode,
+            driver_apply_mode,
             target_disk_number,
             target_disk_model,
             target_disk_size_bytes,
@@ -156,6 +158,7 @@ def _upgrade_sqlite_deployment_constraints(connection: Connection) -> None:
             ip_address,
             image_name,
             image_apply_mode,
+            driver_apply_mode,
             target_disk_number,
             target_disk_model,
             target_disk_size_bytes,
@@ -279,6 +282,7 @@ def _migration_add_target_disk_snapshot(connection: Connection) -> None:
         # The migration-three inventory backfill uses the current Deployment
         # ORM model, so this nullable column must exist before that backfill.
         ("image_apply_mode", "VARCHAR(16)"),
+        ("driver_apply_mode", "VARCHAR(16)"),
     )
     for column_name, column_type in additions:
         if column_name in existing_columns:
@@ -528,6 +532,96 @@ def _migration_add_default_deployment_profile(connection: Connection) -> None:
         )
 
 
+def _migration_add_driver_apply_strategy(connection: Connection) -> None:
+    deployment_columns = {
+        column["name"]
+        for column in inspect(connection).get_columns(Deployment.__tablename__)
+    }
+    if "driver_apply_mode" not in deployment_columns:
+        connection.execute(
+            text(
+                "ALTER TABLE deployments "
+                "ADD COLUMN driver_apply_mode VARCHAR(16)"
+            )
+        )
+
+    table_sql = (
+        connection.exec_driver_sql(
+            "SELECT sql FROM sqlite_master "
+            "WHERE type = 'table' AND name = ?",
+            ("deployment_network_stages",),
+        ).scalar_one_or_none()
+        or ""
+    )
+    if "'driver_download'" in table_sql.lower():
+        return
+
+    connection.exec_driver_sql(
+        """
+        CREATE TABLE deployment_network_stages_driver_strategy_upgrade (
+            id INTEGER NOT NULL PRIMARY KEY,
+            deployment_id INTEGER NOT NULL,
+            stage VARCHAR(64) NOT NULL,
+            started_at DATETIME NOT NULL,
+            completed_at DATETIME NOT NULL,
+            duration_seconds FLOAT NOT NULL,
+            icmp_status VARCHAR(16) NOT NULL,
+            ping_sent INTEGER NOT NULL,
+            ping_received INTEGER NOT NULL,
+            ping_lost INTEGER NOT NULL,
+            loss_percentage FLOAT,
+            rtt_min_ms FLOAT,
+            rtt_avg_ms FLOAT,
+            rtt_max_ms FLOAT,
+            latency_spikes INTEGER NOT NULL,
+            bytes_received BIGINT,
+            average_inbound_mbps FLOAT,
+            link_utilization_percent FLOAT,
+            CONSTRAINT ck_deployment_network_stages_stage CHECK (
+                stage IN (
+                    'image_download', 'image_apply', 'driver_download',
+                    'driver_injection', 'postinstall_copy'
+                )
+            ),
+            CONSTRAINT ck_deployment_network_stages_icmp_status CHECK (
+                icmp_status IN ('available', 'unavailable', 'not_measured')
+            ),
+            CONSTRAINT uq_deployment_network_stages_deployment_stage
+                UNIQUE (deployment_id, stage),
+            FOREIGN KEY(deployment_id) REFERENCES deployments (id)
+                ON DELETE CASCADE
+        )
+        """
+    )
+    connection.exec_driver_sql(
+        """
+        INSERT INTO deployment_network_stages_driver_strategy_upgrade (
+            id, deployment_id, stage, started_at, completed_at,
+            duration_seconds, icmp_status, ping_sent, ping_received,
+            ping_lost, loss_percentage, rtt_min_ms, rtt_avg_ms,
+            rtt_max_ms, latency_spikes, bytes_received,
+            average_inbound_mbps, link_utilization_percent
+        )
+        SELECT
+            id, deployment_id, stage, started_at, completed_at,
+            duration_seconds, icmp_status, ping_sent, ping_received,
+            ping_lost, loss_percentage, rtt_min_ms, rtt_avg_ms,
+            rtt_max_ms, latency_spikes, bytes_received,
+            average_inbound_mbps, link_utilization_percent
+        FROM deployment_network_stages
+        """
+    )
+    connection.exec_driver_sql("DROP TABLE deployment_network_stages")
+    connection.exec_driver_sql(
+        "ALTER TABLE deployment_network_stages_driver_strategy_upgrade "
+        "RENAME TO deployment_network_stages"
+    )
+    connection.exec_driver_sql(
+        "CREATE INDEX ix_deployment_network_stages_deployment_id "
+        "ON deployment_network_stages (deployment_id)"
+    )
+
+
 def _migration_add_post_powershell(connection: Connection) -> None:
     connection.exec_driver_sql(
         """
@@ -641,6 +735,11 @@ MIGRATIONS = (
         _migration_add_default_deployment_profile,
     ),
     Migration(8, "add post-powershell scripts", _migration_add_post_powershell),
+    Migration(
+        9,
+        "add driver apply strategy",
+        _migration_add_driver_apply_strategy,
+    ),
 )
 
 

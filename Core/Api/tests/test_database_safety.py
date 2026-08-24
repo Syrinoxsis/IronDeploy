@@ -164,6 +164,7 @@ class DatabaseSafetyTests(unittest.TestCase):
             for column in inspect(self.engine).get_columns("deployments")
         }
         self.assertIn("image_apply_mode", deployment_columns)
+        self.assertIn("driver_apply_mode", deployment_columns)
         with self.engine.connect() as connection:
             network_stage_sql = connection.execute(
                 text(
@@ -172,6 +173,7 @@ class DatabaseSafetyTests(unittest.TestCase):
                 )
             ).scalar_one()
         self.assertIn("'image_download'", network_stage_sql)
+        self.assertIn("'driver_download'", network_stage_sql)
         with self.engine.connect() as connection:
             default_profile = connection.execute(
                 text(
@@ -308,6 +310,7 @@ class DatabaseSafetyTests(unittest.TestCase):
         self.assertIn("target_disk_model", columns)
         self.assertIn("target_disk_size_bytes", columns)
         self.assertIn("image_apply_mode", columns)
+        self.assertIn("driver_apply_mode", columns)
         self.assertEqual(
             self.applied_versions(),
             [migration.version for migration in MIGRATIONS],

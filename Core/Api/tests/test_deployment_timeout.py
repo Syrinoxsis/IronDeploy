@@ -458,11 +458,13 @@ class DeploymentTimeoutTests(unittest.TestCase):
                     "relativePath": "Lenovo\\ThinkPad T14",
                     "size": 4567,
                     "infCount": 12,
+                    "fileCount": 37,
                 }
             ],
         }
         image_config = {
             "imageApplyMode": "staged",
+            "driverApplyMode": "staged",
             "localAdminName": "localadmin",
             "enableBuiltInAdministrator": True,
             "enableSetupLocalAdmin": False,
@@ -506,6 +508,7 @@ class DeploymentTimeoutTests(unittest.TestCase):
             self.assertEqual(result["image"]["defaultIndex"], 6)
             self.assertEqual(result["image"]["sha256"], "b" * 64)
             self.assertEqual(result["imageApplyMode"], "staged")
+            self.assertEqual(result["driverApplyMode"], "staged")
             self.assertEqual(result["programs"][0]["arguments"], "/qn /norestart")
             self.assertEqual(result["programs"][0]["sha256"], "a" * 64)
             self.assertEqual(
@@ -519,6 +522,10 @@ class DeploymentTimeoutTests(unittest.TestCase):
             )
             self.assertEqual(
                 session.get(Deployment, deployment.id).image_apply_mode,
+                "staged",
+            )
+            self.assertEqual(
+                session.get(Deployment, deployment.id).driver_apply_mode,
                 "staged",
             )
             self.assertEqual(
@@ -546,6 +553,7 @@ class DeploymentTimeoutTests(unittest.TestCase):
 
             legacy_image_config = dict(image_config)
             legacy_image_config.pop("imageApplyMode")
+            legacy_image_config.pop("driverApplyMode")
             with patch("app.main._deployment_catalog", return_value=catalog), patch(
                 "app.main.load_image_config", return_value=legacy_image_config
             ):
@@ -556,8 +564,13 @@ class DeploymentTimeoutTests(unittest.TestCase):
                     session,
                 )
             self.assertEqual(fallback["imageApplyMode"], "direct")
+            self.assertEqual(fallback["driverApplyMode"], "direct")
             self.assertEqual(
                 session.get(Deployment, deployment.id).image_apply_mode,
+                "direct",
+            )
+            self.assertEqual(
+                session.get(Deployment, deployment.id).driver_apply_mode,
                 "direct",
             )
 

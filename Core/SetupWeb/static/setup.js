@@ -46,6 +46,8 @@ const ruTranslations = {
   "Select the image index and how Windows image data is applied.": "Выберите индекс образа и способ применения данных Windows.",
   "Image index": "Индекс образа",
   "Image apply mode": "Режим применения образа",
+  "Windows image mode": "Режим образа Windows",
+  "Driver package mode": "Режим пакета драйверов",
   "Direct from SMB": "Напрямую из SMB",
   "Stage locally first": "Сначала скопировать локально",
   "Define predictable computer names and optional Active Directory integration.": "Задайте понятные имена компьютеров и необязательную интеграцию с Active Directory.",

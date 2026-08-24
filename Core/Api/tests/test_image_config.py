@@ -52,7 +52,8 @@ class ImageConfigTests(unittest.TestCase):
         self.assertNotIn("enableBuiltInAdministrator", config)
         self.assertNotIn("enableSetupLocalAdmin", config)
         self.assertTrue(config["enableGuiImageApplyProgress"])
-        self.assertEqual(config["imageApplyMode"], "direct")
+        self.assertEqual(config["imageApplyMode"], "staged")
+        self.assertEqual(config["driverApplyMode"], "staged")
         self.assertEqual(config["timeZone"], "Central Asia Standard Time")
         self.assertEqual(config["inputLocale"], "ru-RU")
         self.assertEqual(config["systemLocale"], "ru-RU")
@@ -138,6 +139,35 @@ class ImageConfigTests(unittest.TestCase):
                     "localAdminName": "localadmin",
                     "timeZone": "UTC",
                     "imageApplyMode": "auto",
+                },
+                self.paths,
+            )
+
+    def test_driver_apply_mode_is_saved_in_server_config_and_reread(self) -> None:
+        result = save_image_config(
+            {
+                "localAdminName": "localadmin",
+                "timeZone": "UTC",
+                "driverApplyMode": "staged",
+            },
+            self.paths,
+        )
+
+        self.assertEqual(result["config"]["driverApplyMode"], "staged")
+        self.assertEqual(load_image_config(self.paths)["driverApplyMode"], "staged")
+        self.assertIn(
+            "IRONAPI_DRIVER_APPLY_MODE=staged",
+            self.paths.api_env.read_text(encoding="utf-8-sig"),
+        )
+        self.assertNotIn("DriverApplyMode", self.paths.winpe_config.read_text())
+
+    def test_unknown_driver_apply_mode_is_rejected_on_save(self) -> None:
+        with self.assertRaisesRegex(ImageConfigError, "direct or staged"):
+            save_image_config(
+                {
+                    "localAdminName": "localadmin",
+                    "timeZone": "UTC",
+                    "driverApplyMode": "auto",
                 },
                 self.paths,
             )

@@ -253,14 +253,14 @@ def _normalize_bool(value: Any) -> bool:
     return str(value).strip().lower() in {"true", "1", "yes", "y", "on"}
 
 
-def _read_image_apply_mode(paths: ImagePaths) -> str:
+def _read_apply_mode(paths: ImagePaths, environment_name: str) -> str:
     mode = "direct"
     for path in (paths.api_env_example, paths.api_env):
         if path is None or not path.is_file():
             continue
         for line in path.read_text(encoding="utf-8-sig").splitlines():
             match = re.match(
-                r"^\s*IRONAPI_IMAGE_APPLY_MODE\s*=\s*(.*?)\s*$",
+                rf"^\s*{re.escape(environment_name)}\s*=\s*(.*?)\s*$",
                 line,
             )
             if match:
@@ -268,7 +268,13 @@ def _read_image_apply_mode(paths: ImagePaths) -> str:
     return mode if mode in {"direct", "staged"} else "direct"
 
 
-def _save_image_apply_mode(paths: ImagePaths, mode: str) -> str | None:
+def _save_apply_mode(
+    paths: ImagePaths,
+    environment_name: str,
+    mode: str,
+    *,
+    create_backup: bool = True,
+) -> str | None:
     if paths.api_env is None or paths.api_env_example is None:
         raise ImageConfigError("IronAPI config paths are unavailable.")
     if not paths.api_env.is_file():
@@ -280,14 +286,14 @@ def _save_image_apply_mode(paths: ImagePaths, mode: str) -> str | None:
         shutil.copy2(paths.api_env_example, paths.api_env)
         backup = None
     else:
-        backup = _backup_file(paths, paths.api_env)
+        backup = _backup_file(paths, paths.api_env) if create_backup else None
 
     lines = paths.api_env.read_text(encoding="utf-8-sig").splitlines()
-    replacement = f"IRONAPI_IMAGE_APPLY_MODE={mode}"
+    replacement = f"{environment_name}={mode}"
     updated: list[str] = []
     found = False
     for line in lines:
-        if re.match(r"^\s*IRONAPI_IMAGE_APPLY_MODE\s*=", line):
+        if re.match(rf"^\s*{re.escape(environment_name)}\s*=", line):
             updated.append(replacement)
             found = True
         else:
@@ -298,6 +304,42 @@ def _save_image_apply_mode(paths: ImagePaths, mode: str) -> str | None:
         updated.append(replacement)
     _atomic_write(paths.api_env, "\n".join(updated) + "\n")
     return backup
+
+
+def _read_image_apply_mode(paths: ImagePaths) -> str:
+    return _read_apply_mode(paths, "IRONAPI_IMAGE_APPLY_MODE")
+
+
+def _read_driver_apply_mode(paths: ImagePaths) -> str:
+    return _read_apply_mode(paths, "IRONAPI_DRIVER_APPLY_MODE")
+
+
+def _save_image_apply_mode(
+    paths: ImagePaths,
+    mode: str,
+    *,
+    create_backup: bool = True,
+) -> str | None:
+    return _save_apply_mode(
+        paths,
+        "IRONAPI_IMAGE_APPLY_MODE",
+        mode,
+        create_backup=create_backup,
+    )
+
+
+def _save_driver_apply_mode(
+    paths: ImagePaths,
+    mode: str,
+    *,
+    create_backup: bool = True,
+) -> str | None:
+    return _save_apply_mode(
+        paths,
+        "IRONAPI_DRIVER_APPLY_MODE",
+        mode,
+        create_backup=create_backup,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -598,6 +640,7 @@ def load_image_config(paths: ImagePaths | None = None) -> dict[str, Any]:
 
     return {
         "imageApplyMode": _read_image_apply_mode(paths),
+        "driverApplyMode": _read_driver_apply_mode(paths),
         "enableGuiImageApplyProgress": _normalize_bool(
             winpe.get("EnableGuiImageApplyProgress", "true")
         ),
@@ -686,6 +729,11 @@ def save_image_config(
     ).strip().lower()
     if image_apply_mode not in {"direct", "staged"}:
         raise ImageConfigError("Image apply mode must be direct or staged.")
+    driver_apply_mode = str(
+        payload.get("driverApplyMode", _read_driver_apply_mode(paths))
+    ).strip().lower()
+    if driver_apply_mode not in {"direct", "staged"}:
+        raise ImageConfigError("Driver apply mode must be direct or staged.")
 
     password = _validate_optional_password(
         payload.get("localAdminPassword"), "Local admin"
@@ -695,8 +743,18 @@ def save_image_config(
     )
 
     backups: list[str] = []
+    apply_mode_config_saved = False
     if "imageApplyMode" in payload:
         backup = _save_image_apply_mode(paths, image_apply_mode)
+        apply_mode_config_saved = True
+        if backup:
+            backups.append(backup)
+    if "driverApplyMode" in payload:
+        backup = _save_driver_apply_mode(
+            paths,
+            driver_apply_mode,
+            create_backup=not apply_mode_config_saved,
+        )
         if backup:
             backups.append(backup)
     backup = _save_winpe_config(

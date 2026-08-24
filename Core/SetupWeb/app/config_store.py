@@ -26,6 +26,7 @@ API_NAMES = (
     "IRONAPI_DEPLOYMENT_AUTHORIZATION_TIMEOUT_MINUTES",
     "IRONAPI_DEPLOYMENT_TIMEOUT_MINUTES",
     "IRONAPI_IMAGE_APPLY_MODE",
+    "IRONAPI_DRIVER_APPLY_MODE",
     "IRONAPI_DRIVER_MAX_FILES",
     "IRONAPI_DRIVER_MAX_DEPTH",
     "IRONAPI_DRIVER_MAX_FULL_PATH",
@@ -661,6 +662,11 @@ def normalize_api(values: dict[str, Any]) -> dict[str, str]:
     if image_apply_mode not in {"direct", "staged"}:
         raise ValueError("IRONAPI_IMAGE_APPLY_MODE must be direct or staged.")
     result["IRONAPI_IMAGE_APPLY_MODE"] = image_apply_mode
+
+    driver_apply_mode = result["IRONAPI_DRIVER_APPLY_MODE"].lower()
+    if driver_apply_mode not in {"direct", "staged"}:
+        raise ValueError("IRONAPI_DRIVER_APPLY_MODE must be direct or staged.")
+    result["IRONAPI_DRIVER_APPLY_MODE"] = driver_apply_mode
 
     driver_integer_ranges = {
         "IRONAPI_DRIVER_MAX_FILES": (1, 1_000_000),

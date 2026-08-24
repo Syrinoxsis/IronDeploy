@@ -1333,6 +1333,7 @@ def _deployment_catalog(session: Session | None = None) -> dict:
                 "relativePath": package["relativePath"],
                 "size": package["size"],
                 "infCount": package["infCount"],
+                "fileCount": package["fileCount"],
             }
             for package in driver_listing["packages"]
             if package["infCount"] > 0
@@ -1451,6 +1452,10 @@ def deploy_manifest(
             detail="Selected image SHA-256 is unavailable for staged deployment",
         )
     deployment.image_apply_mode = image_apply_mode
+    driver_apply_mode = image_config.get("driverApplyMode", "direct")
+    if driver_apply_mode not in {"direct", "staged"}:
+        driver_apply_mode = "direct"
+    deployment.driver_apply_mode = driver_apply_mode
     session.execute(
         delete(DeploymentPowerShellResult).where(
             DeploymentPowerShellResult.deployment_id == deployment.id
@@ -1502,6 +1507,7 @@ def deploy_manifest(
     return {
         "deploymentId": deployment.id,
         "imageApplyMode": image_apply_mode,
+        "driverApplyMode": driver_apply_mode,
         "image": image,
         "programs": selected_programs,
         "postPowerShell": post_powershell_plan,

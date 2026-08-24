@@ -84,8 +84,8 @@ IronAPI answers requests from several sources rather than one central catalog:
 
 The manifest endpoint validates the current selection against the current
 server catalog and returns image/index/hash details, `imageApplyMode`,
-driver-package metadata, selected programs, selected or automatic PowerShell
-scripts, and post-install settings. WinPE
+`driverApplyMode`, driver-package metadata, selected programs, selected or
+automatic PowerShell scripts, and post-install settings. WinPE
 checks the image size, checks the driver package's total size and INF count,
 and compares selected program installers with their expected SHA-256 after
 copying. In staged mode WinPE also verifies the downloaded image against the
@@ -107,6 +107,11 @@ preserve the established behavior. IronAPI refuses to issue a staged manifest
 when the selected image has no valid SHA-256. No additional endpoint is used:
 WinPE reads the value once from `POST /api/deploy/{id}/manifest` for the current
 deployment.
+
+`driverApplyMode` uses the same `direct` or `staged` values and the same
+manifest endpoint. Direct mode keeps DISM on the selected SMB package. Staged
+mode copies the package locally and validates its byte, file, and INF counts
+before offline injection. Missing or unsupported values default to `direct`.
 
 ## Browser interface
 
@@ -224,6 +229,11 @@ measurement. Staged deployments report `image_download` separately from
 `image_apply`; network bytes, duration, and throughput belong only to the
 download window, while local DISM progress and duration belong to the apply
 stage.
+
+Driver deployments follow the same measurement boundary. Direct mode measures
+SMB activity during `driver_injection`. Staged mode reports network activity in
+`driver_download`; the following local `driver_injection` stage records time
+without attributing network bytes to the local DISM work.
 
 The server controls which routes are available in the WinPE and post-install
 phases. The installed machine uses the persisted deployment state only to
