@@ -77,7 +77,7 @@ class WinPEDriverContractTests(unittest.TestCase):
             self.engine,
         )
         self.assertEqual(len(add_driver_commands), 1)
-        self.assertIn("/Driver:$DriverPackagePath", add_driver_commands[0])
+        self.assertIn("/Driver:$DriverPackagePathToInject", add_driver_commands[0])
         self.assertNotIn("/Driver:$DriversPath", add_driver_commands[0])
         self.assertIn(
             'Write-IronLog "[SKIP] Driver installation was not selected"',
