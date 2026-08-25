@@ -666,7 +666,12 @@ function Invoke-IronPostPowerShellPhase {
                     $StartInfo.Arguments += " $([string]$Script.arguments)"
                 }
                 $StartInfo.UseShellExecute = $false
-                $StartInfo.CreateNoWindow = $true
+                # Inherit this process's UTF-8 console code page so Windows
+                # PowerShell 5.1 emits localized stdout/stderr as UTF-8. A
+                # hidden window style prevents a console flash if postinstall
+                # is started manually without an existing console.
+                $StartInfo.CreateNoWindow = $false
+                $StartInfo.WindowStyle = [Diagnostics.ProcessWindowStyle]::Hidden
                 $StartInfo.RedirectStandardOutput = $true
                 $StartInfo.RedirectStandardError = $true
                 $StartInfo.StandardOutputEncoding = $Utf8OutputEncoding

@@ -192,6 +192,29 @@ class PostPowerShellTests(unittest.TestCase):
         self.assertEqual(result.output_bytes, 13)
         self.assertIsNotNone(result.reported_at)
 
+    def test_postinstall_runner_inherits_utf8_console_without_visible_window(
+        self,
+    ) -> None:
+        postinstall = (
+            Path(__file__).resolve().parents[2]
+            / "ServerTemplates"
+            / "PostInstall"
+            / "postinstall.ps1"
+        ).read_text(encoding="utf-8")
+        self.assertIn("$StartInfo.CreateNoWindow = $false", postinstall)
+        self.assertIn(
+            "$StartInfo.WindowStyle = [Diagnostics.ProcessWindowStyle]::Hidden",
+            postinstall,
+        )
+        self.assertIn(
+            "$StartInfo.StandardOutputEncoding = $Utf8OutputEncoding",
+            postinstall,
+        )
+        self.assertIn(
+            "$StartInfo.StandardErrorEncoding = $Utf8OutputEncoding",
+            postinstall,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -244,9 +244,9 @@ starts `postinstall.ps1` in the installed system. The script:
 - installs the selected EXE/MSI programs and records their results;
 - runs profile-approved PowerShell scripts before or after software with their
   configured raw arguments and timeout of up to three hours;
-- verifies every `.ps1` SHA-256 again, retains at most 20 MiB of combined
-  stdout/stderr while continuing to drain excess output, and reports each
-  result without failing the deployment;
+- verifies every `.ps1` SHA-256 again, retains at most 20 MiB of combined UTF-8
+  stdout/stderr (including localized text) while continuing to drain excess
+  output, and reports each result without failing the deployment;
 - applies the configured local administrator policy;
 - installs the configured IronAPI trust certificate when required;
 - reports completion back to IronAPI;
