@@ -166,6 +166,11 @@ class DeploymentDetailPageTests(unittest.TestCase):
             detail_js,
         )
         self.assertIn('detailText("ICMP unavailable")', detail_js)
+        self.assertIn("const outputStates = new Map();", detail_js)
+        self.assertIn("if (previous?.open)", detail_js)
+        self.assertIn("output.open = true;", detail_js)
+        self.assertIn("window.requestAnimationFrame", detail_js)
+        self.assertIn("pre.scrollTop = previous.scrollTop", detail_js)
         self.assertIn(".detail-loading[hidden]", detail_css)
         self.assertIn("#network-content[hidden]", detail_css)
         self.assertIn("body.deployment-detail-page", detail_css)

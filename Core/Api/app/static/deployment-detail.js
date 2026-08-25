@@ -562,6 +562,23 @@ function renderPrograms(programs) {
 }
 
 function renderPowerShell(scripts) {
+    const outputStates = new Map();
+    for (const output of detailElements.powershellList.querySelectorAll(
+        ".powershell-output[data-position]",
+    )) {
+        const pre = output.querySelector("pre");
+        outputStates.set(output.dataset.position, {
+            open: output.open,
+            loaded: output.dataset.loaded === "true",
+            outputUrl: output.dataset.outputUrl,
+            outputBytes: output.dataset.outputBytes,
+            text: pre?.textContent || "",
+            isError: pre?.classList.contains("is-error") || false,
+            scrollTop: pre?.scrollTop || 0,
+            scrollLeft: pre?.scrollLeft || 0,
+        });
+    }
+
     detailElements.powershellList.replaceChildren();
     detailElements.powershellCount.textContent = `${scripts.length} ${detailText(
         scripts.length === 1 ? "script" : "scripts",
@@ -611,26 +628,59 @@ function renderPowerShell(scripts) {
         if (script.output_url) {
             const output = document.createElement("details");
             output.className = "powershell-output";
+            output.dataset.position = String(script.position);
+            output.dataset.outputUrl = script.output_url;
+            output.dataset.outputBytes = String(script.output_bytes);
             const summary = document.createElement("summary");
             summary.textContent = `Raw output (${script.output_bytes.toLocaleString()} bytes)`;
             const pre = document.createElement("pre");
-            pre.textContent = "Open to load output...";
-            let loaded = false;
-            output.addEventListener("toggle", async () => {
-                if (!output.open || loaded) return;
-                loaded = true;
+            const previous = outputStates.get(String(script.position));
+            const canReuseOutput = previous?.loaded
+                && !previous.isError
+                && previous.outputUrl === script.output_url
+                && previous.outputBytes === String(script.output_bytes);
+            let loaded = Boolean(canReuseOutput);
+            let loading = false;
+            output.dataset.loaded = String(loaded);
+            output.dataset.loading = "false";
+            pre.textContent = loaded ? previous.text : "Open to load output...";
+            pre.classList.toggle("is-error", loaded && previous.isError);
+
+            async function loadOutput() {
+                if (!output.open || loaded || loading) return;
+                loading = true;
+                output.dataset.loading = "true";
                 pre.textContent = "Loading...";
+                pre.classList.remove("is-error");
                 try {
                     const response = await fetch(script.output_url, { cache: "no-store" });
                     if (!response.ok) throw new Error(`Output request failed (${response.status}).`);
                     pre.textContent = await response.text();
+                    loaded = true;
+                    output.dataset.loaded = "true";
                 } catch (error) {
                     pre.textContent = error.message;
                     pre.classList.add("is-error");
+                    loaded = true;
+                    output.dataset.loaded = "true";
+                } finally {
+                    loading = false;
+                    output.dataset.loading = "false";
                 }
-            });
+            }
+
+            output.addEventListener("toggle", loadOutput);
             output.append(summary, pre);
             card.append(output);
+            if (previous?.open) {
+                output.open = true;
+                window.requestAnimationFrame(() => {
+                    if (!pre.isConnected || !canReuseOutput) return;
+                    pre.scrollTop = previous.scrollTop;
+                    pre.scrollLeft = previous.scrollLeft;
+                });
+                void loadOutput();
+            }
         }
         detailElements.powershellList.append(card);
     }
