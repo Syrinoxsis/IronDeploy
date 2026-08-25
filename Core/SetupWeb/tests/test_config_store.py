@@ -466,13 +466,19 @@ class CredentialMigrationTests(unittest.TestCase):
             )
             payload = load_config(paths)
             paths.api_env.write_text(
-                paths.api_env.read_text(encoding="utf-8").replace(
+                paths.api_env.read_text(encoding="utf-8")
+                .replace(
                     "IRONAPI_IMAGE_APPLY_MODE=staged",
                     "IRONAPI_IMAGE_APPLY_MODE=direct",
+                )
+                .replace(
+                    "IRONAPI_DRIVER_APPLY_MODE=staged",
+                    "IRONAPI_DRIVER_APPLY_MODE=direct",
                 ),
                 encoding="utf-8",
             )
             payload["api"].pop("IRONAPI_IMAGE_APPLY_MODE")
+            payload["api"].pop("IRONAPI_DRIVER_APPLY_MODE")
             payload["api"]["IRONAPI_BIND_HOST"] = "198.51.100.5"
             payload["winpe"].update(
                 {
@@ -497,6 +503,7 @@ class CredentialMigrationTests(unittest.TestCase):
             )
             self.assertIn("IRONAPI_DEPLOYMENT_TIMEOUT_MINUTES=90", api_env)
             self.assertIn("IRONAPI_IMAGE_APPLY_MODE=direct", api_env)
+            self.assertIn("IRONAPI_DRIVER_APPLY_MODE=direct", api_env)
             self.assertIn("IRONAPI_ODJ_BLOB_MAX_AGE_MINUTES=5", api_env)
             self.assertNotIn("server-side-password", winpe_config)
             self.assertNotIn("$SharePassword", winpe_config)

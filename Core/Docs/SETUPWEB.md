@@ -71,10 +71,11 @@ empty writes `IRONAPI_ALLOWED_CLIENT_NETWORKS=` and allows clients from every
 network; the `(?)` help beside the field repeats this behavior. Loopback is
 always allowed even when CIDRs are configured.
 
-The later IronAPI `/image-config` page owns the operational image-apply choice.
-It stores `direct` or `staged` as `IRONAPI_IMAGE_APPLY_MODE` in
-`Core\Api\.env`. SetupWeb preserves that server-side setting when it rewrites
-the initial configuration and never copies it into `deploy.config.ps1`.
+The later IronAPI `/image-config` page owns the operational image- and
+driver-apply choices. It stores `direct` or `staged` as
+`IRONAPI_IMAGE_APPLY_MODE` and `IRONAPI_DRIVER_APPLY_MODE` in `Core\Api\.env`.
+SetupWeb preserves those server-side settings when it rewrites the initial
+configuration and never copies them into `deploy.config.ps1`.
 
 The UI loads existing values when reopened. Leaving a password field empty
 keeps the current stored hash or secret where the form explicitly supports
@@ -84,7 +85,7 @@ that behavior.
 
 | File | Content |
 | --- | --- |
-| `Core\Api\.env` | IronAPI listener, SMB, image-apply strategy, LDAP, ODJ, storage, and timeout settings. |
+| `Core\Api\.env` | IronAPI listener, SMB, image- and driver-apply strategies, LDAP, ODJ, storage, and timeout settings. |
 | `Core\WinPE\Runtime\deploy.config.ps1` | Credential-free WinPE runtime settings. |
 | `Core\ServerTemplates\Unattend\unattend-win11-template.xml` | Server-side Windows answer-file settings. |
 | `Core\Data\auth-bootstrap.json` | Initial superadmin name and PBKDF2-SHA256 password hash. |
