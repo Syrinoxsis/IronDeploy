@@ -107,8 +107,9 @@ the bootstrap identity into SQLite at startup.
 SetupWeb writes settings to the component that consumes them:
 
 - SMB credentials stay in `Core\Api\.env`; they are never embedded in WinPE.
-- The image-apply strategy stays in `Core\Api\.env`; IronAPI returns it in the
-  deployment manifest instead of SetupWeb embedding it in WinPE.
+- The image- and driver-apply strategies stay in `Core\Api\.env`; IronAPI
+  returns them in the deployment manifest instead of SetupWeb embedding them in
+  WinPE.
 - SetupWeb can publish the fixed local `Core\Share` folder and grant read access
   to an existing `SERVER\user` or `DOMAIN\user` account. It does not create the
   account or configure shares on remote servers. The saved UNC path may use the

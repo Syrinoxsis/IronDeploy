@@ -52,7 +52,7 @@ IronAPI reads `Core\Api\.env`. Its settings are grouped by responsibility:
 | Group | Examples |
 | --- | --- |
 | Listener | access mode, bind address, port, access log, allowed client networks |
-| Deployment | authorization and deployment timeouts, image-apply strategy |
+| Deployment | authorization and deployment timeouts, image- and driver-apply strategies |
 | SMB | share path and configured account returned to authorized WinPE; the account must be read-only in SMB and NTFS |
 | Storage | SQLite database and temporary ODJ directory |
 | Naming and LDAP | name prefix/range, domain controller, base DN, LDAP TLS |
@@ -75,7 +75,7 @@ IronAPI answers requests from several sources rather than one central catalog:
 | Driver packages | `Core\Share\Drivers` |
 | Programs, arguments, sizes, and hashes | `Core\Share\Programs` and its metadata file |
 | Post-PowerShell payloads and profile policy | Private `Core\Library\PostPowerShell` storage plus SQLite profile bindings |
-| SMB access and image apply strategy | server-side `Core\Api\.env` |
+| SMB access and image/driver apply strategies | server-side `Core\Api\.env` |
 | Unattend and post-install files | `Core\ServerTemplates` |
 | Computer-name availability | SQLite history plus LDAP when configured |
 | ODJ result | `djoin.exe`, Active Directory, and `Core\ODJ\pending` |
@@ -243,8 +243,8 @@ submit its post-install results and final completion.
 
 ## Deployment state
 
-IronAPI stores deployment identity and status, the selected image name and
-image-apply strategy, the operator-confirmed target disk number/model/size
+IronAPI stores deployment identity and status, the selected image name, image-
+and driver-apply strategies, the operator-confirmed target disk number/model/size
 snapshot, domain-join choice, stages, errors, computer inventory, program
 results, early adapter data, and aggregate diagnostics in SQLite. An adapter
 snapshot may exist before the aggregate report is complete. Stale active
