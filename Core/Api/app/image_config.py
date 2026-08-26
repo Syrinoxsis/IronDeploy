@@ -1,21 +1,9 @@
-"""Read and write the typical Windows image settings surfaced in the Api.
+"""Read and write file-backed Windows image settings surfaced in IronAPI.
 
-The settings live in three IronDeploy source files that are normally created by
-SetupWeb:
-
-* ``WinPE/Runtime/deploy.config.ps1`` — the post-install account policy
-  (``$SetupLocalAdminName``, ``$EnableBuiltInAdministrator``,
-  ``$EnableSetupLocalAdmin``) consumed by
-  ``ServerTemplates/PostInstall/postinstall.ps1``.
-* ``ServerTemplates/Unattend/unattend-win11-template.xml`` — the Windows
-  regional and language settings plus the ``localadmin`` local account (its
-  name and plain-text password).
-* ``Api/.env`` — the server-owned image-apply strategy returned to WinPE in
-  the final deployment manifest.
-
-Writes are line/element targeted so unrelated values (for example the SMB
-password inside ``deploy.config.ps1``) are preserved, and every changed file is
-backed up under ``Logs/ConfigBackups`` before it is replaced atomically.
+WinPE bootstrap and UI behavior remain in ``deploy.config.ps1``. Regional
+settings and the existing plaintext account passwords remain in the server-only
+unattend template. Post-install account policy belongs to the default deployment
+profile in SQLite and is no longer read from the WinPE runtime source.
 """
 
 from __future__ import annotations
@@ -261,22 +249,18 @@ def _read_ps_config(path: Path) -> dict[str, str]:
     return values
 
 
-def _ps_literal(value: str) -> str:
-    return "'" + value.replace("'", "''") + "'"
-
-
 def _normalize_bool(value: Any) -> bool:
     return str(value).strip().lower() in {"true", "1", "yes", "y", "on"}
 
 
-def _read_image_apply_mode(paths: ImagePaths) -> str:
+def _read_apply_mode(paths: ImagePaths, environment_name: str) -> str:
     mode = "direct"
     for path in (paths.api_env_example, paths.api_env):
         if path is None or not path.is_file():
             continue
         for line in path.read_text(encoding="utf-8-sig").splitlines():
             match = re.match(
-                r"^\s*IRONAPI_IMAGE_APPLY_MODE\s*=\s*(.*?)\s*$",
+                rf"^\s*{re.escape(environment_name)}\s*=\s*(.*?)\s*$",
                 line,
             )
             if match:
@@ -284,7 +268,13 @@ def _read_image_apply_mode(paths: ImagePaths) -> str:
     return mode if mode in {"direct", "staged"} else "direct"
 
 
-def _save_image_apply_mode(paths: ImagePaths, mode: str) -> str | None:
+def _save_apply_mode(
+    paths: ImagePaths,
+    environment_name: str,
+    mode: str,
+    *,
+    create_backup: bool = True,
+) -> str | None:
     if paths.api_env is None or paths.api_env_example is None:
         raise ImageConfigError("IronAPI config paths are unavailable.")
     if not paths.api_env.is_file():
@@ -296,14 +286,14 @@ def _save_image_apply_mode(paths: ImagePaths, mode: str) -> str | None:
         shutil.copy2(paths.api_env_example, paths.api_env)
         backup = None
     else:
-        backup = _backup_file(paths, paths.api_env)
+        backup = _backup_file(paths, paths.api_env) if create_backup else None
 
     lines = paths.api_env.read_text(encoding="utf-8-sig").splitlines()
-    replacement = f"IRONAPI_IMAGE_APPLY_MODE={mode}"
+    replacement = f"{environment_name}={mode}"
     updated: list[str] = []
     found = False
     for line in lines:
-        if re.match(r"^\s*IRONAPI_IMAGE_APPLY_MODE\s*=", line):
+        if re.match(rf"^\s*{re.escape(environment_name)}\s*=", line):
             updated.append(replacement)
             found = True
         else:
@@ -314,6 +304,42 @@ def _save_image_apply_mode(paths: ImagePaths, mode: str) -> str | None:
         updated.append(replacement)
     _atomic_write(paths.api_env, "\n".join(updated) + "\n")
     return backup
+
+
+def _read_image_apply_mode(paths: ImagePaths) -> str:
+    return _read_apply_mode(paths, "IRONAPI_IMAGE_APPLY_MODE")
+
+
+def _read_driver_apply_mode(paths: ImagePaths) -> str:
+    return _read_apply_mode(paths, "IRONAPI_DRIVER_APPLY_MODE")
+
+
+def _save_image_apply_mode(
+    paths: ImagePaths,
+    mode: str,
+    *,
+    create_backup: bool = True,
+) -> str | None:
+    return _save_apply_mode(
+        paths,
+        "IRONAPI_IMAGE_APPLY_MODE",
+        mode,
+        create_backup=create_backup,
+    )
+
+
+def _save_driver_apply_mode(
+    paths: ImagePaths,
+    mode: str,
+    *,
+    create_backup: bool = True,
+) -> str | None:
+    return _save_apply_mode(
+        paths,
+        "IRONAPI_DRIVER_APPLY_MODE",
+        mode,
+        create_backup=create_backup,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -537,36 +563,17 @@ def _save_unattend(
 # deploy.config.ps1 helpers
 # ---------------------------------------------------------------------------
 
-_PS_WINPE_FIELDS = (
+_REMOVED_WINPE_FIELDS = {
+    "ImageIndex",
     "SetupLocalAdminName",
     "EnableBuiltInAdministrator",
     "EnableSetupLocalAdmin",
-    "EnableGuiImageApplyProgress",
-)
-
-_PS_LEGACY_FIELDS = {"DisableSetupLocalAdmin"}
-
-
-def _read_enable_setup_local_admin(paths: ImagePaths) -> bool:
-    configured = _read_ps_config(paths.winpe_config)
-    if "EnableSetupLocalAdmin" in configured:
-        return _normalize_bool(configured["EnableSetupLocalAdmin"])
-    if "DisableSetupLocalAdmin" in configured:
-        return not _normalize_bool(configured["DisableSetupLocalAdmin"])
-
-    example = _read_ps_config(paths.winpe_config_example)
-    if "EnableSetupLocalAdmin" in example:
-        return _normalize_bool(example["EnableSetupLocalAdmin"])
-    if "DisableSetupLocalAdmin" in example:
-        return not _normalize_bool(example["DisableSetupLocalAdmin"])
-    return True
+    "DisableSetupLocalAdmin",
+}
 
 
 def _save_winpe_config(
     paths: ImagePaths,
-    admin_name: str,
-    enable_builtin: bool,
-    enable_setup_admin: bool,
     enable_gui_image_apply_progress: bool,
 ) -> str | None:
     if not paths.winpe_config.is_file():
@@ -580,36 +587,25 @@ def _save_winpe_config(
     else:
         backup = _backup_file(paths, paths.winpe_config)
 
-    replacements = {
-        "SetupLocalAdminName": f"$SetupLocalAdminName = {_ps_literal(admin_name)}",
-        "EnableBuiltInAdministrator": (
-            f"$EnableBuiltInAdministrator = ${'true' if enable_builtin else 'false'}"
-        ),
-        "EnableSetupLocalAdmin": (
-            f"$EnableSetupLocalAdmin = ${'true' if enable_setup_admin else 'false'}"
-        ),
-        "EnableGuiImageApplyProgress": (
-            "$EnableGuiImageApplyProgress = "
-            f"${'true' if enable_gui_image_apply_progress else 'false'}"
-        ),
-    }
+    replacement = (
+        "$EnableGuiImageApplyProgress = "
+        f"${'true' if enable_gui_image_apply_progress else 'false'}"
+    )
 
     lines = paths.winpe_config.read_text(encoding="utf-8-sig").splitlines()
-    seen: set[str] = set()
+    seen = False
     updated: list[str] = []
     for line in lines:
         match = re.match(r"^\s*\$([A-Za-z][A-Za-z0-9_]*)\s*=", line)
-        if match and match.group(1) in replacements:
-            name = match.group(1)
-            updated.append(replacements[name])
-            seen.add(name)
-        elif match and match.group(1) in _PS_LEGACY_FIELDS:
+        if match and match.group(1) == "EnableGuiImageApplyProgress":
+            updated.append(replacement)
+            seen = True
+        elif match and match.group(1) in _REMOVED_WINPE_FIELDS:
             continue
         else:
             updated.append(line)
-    for name in _PS_WINPE_FIELDS:
-        if name not in seen:
-            updated.append(replacements[name])
+    if not seen:
+        updated.append(replacement)
 
     _atomic_write(paths.winpe_config, "\n".join(updated) + "\n")
     return backup
@@ -642,17 +638,9 @@ def load_image_config(paths: ImagePaths | None = None) -> dict[str, Any]:
     winpe.update(_read_ps_config(paths.winpe_config))
     unattend = _read_unattend(paths)
 
-    # The account name lives in both files; prefer the WinPE policy value and
-    # fall back to the name declared in the unattend template.
-    admin_name = winpe.get("SetupLocalAdminName") or unattend["localAdminName"]
-
     return {
         "imageApplyMode": _read_image_apply_mode(paths),
-        "localAdminName": admin_name,
-        "enableBuiltInAdministrator": _normalize_bool(
-            winpe.get("EnableBuiltInAdministrator", "false")
-        ),
-        "enableSetupLocalAdmin": _read_enable_setup_local_admin(paths),
+        "driverApplyMode": _read_driver_apply_mode(paths),
         "enableGuiImageApplyProgress": _normalize_bool(
             winpe.get("EnableGuiImageApplyProgress", "true")
         ),
@@ -728,14 +716,6 @@ def save_image_config(
         "User locale",
     )
 
-    enable_builtin = _normalize_bool(payload.get("enableBuiltInAdministrator"))
-    if "enableSetupLocalAdmin" in payload:
-        enable_setup_admin = _normalize_bool(payload.get("enableSetupLocalAdmin"))
-    elif "disableSetupLocalAdmin" in payload:
-        # Compatibility with older API clients during the setting rename.
-        enable_setup_admin = not _normalize_bool(payload.get("disableSetupLocalAdmin"))
-    else:
-        enable_setup_admin = _read_enable_setup_local_admin(paths)
     current_winpe = _read_ps_config(paths.winpe_config_example)
     current_winpe.update(_read_ps_config(paths.winpe_config))
     enable_gui_image_apply_progress = _normalize_bool(
@@ -749,6 +729,11 @@ def save_image_config(
     ).strip().lower()
     if image_apply_mode not in {"direct", "staged"}:
         raise ImageConfigError("Image apply mode must be direct or staged.")
+    driver_apply_mode = str(
+        payload.get("driverApplyMode", _read_driver_apply_mode(paths))
+    ).strip().lower()
+    if driver_apply_mode not in {"direct", "staged"}:
+        raise ImageConfigError("Driver apply mode must be direct or staged.")
 
     password = _validate_optional_password(
         payload.get("localAdminPassword"), "Local admin"
@@ -758,15 +743,22 @@ def save_image_config(
     )
 
     backups: list[str] = []
+    apply_mode_config_saved = False
     if "imageApplyMode" in payload:
         backup = _save_image_apply_mode(paths, image_apply_mode)
+        apply_mode_config_saved = True
+        if backup:
+            backups.append(backup)
+    if "driverApplyMode" in payload:
+        backup = _save_driver_apply_mode(
+            paths,
+            driver_apply_mode,
+            create_backup=not apply_mode_config_saved,
+        )
         if backup:
             backups.append(backup)
     backup = _save_winpe_config(
         paths,
-        admin_name,
-        enable_builtin,
-        enable_setup_admin,
         enable_gui_image_apply_progress,
     )
     if backup:

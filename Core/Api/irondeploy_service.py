@@ -11,6 +11,10 @@ import threading
 import traceback
 
 from dotenv import load_dotenv
+# Preload the venv copy before modules such as win32api ask the Windows DLL
+# loader for pywintypes311.dll by name.  Otherwise a stale DLL beside the base
+# Python installation can win the search order and break the service imports.
+import pywintypes  # noqa: F401
 import servicemanager
 import uvicorn
 import win32service

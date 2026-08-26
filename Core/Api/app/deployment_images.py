@@ -100,6 +100,7 @@ def _write_metadata(payload: dict[str, Any], path: Path = METADATA_PATH) -> None
 
 
 def _legacy_default_index() -> int:
+    # TODO(1.0): remove legacy alpha configuration compatibility.
     pattern = re.compile(r"^\s*\$ImageIndex\s*=\s*(\d+)\s*$", re.MULTILINE)
     for path in (DEPLOY_CONFIG_PATH, DEPLOY_CONFIG_EXAMPLE_PATH):
         try:

@@ -114,8 +114,7 @@ $RequiredConfigValues = @(
     "ShareDrive",
     "ApiBaseUrl",
     "ImagesPath",
-    "DriversPath",
-    "ImageIndex"
+    "DriversPath"
 )
 
 foreach ($ConfigName in $RequiredConfigValues) {
@@ -135,22 +134,6 @@ foreach ($ConfigName in $RequiredConfigValues) {
     }
 }
 
-if (-not (Get-Variable -Name SetupLocalAdminName -ErrorAction SilentlyContinue)) {
-    $SetupLocalAdminName = "localadmin"
-}
-if (-not (Get-Variable -Name EnableBuiltInAdministrator -ErrorAction SilentlyContinue)) {
-    $EnableBuiltInAdministrator = $true
-}
-if (-not (Get-Variable -Name EnableSetupLocalAdmin -ErrorAction SilentlyContinue)) {
-    $LegacyDisableSetupLocalAdmin = Get-Variable `
-        -Name DisableSetupLocalAdmin `
-        -ErrorAction SilentlyContinue
-    if ($null -ne $LegacyDisableSetupLocalAdmin) {
-        $EnableSetupLocalAdmin = -not [bool]$LegacyDisableSetupLocalAdmin.Value
-    } else {
-        $EnableSetupLocalAdmin = $true
-    }
-}
 if (-not (Get-Variable -Name EnableGuiImageApplyProgress -ErrorAction SilentlyContinue)) {
     $EnableGuiImageApplyProgress = $true
 }
@@ -195,6 +178,7 @@ $script:IronApiRequestSamples = $null
 $script:IronNetworkDiagnostics = $null
 $script:IronSecretArtifacts = @()
 $script:ImageApplyMode = "direct"
+$script:DriverApplyMode = "direct"
 
 # --- API reporting -----------------------------------------------------------
 
@@ -1035,10 +1019,12 @@ function Start-IronNetworkStageMeasurement {
         $Stage -notin @(
             "image_download",
             "image_apply",
+            "driver_download",
             "driver_injection",
             "postinstall_copy"
         ) -or
-        ($Stage -eq "image_apply" -and $script:ImageApplyMode -eq "staged")
+        ($Stage -eq "image_apply" -and $script:ImageApplyMode -eq "staged") -or
+        ($Stage -eq "driver_injection" -and $script:DriverApplyMode -eq "staged")
     ) {
         return
     }
@@ -1148,7 +1134,8 @@ function Send-IronNetworkStageDiagnostics {
     param(
         [Parameter(Mandatory = $true)]
         [ValidateSet(
-            "image_download", "image_apply", "driver_injection", "postinstall_copy"
+            "image_download", "image_apply", "driver_download",
+            "driver_injection", "postinstall_copy"
         )]
         [string]$Stage
     )
@@ -1350,6 +1337,7 @@ function Complete-IronNetworkDiagnostics {
             foreach ($StageName in @(
                 "image_download",
                 "image_apply",
+                "driver_download",
                 "driver_injection",
                 "postinstall_copy"
             )) {
@@ -1613,7 +1601,8 @@ function Complete-DeploymentStage {
     Complete-IronNetworkStageMeasurement -Stage $Stage
     Send-DeploymentStageEvent -Stage $Stage -Event "complete"
     if ($Stage -in @(
-        "image_download", "image_apply", "driver_injection", "postinstall_copy"
+        "image_download", "image_apply", "driver_download", "driver_injection",
+        "postinstall_copy"
     )) {
         Send-IronNetworkStageDiagnostics -Stage $Stage
     }
@@ -1732,6 +1721,26 @@ function Resolve-IronImageApplyMode {
     }
     Write-IronLog (
         "[WARN] Unknown imageApplyMode '{0}'; falling back to direct" -f
+        $DisplayedValue
+    ) -Level warn
+    return "direct"
+}
+
+function Resolve-IronDriverApplyMode {
+    param([AllowNull()][object]$Value)
+
+    $Mode = ([string]$Value).Trim().ToLowerInvariant()
+    if ($Mode -in @("direct", "staged")) {
+        return $Mode
+    }
+
+    $DisplayedValue = if ([string]::IsNullOrWhiteSpace([string]$Value)) {
+        "<missing>"
+    } else {
+        [string]$Value
+    }
+    Write-IronLog (
+        "[WARN] Unknown driverApplyMode '{0}'; falling back to direct" -f
         $DisplayedValue
     ) -Level warn
     return "direct"
@@ -1897,6 +1906,176 @@ function Copy-IronImageToLocalStaging {
         $Stopwatch.Stop()
         Write-IronLog (
             "[ERROR] Image download failed: status=failed; duration={0:N3}s; " +
+            "partialPath={1}; finalPath={2}; reason={3}" -f
+            $Stopwatch.Elapsed.TotalSeconds,
+            $PartialPath,
+            $FinalPath,
+            $_.Exception.Message
+        ) -Level error
+        throw
+    }
+}
+
+function Remove-IronStagedDriverArtifacts {
+    param(
+        [string]$StagingDirectory,
+        [Parameter(Mandatory = $true)][string]$Reason
+    )
+
+    if ([string]::IsNullOrWhiteSpace($StagingDirectory)) {
+        return
+    }
+    Write-IronLog (
+        "[INFO] Staged driver cleanup path: {0}; reason: {1}" -f
+        $StagingDirectory,
+        $Reason
+    ) -Level info
+    try {
+        if (Test-Path -LiteralPath $StagingDirectory) {
+            Remove-Item `
+                -LiteralPath $StagingDirectory `
+                -Recurse `
+                -Force `
+                -ErrorAction Stop
+        }
+    } catch {
+        Write-IronLog (
+            "[WARN] Failed to remove staged driver path '{0}': {1}" -f
+            $StagingDirectory,
+            $_.Exception.Message
+        ) -Level warn
+    }
+}
+
+function Copy-IronDriverPackageToLocalStaging {
+    param(
+        [Parameter(Mandatory = $true)][string]$SourcePath,
+        [Parameter(Mandatory = $true)][long]$ExpectedLength,
+        [Parameter(Mandatory = $true)][int]$ExpectedFileCount,
+        [Parameter(Mandatory = $true)][int]$ExpectedInfCount,
+        [Parameter(Mandatory = $true)][long]$DeploymentId
+    )
+
+    if (
+        $ExpectedLength -lt 0 -or
+        $ExpectedFileCount -le 0 -or
+        $ExpectedInfCount -le 0
+    ) {
+        throw "The driver manifest contains invalid package metadata"
+    }
+
+    $LocalDrive = Get-PSDrive -Name $WindowsDrive.TrimEnd(":")
+    if ($null -eq $LocalDrive.Free -or [long]$LocalDrive.Free -lt $ExpectedLength) {
+        $FreeBytes = if ($null -eq $LocalDrive.Free) { 0L } else { [long]$LocalDrive.Free }
+        throw (
+            "Insufficient free space for staged drivers: need {0} bytes, have {1} bytes" -f
+            $ExpectedLength,
+            $FreeBytes
+        )
+    }
+
+    $StagingDirectory = Join-Path `
+        "$($WindowsDrive.TrimEnd('\'))\IronDeploy.Staging" `
+        ([string]$DeploymentId)
+    $PartialPath = Join-Path $StagingDirectory "drivers.partial"
+    $FinalPath = Join-Path $StagingDirectory "drivers"
+    New-Item -ItemType Directory -Path $StagingDirectory -Force | Out-Null
+    if (Test-Path -LiteralPath $PartialPath) {
+        Remove-Item -LiteralPath $PartialPath -Recurse -Force
+    }
+    if (Test-Path -LiteralPath $FinalPath) {
+        Remove-Item -LiteralPath $FinalPath -Recurse -Force
+    }
+
+    $Stopwatch = [Diagnostics.Stopwatch]::StartNew()
+    try {
+        Write-IronLog (
+            "[STEP] Download driver package with robocopy /J: {0} -> {1}" -f
+            $SourcePath,
+            $PartialPath
+        ) -Level step
+        $PreviousErrorActionPreference = $ErrorActionPreference
+        try {
+            $ErrorActionPreference = "Continue"
+            & robocopy.exe `
+                $SourcePath `
+                $PartialPath `
+                /E `
+                /J `
+                /R:2 `
+                /W:2 `
+                /COPY:DAT `
+                /DCOPY:DAT `
+                /XJ `
+                /NP `
+                /NFL `
+                /NDL
+            $RobocopyExitCode = $LASTEXITCODE
+        } finally {
+            $ErrorActionPreference = $PreviousErrorActionPreference
+        }
+        if (-not (Test-IronRobocopyExitCode -ExitCode $RobocopyExitCode)) {
+            throw "robocopy failed with exit code $RobocopyExitCode"
+        }
+        if (-not (Test-Path -LiteralPath $PartialPath -PathType Container)) {
+            throw "robocopy did not create the local driver package"
+        }
+
+        $Files = @(
+            Get-ChildItem -LiteralPath $PartialPath -File -Recurse
+        )
+        $ActualLength = [long](
+            $Files | Measure-Object -Property Length -Sum
+        ).Sum
+        $ActualFileCount = $Files.Count
+        $ActualInfCount = @(
+            $Files | Where-Object { $_.Extension -ieq ".inf" }
+        ).Count
+        if (
+            $ActualLength -ne $ExpectedLength -or
+            $ActualFileCount -ne $ExpectedFileCount -or
+            $ActualInfCount -ne $ExpectedInfCount
+        ) {
+            throw (
+                "Downloaded driver package metadata mismatch: " +
+                "expected bytes/files/INF {0}/{1}/{2}, received {3}/{4}/{5}" -f
+                $ExpectedLength,
+                $ExpectedFileCount,
+                $ExpectedInfCount,
+                $ActualLength,
+                $ActualFileCount,
+                $ActualInfCount
+            )
+        }
+
+        Move-Item -LiteralPath $PartialPath -Destination $FinalPath
+        $Stopwatch.Stop()
+        $Seconds = [Math]::Max(0.001, $Stopwatch.Elapsed.TotalSeconds)
+        $AverageMegabytesPerSecond = ($ActualLength / 1MB) / $Seconds
+        Write-IronLog (
+            "[OK] Driver download completed: status=success; bytes={0}; " +
+            "files={1}; INF={2}; duration={3:N3}s; average={4:N3} MB/s; path={5}" -f
+            $ActualLength,
+            $ActualFileCount,
+            $ActualInfCount,
+            $Seconds,
+            $AverageMegabytesPerSecond,
+            $FinalPath
+        ) -Level ok
+        return [pscustomobject]@{
+            Path = $FinalPath
+            StagingDirectory = $StagingDirectory
+            BytesTransferred = [long]$ActualLength
+            FileCount = [int]$ActualFileCount
+            InfCount = [int]$ActualInfCount
+            DurationSeconds = [double]$Seconds
+            AverageMegabytesPerSecond = [double]$AverageMegabytesPerSecond
+            RobocopyExitCode = [int]$RobocopyExitCode
+        }
+    } catch {
+        $Stopwatch.Stop()
+        Write-IronLog (
+            "[ERROR] Driver download failed: status=failed; duration={0:N3}s; " +
             "partialPath={1}; finalPath={2}; reason={3}" -f
             $Stopwatch.Elapsed.TotalSeconds,
             $PartialPath,
@@ -2729,6 +2908,33 @@ function Get-IronDeployProgramList {
     return $Programs
 }
 
+function Get-IronDeployPostPowerShellList {
+    $Catalog = Get-IronDeployCatalog
+    return @(
+        $Catalog.postPowerShell | Where-Object { [bool]$_.available } | ForEach-Object {
+            $Phase = if ([string]$_.runPhase -eq "before_software") {
+                "before software"
+            } else {
+                "after software"
+            }
+            $Mode = if ([string]$_.selectionMode -eq "automatic") {
+                "automatic"
+            } else {
+                "operator"
+            }
+            [pscustomobject]@{
+                Name = [string]$_.name
+                Automatic = ([string]$_.selectionMode -eq "automatic")
+                Display = ("{0}   ({1}, {2}, timeout {3}s)" -f `
+                    ([string]$_.name),
+                    $Phase,
+                    $Mode,
+                    ([int]$_.timeoutSeconds))
+            }
+        }
+    )
+}
+
 function Get-IronDeployDriverPackageList {
     $Catalog = Get-IronDeployCatalog
     $DriverPackages = @(
@@ -2778,12 +2984,15 @@ function Invoke-IronDeployment {
 
         [string[]]$SelectedProgramNames = @(),
 
+        [string[]]$SelectedPostPowerShellNames = @(),
+
         [string]$SelectedDriverPackage = ""
     )
 
     $script:DeploymentErrorReported = $false
     $script:IronNetworkDiagnostics = $null
     $script:ImageApplyMode = "direct"
+    $script:DriverApplyMode = "direct"
     # Shred anything a previous attempt left behind on the ramdisk.
     Clear-IronSecretArtifacts
     try {
@@ -2799,6 +3008,11 @@ function Invoke-IronDeployment {
     $UseDomainJoinValue = [bool]$UseDomainJoin
     $SelectedProgramNames = @(
         $SelectedProgramNames | Where-Object {
+            ![string]::IsNullOrWhiteSpace([string]$_)
+        }
+    )
+    $SelectedPostPowerShellNames = @(
+        $SelectedPostPowerShellNames | Where-Object {
             ![string]::IsNullOrWhiteSpace([string]$_)
         }
     )
@@ -2936,6 +3150,7 @@ function Invoke-IronDeployment {
     $ManifestPayload = @{
         image_name = $SelectedImageName
         program_names = @($SelectedProgramNames)
+        post_powershell_names = @($SelectedPostPowerShellNames)
         driver_package = if (
             [string]::IsNullOrWhiteSpace($SelectedDriverPackage)
         ) {
@@ -2963,6 +3178,11 @@ function Invoke-IronDeployment {
     Write-IronLog (
         "[MODE] Image apply strategy: {0}" -f $script:ImageApplyMode
     ) -Level info
+    $script:DriverApplyMode = Resolve-IronDriverApplyMode `
+        -Value $DeploymentPlan.driverApplyMode
+    Write-IronLog (
+        "[MODE] Driver apply strategy: {0}" -f $script:DriverApplyMode
+    ) -Level info
 
     $SelectedImage = [pscustomobject]@{
         Name = [string]$DeploymentPlan.image.name
@@ -2982,9 +3202,15 @@ function Invoke-IronDeployment {
     $ImagePath = $SelectedImage.FullName
     $ImageIndexToApply = [int]$DeploymentPlan.image.defaultIndex
     $SelectedPrograms = @($DeploymentPlan.programs | ForEach-Object { $_ })
+    $SelectedPostPowerShell = @(
+        $DeploymentPlan.postPowerShell | ForEach-Object { $_ }
+    )
     $DriverPackagePlan = $DeploymentPlan.driverPackage
     $DriverPackagePath = $null
     $DriverPackageRelativePath = ""
+    $DriverPackageSize = 0L
+    $DriverPackageFileCount = 0
+    $DriverPackageInfCount = 0
     $AvailableDrivers = @()
     $SetupLocalAdminName = [string]$DeploymentPlan.postinstall.localAdminName
     $EnableBuiltInAdministrator = [bool]$DeploymentPlan.postinstall.enableBuiltInAdministrator
@@ -3047,16 +3273,24 @@ function Invoke-IronDeployment {
             $DriverFiles |
                 Measure-Object -Property Length -Sum
         ).Sum
+        $DriverPackageFileCount = $DriverFiles.Count
+        $DriverPackageInfCount = $AvailableDrivers.Count
+        $ExpectedDriverFileCount = [int]$DriverPackagePlan.fileCount
+        if ($ExpectedDriverFileCount -le 0) {
+            # Backward compatibility with manifests issued before fileCount.
+            $ExpectedDriverFileCount = $DriverPackageFileCount
+        }
         if (
             $DriverPackageSize -ne [long]$DriverPackagePlan.size -or
-            $AvailableDrivers.Count -ne [int]$DriverPackagePlan.infCount
+            $DriverPackageFileCount -ne $ExpectedDriverFileCount -or
+            $DriverPackageInfCount -ne [int]$DriverPackagePlan.infCount
         ) {
             Fail (
                 "Selected driver package does not match the API manifest: " +
                 $DriverPackageRelativePath
             )
         }
-        if ($AvailableDrivers.Count -eq 0) {
+        if ($DriverPackageInfCount -eq 0) {
             Fail (
                 "Selected driver package contains no INF files: " +
                 $DriverPackageRelativePath
@@ -3254,17 +3488,61 @@ function Invoke-IronDeployment {
     }
 
     if ($null -ne $DriverPackagePlan) {
-        Set-IronProgress 62 "Staging driver packages"
+        $DriverPackagePathToInject = $DriverPackagePath
+        $StagedDriverDirectory = $null
+        if ($script:DriverApplyMode -eq "staged") {
+            Set-IronProgress 60 "Downloading driver package"
+            Start-DeploymentStage "driver_download"
+            try {
+                $DriverDownloadResult = Copy-IronDriverPackageToLocalStaging `
+                    -SourcePath $DriverPackagePath `
+                    -ExpectedLength $DriverPackageSize `
+                    -ExpectedFileCount $DriverPackageFileCount `
+                    -ExpectedInfCount $DriverPackageInfCount `
+                    -DeploymentId $script:DeploymentId
+                $DriverPackagePathToInject = $DriverDownloadResult.Path
+                $StagedDriverDirectory = $DriverDownloadResult.StagingDirectory
+                Complete-DeploymentStage "driver_download"
+            } catch {
+                $DriverDownloadFailure = $_.Exception.Message
+                if ([string]::IsNullOrWhiteSpace($StagedDriverDirectory)) {
+                    $StagedDriverDirectory = Join-Path `
+                        "$($WindowsDrive.TrimEnd('\'))\IronDeploy.Staging" `
+                        ([string]$script:DeploymentId)
+                }
+                Remove-IronStagedDriverArtifacts `
+                    -StagingDirectory $StagedDriverDirectory `
+                    -Reason $DriverDownloadFailure
+                Fail "Staged driver download failed: $DriverDownloadFailure"
+            }
+        }
+
+        Set-IronProgress 66 "Injecting driver package"
         Write-IronLog (
             "[STEP] Stage the selected driver package in offline Windows; " +
             "PnP selects compatible packages on first boot"
         ) -Level step
         Start-DeploymentStage "driver_injection"
-        dism.exe /Image:C:\ /Add-Driver /Driver:$DriverPackagePath /Recurse
-        if ($LASTEXITCODE -notin @(0, 3010)) {
-            Fail "DISM Add-Driver failed"
+        try {
+            dism.exe /Image:C:\ /Add-Driver /Driver:$DriverPackagePathToInject /Recurse
+            if ($LASTEXITCODE -notin @(0, 3010)) {
+                throw "DISM Add-Driver failed with exit code $LASTEXITCODE"
+            }
+        } catch {
+            $DriverInjectionFailure = $_.Exception.Message
+            if ($script:DriverApplyMode -eq "staged") {
+                Remove-IronStagedDriverArtifacts `
+                    -StagingDirectory $StagedDriverDirectory `
+                    -Reason $DriverInjectionFailure
+            }
+            Fail $DriverInjectionFailure
         }
         Complete-DeploymentStage "driver_injection"
+        if ($script:DriverApplyMode -eq "staged") {
+            Remove-IronStagedDriverArtifacts `
+                -StagingDirectory $StagedDriverDirectory `
+                -Reason "successful driver injection"
+        }
     } else {
         Write-IronLog "[SKIP] Driver installation was not selected" -Level warn
         Skip-DeploymentStage "driver_injection"
@@ -3280,6 +3558,7 @@ function Invoke-IronDeployment {
     @{
         deployment_id = $script:DeploymentId
         image_apply_mode = $script:ImageApplyMode
+        driver_apply_mode = $script:DriverApplyMode
         api_base_url = $ApiBaseUrl
         api_deployment_token = $script:DeploymentAccessToken
         driver_package = $DriverPackageRelativePath
@@ -3459,6 +3738,85 @@ function Invoke-IronDeployment {
         Fail "Post-install config was not written: $PostInstallConfigPath"
     }
 
+    $PostPowerShellTargetDir = "C:\IronDeploy\PostPowerShell"
+    New-Item -ItemType Directory -Force $PostPowerShellTargetDir | Out-Null
+    $PostPowerShellManifest = @()
+    foreach ($SelectedScript in $SelectedPostPowerShell) {
+        $ScriptName = [string]$SelectedScript.name
+        $ScriptTarget = Join-Path $PostPowerShellTargetDir $ScriptName
+        $ScriptDownload = "$ScriptTarget.download"
+        $ScriptReady = $false
+        $ScriptFailureStatus = ""
+        $ScriptFailure = ""
+        try {
+            $ScriptUrl = "{0}{1}" -f `
+                $ApiBaseUrl.TrimEnd("/"),
+                ([string]$SelectedScript.downloadUrl)
+            Invoke-IronApiWebRequest `
+                -Uri $ScriptUrl `
+                -Method Get `
+                -OutFile $ScriptDownload `
+                -TimeoutSec 120 | Out-Null
+            if (!(Test-Path -LiteralPath $ScriptDownload -PathType Leaf)) {
+                throw "Downloaded script file is missing"
+            }
+            $ActualSize = (Get-Item -LiteralPath $ScriptDownload).Length
+            if ($ActualSize -ne [long]$SelectedScript.size) {
+                throw (
+                    "Downloaded size mismatch: expected {0}, got {1}" -f `
+                        ([long]$SelectedScript.size),
+                        $ActualSize
+                )
+            }
+            $ActualHash = (
+                Get-FileHash -LiteralPath $ScriptDownload -Algorithm SHA256
+            ).Hash.ToLowerInvariant()
+            $ExpectedHash = ([string]$SelectedScript.sha256).ToLowerInvariant()
+            if ($ActualHash -ne $ExpectedHash) {
+                $ScriptFailureStatus = "hash_mismatch"
+                throw "SHA-256 mismatch. Script was not staged."
+            }
+            Move-Item -LiteralPath $ScriptDownload -Destination $ScriptTarget -Force
+            $ScriptReady = $true
+            Write-IronLog (
+                "[OK] Post-PowerShell script staged and verified: {0}" -f `
+                    $ScriptName
+            ) -Level ok
+        } catch {
+            if ([string]::IsNullOrWhiteSpace($ScriptFailureStatus)) {
+                $ScriptFailureStatus = "download_failed"
+            }
+            $ScriptFailure = $_.Exception.Message
+            Remove-Item -LiteralPath $ScriptDownload, $ScriptTarget `
+                -Force -ErrorAction SilentlyContinue
+            Write-IronLog (
+                "[WARN] Post-PowerShell script unavailable: {0}: {1}" -f `
+                    $ScriptName,
+                    $ScriptFailure
+            ) -Level warn
+        }
+        $PostPowerShellManifest += @{
+            position = [int]$SelectedScript.position
+            name = $ScriptName
+            path = $ScriptTarget
+            ready = $ScriptReady
+            preflightStatus = $ScriptFailureStatus
+            preflightError = $ScriptFailure
+            selectionMode = [string]$SelectedScript.selectionMode
+            runPhase = [string]$SelectedScript.runPhase
+            arguments = [string]$SelectedScript.arguments
+            timeoutSeconds = [int]$SelectedScript.timeoutSeconds
+            maxOutputBytes = [long]$SelectedScript.maxOutputBytes
+            sha256 = ([string]$SelectedScript.sha256).ToLowerInvariant()
+            reportUrl = [string]$SelectedScript.reportUrl
+        }
+    }
+    $PostPowerShellManifestPath = Join-Path `
+        $PostPowerShellTargetDir `
+        "post-powershell.json"
+    ConvertTo-Json -InputObject @($PostPowerShellManifest) -Depth 4 |
+        Out-File $PostPowerShellManifestPath -Encoding UTF8 -Force
+
     if ($SelectedPrograms.Count -gt 0) {
         Write-IronLog (
             "[STEP] Copy post-install programs ({0} selected)" -f `
@@ -3558,5 +3916,6 @@ function Invoke-IronDeployment {
         UseDomainJoin = $UseDomainJoinValue
         ImageName = $SelectedImage.Name
         ImageApplyMode = $script:ImageApplyMode
+        DriverApplyMode = $script:DriverApplyMode
     }
 }

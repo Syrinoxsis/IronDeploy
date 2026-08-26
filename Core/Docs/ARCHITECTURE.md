@@ -46,10 +46,12 @@ SMB share -- payloads-+
 
 WinPE asks IronAPI what may be deployed and reports progress. IronAPI returns
 the authorized catalog, validated manifest, SMB connection details, answer file,
-and optional Offline Domain Join data. Drivers and installers are read from SMB.
-The manifest also carries the server-owned image-apply strategy: WinPE either
-lets DISM read the image directly from SMB or stages and verifies a complete
-local copy before invoking DISM.
+and optional Offline Domain Join data. Drivers and installers are read from
+SMB. Profile-approved post-PowerShell scripts use authenticated IronAPI
+HTTP(S) routes and are verified twice with the manifest SHA-256.
+The manifest also carries the server-owned image- and driver-apply strategies:
+WinPE either lets DISM read each payload directly from SMB or stages and
+validates a local copy before invoking DISM.
 
 Immediately after a deployment ID is created, WinPE reports the API/SMB route
 adapters, local addresses, and negotiated link speeds. This happens before the
@@ -60,11 +62,13 @@ SQLite summary with completed measurements and its final adapter values.
 
 | Location | Owner | Contents |
 | --- | --- | --- |
-| `Core\Api\.env` | IronAPI | Listener, SMB, image-apply strategy, LDAP, ODJ, and timeout settings. |
-| `Core\WinPE\Runtime\deploy.config.ps1` | WinPE | API address, payload paths, certificate trust, and offline account policy. |
-| `Core\Data\irondeploy.db` | IronAPI | Accounts, permissions, deployments, stages, and inventory. |
+| `Core\Api\.env` | IronAPI | Listener, SMB, image- and driver-apply strategies, LDAP, ODJ, and timeout settings. |
+| `Core\WinPE\Runtime\deploy.config.ps1` | WinPE | API address, payload paths, certificate trust, and WinPE UI behavior. |
+| `Core\Data\irondeploy.db` | IronAPI | Accounts, permissions, deployment profiles, deployments, stages, and inventory. |
 | `Core\ODJ\pending` | IronAPI | Short-lived Offline Domain Join blobs. |
 | `Core\Share` | IronAPI / SMB data plane | Windows images, driver packages, and installers managed by IronAPI and read by WinPE through SMB. |
+| `Core\Library\PostPowerShell` | IronAPI | Private managed `.ps1` library delivered only through authenticated HTTP(S). |
+| `Core\Logs\PostPowerShell` | IronAPI | Bounded raw stdout/stderr captured for deployment details. |
 | `Core\ServerTemplates` | IronAPI | Authorized unattend and post-install templates. |
 | `Core\.work` | WinPE build tools | Mutable Windows ADK working tree. |
 | `Core\dist` | WinPE build tools | Replaceable WIM and ISO delivery artifacts. |
@@ -77,8 +81,15 @@ under `Core\WinPE\Runtime`.
 - SetupWeb writes the SMB credential only to server-side `Core\Api\.env`.
 - WinPE receives the SMB credential from IronAPI for an authorized deployment;
   it is not embedded in `deploy.config.ps1`.
-- The image-apply strategy is stored with IronAPI configuration and returned in
-  the existing final deployment manifest; it is not embedded in WinPE.
+- The image- and driver-apply strategies are stored with IronAPI configuration
+  and returned in the existing final deployment manifest; they are not embedded
+  in WinPE.
+- Post-install account policy belongs to the default deployment profile in
+  SQLite. IronAPI returns it in the manifest; WinPE does not carry a fallback
+  copy in `deploy.config.ps1`.
+- Post-PowerShell availability and automatic/operator policy belong to the
+  deployment profile. Each deployment retains a snapshot of the resolved
+  script plan and its results.
 - Browser sessions and WinPE deployment tokens are separate authorization
   mechanisms.
 - ODJ blobs exist only long enough to provision, download, apply, and

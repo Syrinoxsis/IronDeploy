@@ -293,6 +293,8 @@ $IronDeployGuiXaml = @'
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
                     <TextBlock x:Name="ProgramsLabel" Grid.Row="0"
@@ -310,6 +312,24 @@ $IronDeployGuiXaml = @'
                             <ScrollViewer VerticalScrollBarVisibility="Auto"
                                           HorizontalScrollBarVisibility="Disabled">
                                 <StackPanel x:Name="ProgramsPanel"/>
+                            </ScrollViewer>
+                        </Grid>
+                    </Border>
+                    <TextBlock x:Name="PostPowerShellLabel" Grid.Row="2"
+                               Text="POST-POWERSHELL SCRIPTS"
+                               Style="{StaticResource Label}" Margin="0,12,0,4"/>
+                    <Border x:Name="PostPowerShellBorder" Grid.Row="3"
+                            Background="{StaticResource CardBrush}"
+                            CornerRadius="6" Padding="12,8">
+                        <Grid>
+                            <TextBlock x:Name="NoPostPowerShellText"
+                                       Text="No post-PowerShell scripts are available."
+                                       Foreground="{StaticResource MutedBrush}"
+                                       VerticalAlignment="Center"
+                                       HorizontalAlignment="Center"/>
+                            <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                          HorizontalScrollBarVisibility="Disabled">
+                                <StackPanel x:Name="PostPowerShellPanel"/>
                             </ScrollViewer>
                         </Grid>
                     </Border>
@@ -661,6 +681,8 @@ function Start-IronDeployGui {
         "ConfirmModelLabel", "ConfirmModelText",
         "ConfirmComputerText", "ConfirmImageText", "ConfirmDiskText", "ConfirmDomainText",
         "ProgramsLabel", "ProgramsBorder", "ProgramsPanel", "NoProgramsText",
+        "PostPowerShellLabel", "PostPowerShellBorder", "PostPowerShellPanel",
+        "NoPostPowerShellText",
         "DriversLabel", "DriversHint", "NoDriversCheck", "DriverPackagesPanel",
         "BackButton", "NextButton", "DeployButton", "SetupRebootButton",
         "ActivityText", "DeployProgress", "LogView",
@@ -687,6 +709,7 @@ function Start-IronDeployGui {
     $script:IronGuiLoginJob = $null
     $script:IronGuiCountdown = 15
     $script:IronGuiProgramChecks = @()
+    $script:IronGuiPostPowerShellChecks = @()
     $script:IronGuiDriverChecks = @()
     $script:IronGuiChangingDriverSelection = $false
 
@@ -741,6 +764,9 @@ function Start-IronDeployGui {
             ProgramsLabel = "POST-INSTALL SOFTWARE"
             ProgramsCount = "POST-INSTALL SOFTWARE ({0})"
             NoProgramsText = "No post-install software is available."
+            PostPowerShellLabel = "POST-POWERSHELL SCRIPTS"
+            PostPowerShellCount = "POST-POWERSHELL SCRIPTS ({0})"
+            NoPostPowerShellText = "No post-PowerShell scripts are available."
             DriversLabel = "DRIVER PACKAGE"
             DriversHint = "Select one package, or continue without drivers."
             NoDriversOption = "Do not install drivers"
@@ -804,6 +830,9 @@ function Start-IronDeployGui {
             ProgramsLabel = "ПРОГРАММЫ ПОСЛЕ УСТАНОВКИ"
             ProgramsCount = "ПРОГРАММЫ ПОСЛЕ УСТАНОВКИ ({0})"
             NoProgramsText = "Нет доступных программ для установки."
+            PostPowerShellLabel = "POST-POWERSHELL СКРИПТЫ"
+            PostPowerShellCount = "POST-POWERSHELL СКРИПТЫ ({0})"
+            NoPostPowerShellText = "Нет доступных PowerShell-скриптов."
             DriversLabel = "ПАКЕТ ДРАЙВЕРОВ"
             DriversHint = "Выберите один пакет либо продолжите без установки драйверов."
             NoDriversOption = "Не устанавливать драйверы"
@@ -902,6 +931,7 @@ function Start-IronDeployGui {
             "KnownDeploymentsTitle", "WindowsImageLabel", "TargetDiskLabel", "ConfirmModelLabel",
             "ConfirmComputerLabel",
             "ConfirmImageLabel", "ConfirmDiskLabel", "ConfirmDomainLabel", "NoProgramsText",
+            "NoPostPowerShellText",
             "DriversLabel", "DriversHint"
         )
         foreach ($name in $textControls) {
@@ -959,6 +989,12 @@ function Start-IronDeployGui {
             & $script:IronGuiGetText "ProgramsCount" @($programCount)
         } else {
             & $script:IronGuiGetText "ProgramsLabel"
+        }
+        $postPowerShellCount = @($script:IronGuiPostPowerShellChecks).Count
+        $script:IronGuiUi.PostPowerShellLabel.Text = if ($postPowerShellCount -gt 0) {
+            & $script:IronGuiGetText "PostPowerShellCount" @($postPowerShellCount)
+        } else {
+            & $script:IronGuiGetText "PostPowerShellLabel"
         }
 
         $script:IronGuiUi.NoDriversCheck.Content = & $script:IronGuiGetText `
@@ -1414,6 +1450,15 @@ try {
             }
         }
     )
+    $Sync.PostPowerShell = @(
+        Get-IronDeployPostPowerShellList | ForEach-Object {
+            [pscustomobject]@{
+                Name = $_.Name
+                Display = $_.Display
+                Automatic = $_.Automatic
+            }
+        }
+    )
     $Sync.DriverPackages = @(
         Get-IronDeployDriverPackageList | ForEach-Object {
             [pscustomobject]@{
@@ -1523,6 +1568,36 @@ try {
                 $script:IronGuiUi.NoProgramsText.Visibility = "Visible"
             }
 
+            $script:IronGuiUi.PostPowerShellPanel.Children.Clear()
+            $script:IronGuiPostPowerShellChecks = @()
+            foreach ($postPowerShell in @($script:IronGuiState.PostPowerShell)) {
+                $scriptCheck = New-Object System.Windows.Controls.CheckBox
+                $scriptText = New-Object System.Windows.Controls.TextBlock
+                $scriptText.Text = [string]$postPowerShell.Display
+                $scriptText.TextWrapping = "Wrap"
+                $scriptCheck.Content = $scriptText
+                $scriptCheck.Tag = [string]$postPowerShell.Name
+                $scriptCheck.Foreground = $script:IronGuiBrushes["info"]
+                $scriptCheck.Margin = New-Object System.Windows.Thickness(0, 3, 0, 3)
+                if ([bool]$postPowerShell.Automatic) {
+                    $scriptCheck.IsChecked = $true
+                    $scriptCheck.IsEnabled = $false
+                }
+                [void]$script:IronGuiUi.PostPowerShellPanel.Children.Add($scriptCheck)
+                $script:IronGuiPostPowerShellChecks += $scriptCheck
+            }
+            if ($script:IronGuiPostPowerShellChecks.Count -gt 0) {
+                $script:IronGuiUi.PostPowerShellLabel.Text = & $script:IronGuiGetText `
+                    "PostPowerShellCount" @($script:IronGuiPostPowerShellChecks.Count)
+                $script:IronGuiUi.PostPowerShellPanel.Visibility = "Visible"
+                $script:IronGuiUi.NoPostPowerShellText.Visibility = "Collapsed"
+            } else {
+                $script:IronGuiUi.PostPowerShellLabel.Text = & $script:IronGuiGetText `
+                    "PostPowerShellLabel"
+                $script:IronGuiUi.PostPowerShellPanel.Visibility = "Collapsed"
+                $script:IronGuiUi.NoPostPowerShellText.Visibility = "Visible"
+            }
+
             $script:IronGuiChangingDriverSelection = $true
             try {
                 $script:IronGuiUi.DriverPackagesPanel.Children.Clear()
@@ -1626,6 +1701,7 @@ try {
         -SelectedDiskModel $SelectedDiskModel `
         -SelectedDiskSizeBytes $SelectedDiskSizeBytes `
         -SelectedProgramNames @($SelectedProgramNames) `
+        -SelectedPostPowerShellNames @($SelectedPostPowerShellNames) `
         -SelectedDriverPackage $SelectedDriverPackage |
         Out-Null
     $Sync.Queue.Enqueue([pscustomobject]@{ Kind = "done"; Success = $true })
@@ -1733,6 +1809,11 @@ try {
                 Where-Object { [bool]$_.IsChecked } |
                 ForEach-Object { [string]$_.Tag }
         )
+        $selectedPostPowerShellNames = @(
+            $script:IronGuiPostPowerShellChecks |
+                Where-Object { [bool]$_.IsChecked } |
+                ForEach-Object { [string]$_.Tag }
+        )
         $checkedDrivers = @(
             $script:IronGuiDriverChecks | Where-Object {
                 [bool]$_.IsChecked
@@ -1775,6 +1856,7 @@ try {
                 SelectedDiskModel = [string]$selectedDisk.Model
                 SelectedDiskSizeBytes = [long]$selectedDisk.SizeBytes
                 SelectedProgramNames = $selectedProgramNames
+                SelectedPostPowerShellNames = $selectedPostPowerShellNames
                 SelectedDriverPackage = $selectedDriverPackage
             } `
             -ScriptBody $script:IronGuiDeployBody

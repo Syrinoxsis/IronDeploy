@@ -73,6 +73,7 @@
                         <div><dt>IP address</dt><dd data-field="ip_address">-</dd></div>
                         <div><dt>Windows image</dt><dd data-field="image_name">-</dd></div>
                         <div><dt>Image apply mode</dt><dd data-field="image_apply_mode">-</dd></div>
+                        <div><dt>Driver apply mode</dt><dd data-field="driver_apply_mode">-</dd></div>
                         <div><dt>Target disk</dt><dd data-field="target_disk">-</dd></div>
                         <div><dt>Domain join</dt><dd data-field="domain_join">-</dd></div>
                         <div><dt>Deployment ID</dt><dd data-field="deployment_id">-</dd></div>
@@ -129,6 +130,20 @@
                 <div class="detail-programs" id="program-list"></div>
                 <p class="detail-empty" id="program-empty" hidden>
                     No post-install software results were reported.
+                </p>
+            </section>
+
+            <section class="detail-panel">
+                <div class="detail-panel-heading">
+                    <div>
+                        <span class="detail-section-kicker">Post-install</span>
+                        <h2>PowerShell results</h2>
+                    </div>
+                    <span class="detail-count" id="powershell-count">0 scripts</span>
+                </div>
+                <div class="detail-programs" id="powershell-list"></div>
+                <p class="detail-empty" id="powershell-empty" hidden>
+                    No post-PowerShell scripts were selected.
                 </p>
             </section>
 

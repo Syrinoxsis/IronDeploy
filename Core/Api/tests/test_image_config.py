@@ -48,11 +48,12 @@ class ImageConfigTests(unittest.TestCase):
 
     def test_load_reads_defaults_from_templates(self) -> None:
         config = load_image_config(self.paths)
-        self.assertEqual(config["localAdminName"], "localadmin")
-        self.assertTrue(config["enableBuiltInAdministrator"])
-        self.assertTrue(config["enableSetupLocalAdmin"])
+        self.assertNotIn("localAdminName", config)
+        self.assertNotIn("enableBuiltInAdministrator", config)
+        self.assertNotIn("enableSetupLocalAdmin", config)
         self.assertTrue(config["enableGuiImageApplyProgress"])
-        self.assertEqual(config["imageApplyMode"], "direct")
+        self.assertEqual(config["imageApplyMode"], "staged")
+        self.assertEqual(config["driverApplyMode"], "staged")
         self.assertEqual(config["timeZone"], "Central Asia Standard Time")
         self.assertEqual(config["inputLocale"], "ru-RU")
         self.assertEqual(config["systemLocale"], "ru-RU")
@@ -142,6 +143,35 @@ class ImageConfigTests(unittest.TestCase):
                 self.paths,
             )
 
+    def test_driver_apply_mode_is_saved_in_server_config_and_reread(self) -> None:
+        result = save_image_config(
+            {
+                "localAdminName": "localadmin",
+                "timeZone": "UTC",
+                "driverApplyMode": "staged",
+            },
+            self.paths,
+        )
+
+        self.assertEqual(result["config"]["driverApplyMode"], "staged")
+        self.assertEqual(load_image_config(self.paths)["driverApplyMode"], "staged")
+        self.assertIn(
+            "IRONAPI_DRIVER_APPLY_MODE=staged",
+            self.paths.api_env.read_text(encoding="utf-8-sig"),
+        )
+        self.assertNotIn("DriverApplyMode", self.paths.winpe_config.read_text())
+
+    def test_unknown_driver_apply_mode_is_rejected_on_save(self) -> None:
+        with self.assertRaisesRegex(ImageConfigError, "direct or staged"):
+            save_image_config(
+                {
+                    "localAdminName": "localadmin",
+                    "timeZone": "UTC",
+                    "driverApplyMode": "auto",
+                },
+                self.paths,
+            )
+
     def test_save_updates_both_files_and_preserves_share_password(self) -> None:
         result = save_image_config(
             {
@@ -163,9 +193,9 @@ class ImageConfigTests(unittest.TestCase):
         deploy_config = self.paths.winpe_config.read_text(encoding="utf-8-sig")
         # Targeted edit keeps the SMB password line SetupWeb owns.
         self.assertNotIn("$SharePassword = ", deploy_config)
-        self.assertIn("$SetupLocalAdminName = 'deployadmin'", deploy_config)
-        self.assertIn("$EnableBuiltInAdministrator = $false", deploy_config)
-        self.assertIn("$EnableSetupLocalAdmin = $false", deploy_config)
+        self.assertNotIn("$SetupLocalAdminName", deploy_config)
+        self.assertNotIn("$EnableBuiltInAdministrator", deploy_config)
+        self.assertNotIn("$EnableSetupLocalAdmin", deploy_config)
         self.assertIn("$EnableGuiImageApplyProgress = $false", deploy_config)
 
         unattend = self.paths.unattend.read_text(encoding="utf-8-sig")
@@ -184,7 +214,6 @@ class ImageConfigTests(unittest.TestCase):
         self.assertIn("<UserLocale>ru-KZ</UserLocale>", unattend)
 
         config = result["config"]
-        self.assertEqual(config["localAdminName"], "deployadmin")
         self.assertFalse(config["enableGuiImageApplyProgress"])
         self.assertTrue(config["hasLocalAdminPassword"])
         self.assertEqual(config["inputLocale"], "kk-KZ;ru-RU;en-US")
@@ -212,14 +241,14 @@ class ImageConfigTests(unittest.TestCase):
         self.assertEqual(config["inputLocale"], "en-US")
         self.assertEqual(config["userLocale"], "kk-KZ")
 
-    def test_legacy_disable_setting_is_read_and_migrated(self) -> None:
-        legacy = self.paths.winpe_config.read_text(encoding="utf-8-sig").replace(
-            "$EnableSetupLocalAdmin = $true",
-            "$DisableSetupLocalAdmin = $true",
+    def test_legacy_postinstall_fields_are_removed_on_save(self) -> None:
+        legacy = self.paths.winpe_config.read_text(encoding="utf-8-sig") + (
+            "$ImageIndex = 6\n"
+            "$SetupLocalAdminName = 'oldadmin'\n"
+            "$EnableBuiltInAdministrator = $false\n"
+            "$DisableSetupLocalAdmin = $true\n"
         )
         self.paths.winpe_config.write_text(legacy, encoding="utf-8")
-
-        self.assertFalse(load_image_config(self.paths)["enableSetupLocalAdmin"])
 
         save_image_config(
             {
@@ -228,9 +257,11 @@ class ImageConfigTests(unittest.TestCase):
             },
             self.paths,
         )
-        migrated = self.paths.winpe_config.read_text(encoding="utf-8-sig")
-        self.assertIn("$EnableSetupLocalAdmin = $false", migrated)
-        self.assertNotIn("$DisableSetupLocalAdmin", migrated)
+        cleaned = self.paths.winpe_config.read_text(encoding="utf-8-sig")
+        self.assertNotIn("$ImageIndex", cleaned)
+        self.assertNotIn("$SetupLocalAdminName", cleaned)
+        self.assertNotIn("$EnableBuiltInAdministrator", cleaned)
+        self.assertNotIn("$DisableSetupLocalAdmin", cleaned)
 
     def test_blank_password_keeps_existing_value(self) -> None:
         save_image_config(
@@ -321,8 +352,8 @@ class ImageConfigTests(unittest.TestCase):
         self.assertEqual(result["backups"], [])
         self.assertTrue(self.paths.winpe_config.is_file())
         self.assertTrue(self.paths.unattend.is_file())
-        self.assertIn(
-            "$SetupLocalAdminName = 'freshadmin'",
+        self.assertNotIn(
+            "$SetupLocalAdminName",
             self.paths.winpe_config.read_text(encoding="utf-8-sig"),
         )
 

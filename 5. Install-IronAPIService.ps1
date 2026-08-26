@@ -579,6 +579,7 @@ foreach ($requiredFile in @(
 }
 
 & $PythonPath -c (
+    "import pywintypes; " +
     "import servicemanager, uvicorn, win32service, win32serviceutil"
 )
 if ($LASTEXITCODE -ne 0) {

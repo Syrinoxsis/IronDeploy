@@ -8,6 +8,18 @@ import irondeploy_service
 
 
 class ServiceHostTests(unittest.TestCase):
+    def test_venv_pywintypes_is_preloaded_before_service_modules(self) -> None:
+        service_source = Path(irondeploy_service.__file__).read_text(encoding="utf-8")
+        installer_source = (
+            Path(__file__).resolve().parents[3] / "5. Install-IronAPIService.ps1"
+        ).read_text(encoding="utf-8-sig")
+
+        self.assertLess(
+            service_source.index("import pywintypes"),
+            service_source.index("import servicemanager"),
+        )
+        self.assertIn('"import pywintypes; "', installer_source)
+
     def test_registration_uses_virtual_environment_python_host(self) -> None:
         registration_input = io.StringIO(
             "account\nEXAMPLE\\svc_irondeploy\nservice-password\n"

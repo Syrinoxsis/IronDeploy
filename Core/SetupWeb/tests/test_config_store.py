@@ -26,19 +26,33 @@ class AccessModeTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.paths = IronDeployPaths.from_setupweb(SETUPWEB_ROOT)
 
-    def test_image_apply_mode_defaults_to_direct_and_accepts_staged(self) -> None:
+    def test_image_apply_mode_defaults_to_staged_and_accepts_direct(self) -> None:
         self.assertEqual(
             normalize_api({})["IRONAPI_IMAGE_APPLY_MODE"],
-            "direct",
+            "staged",
         )
         self.assertEqual(
-            normalize_api({"IRONAPI_IMAGE_APPLY_MODE": "STAGED"})[
+            normalize_api({"IRONAPI_IMAGE_APPLY_MODE": "DIRECT"})[
                 "IRONAPI_IMAGE_APPLY_MODE"
             ],
-            "staged",
+            "direct",
         )
         with self.assertRaisesRegex(ValueError, "direct or staged"):
             normalize_api({"IRONAPI_IMAGE_APPLY_MODE": "auto"})
+
+    def test_driver_apply_mode_defaults_to_staged_and_accepts_direct(self) -> None:
+        self.assertEqual(
+            normalize_api({})["IRONAPI_DRIVER_APPLY_MODE"],
+            "staged",
+        )
+        self.assertEqual(
+            normalize_api({"IRONAPI_DRIVER_APPLY_MODE": "DIRECT"})[
+                "IRONAPI_DRIVER_APPLY_MODE"
+            ],
+            "direct",
+        )
+        with self.assertRaisesRegex(ValueError, "direct or staged"):
+            normalize_api({"IRONAPI_DRIVER_APPLY_MODE": "auto"})
 
     def test_empty_allowed_client_networks_are_preserved(self) -> None:
         result = normalize_api({"IRONAPI_ALLOWED_CLIENT_NETWORKS": ""})
@@ -452,13 +466,19 @@ class CredentialMigrationTests(unittest.TestCase):
             )
             payload = load_config(paths)
             paths.api_env.write_text(
-                paths.api_env.read_text(encoding="utf-8").replace(
-                    "IRONAPI_IMAGE_APPLY_MODE=direct",
+                paths.api_env.read_text(encoding="utf-8")
+                .replace(
                     "IRONAPI_IMAGE_APPLY_MODE=staged",
+                    "IRONAPI_IMAGE_APPLY_MODE=direct",
+                )
+                .replace(
+                    "IRONAPI_DRIVER_APPLY_MODE=staged",
+                    "IRONAPI_DRIVER_APPLY_MODE=direct",
                 ),
                 encoding="utf-8",
             )
             payload["api"].pop("IRONAPI_IMAGE_APPLY_MODE")
+            payload["api"].pop("IRONAPI_DRIVER_APPLY_MODE")
             payload["api"]["IRONAPI_BIND_HOST"] = "198.51.100.5"
             payload["winpe"].update(
                 {
@@ -482,11 +502,16 @@ class CredentialMigrationTests(unittest.TestCase):
                 "IRONAPI_DEPLOYMENT_AUTHORIZATION_TIMEOUT_MINUTES=10", api_env
             )
             self.assertIn("IRONAPI_DEPLOYMENT_TIMEOUT_MINUTES=90", api_env)
-            self.assertIn("IRONAPI_IMAGE_APPLY_MODE=staged", api_env)
+            self.assertIn("IRONAPI_IMAGE_APPLY_MODE=direct", api_env)
+            self.assertIn("IRONAPI_DRIVER_APPLY_MODE=direct", api_env)
             self.assertIn("IRONAPI_ODJ_BLOB_MAX_AGE_MINUTES=5", api_env)
             self.assertNotIn("server-side-password", winpe_config)
             self.assertNotIn("$SharePassword", winpe_config)
             self.assertNotIn("$ShareUser", winpe_config)
+            self.assertNotIn("$ImageIndex", winpe_config)
+            self.assertNotIn("$SetupLocalAdminName", winpe_config)
+            self.assertNotIn("$EnableBuiltInAdministrator", winpe_config)
+            self.assertNotIn("$EnableSetupLocalAdmin", winpe_config)
 
     def test_network_settings_save_without_smb_credentials(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -539,7 +564,7 @@ class CredentialMigrationTests(unittest.TestCase):
             load_config(paths)
             paths.api_env.write_text(
                 paths.api_env.read_text(encoding="utf-8").replace(
-                    "IRONAPI_IMAGE_APPLY_MODE=direct",
+                    "IRONAPI_IMAGE_APPLY_MODE=staged",
                     "IRONAPI_IMAGE_APPLY_MODE=STAGED",
                 ),
                 encoding="utf-8",

@@ -92,6 +92,7 @@ Write-Host "Root: $IronDeployRoot"
     @("WinPE\Runtime\startnet.cmd", "Leaf"),
     @("Share\Images", "Container"),
     @("Share\Drivers", "Container"),
+    @("Library\PostPowerShell", "Container"),
     @("ServerTemplates\PostInstall\SetupComplete.cmd", "Leaf"),
     @("ServerTemplates\PostInstall\postinstall.ps1", "Leaf"),
     @("Data", "Container"),

@@ -11,6 +11,7 @@ const elements = {
     enableSetupLocalAdmin: document.querySelector("#enableSetupLocalAdmin"),
     enableGuiImageApplyProgress: document.querySelector("#enableGuiImageApplyProgress"),
     imageApplyModes: [...document.querySelectorAll('input[name="imageApplyMode"]')],
+    driverApplyModes: [...document.querySelectorAll('input[name="driverApplyMode"]')],
     builtInAdministratorPassword: document.querySelector("#builtInAdministratorPassword"),
     timeZone: document.querySelector("#timeZone"),
     keyboardLayoutChoice: document.querySelector("#keyboardLayoutChoice"),
@@ -241,6 +242,9 @@ function renderConfig(config) {
     for (const choice of elements.imageApplyModes) {
         choice.checked = choice.value === (config.imageApplyMode || "direct");
     }
+    for (const choice of elements.driverApplyModes) {
+        choice.checked = choice.value === (config.driverApplyMode || "direct");
+    }
     elements.localAdminPassword.value = "";
     elements.passwordStatus.textContent = config.hasLocalAdminPassword
         ? "A password is saved. Leave blank to keep it or enter a new one."
@@ -287,6 +291,9 @@ async function save() {
             enableGuiImageApplyProgress: elements.enableGuiImageApplyProgress.checked,
             imageApplyMode:
                 elements.imageApplyModes.find((choice) => choice.checked)?.value ||
+                "direct",
+            driverApplyMode:
+                elements.driverApplyModes.find((choice) => choice.checked)?.value ||
                 "direct",
             timeZone: elements.timeZone.value,
             inputLocale: selectedKeyboardLayouts.join(";"),

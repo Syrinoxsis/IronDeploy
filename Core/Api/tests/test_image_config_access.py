@@ -224,6 +224,10 @@ class ImageConfigPageTests(unittest.TestCase):
         self.assertIn('name="imageApplyMode" type="radio" value="direct"', self.html)
         self.assertIn("config.imageApplyMode || \"direct\"", self.javascript)
         self.assertIn("imageApplyMode:", self.javascript)
+        self.assertIn('name="driverApplyMode" type="radio" value="staged"', self.html)
+        self.assertIn('name="driverApplyMode" type="radio" value="direct"', self.html)
+        self.assertIn("config.driverApplyMode || \"direct\"", self.javascript)
+        self.assertIn("driverApplyMode:", self.javascript)
 
     def test_redesigned_workspace_has_russian_localization(self) -> None:
         for text in (

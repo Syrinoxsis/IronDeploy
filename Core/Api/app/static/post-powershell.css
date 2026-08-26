@@ -1,0 +1,183 @@
+.post-powershell-page .page-heading p {
+    margin: 8px 0 0;
+    color: var(--muted-text, #9aa4b5);
+}
+
+.powershell-upload-controls {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    align-items: end;
+    gap: 14px 12px;
+}
+
+.powershell-field {
+    display: grid;
+    min-width: 0;
+    gap: 7px;
+    color: #a9b2c2;
+    font-size: 12px;
+    font-weight: 620;
+}
+
+.powershell-file-field {
+    grid-column: span 7;
+}
+
+.powershell-name-field {
+    grid-column: span 5;
+}
+
+.powershell-arguments-field {
+    grid-column: 1 / -1;
+}
+
+.powershell-phase-field,
+.powershell-mode-field {
+    grid-column: span 4;
+}
+
+.powershell-timeout-field,
+.powershell-upload-action {
+    grid-column: span 2;
+}
+
+.post-powershell-page .powershell-field input,
+.post-powershell-page .powershell-field select,
+.post-powershell-page .powershell-settings .arguments-input {
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+}
+
+.post-powershell-page .powershell-field select,
+.post-powershell-page .powershell-settings select,
+.post-powershell-page .powershell-settings input {
+    min-height: 42px;
+}
+
+.powershell-upload-action {
+    display: flex;
+}
+
+.powershell-upload-action .primary-button {
+    width: 100%;
+}
+
+.powershell-card {
+    display: grid;
+    gap: 14px;
+}
+
+.powershell-card-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(280px, .9fr);
+    align-items: flex-start;
+    gap: 16px;
+}
+
+.powershell-card-title {
+    display: grid;
+    gap: 5px;
+    min-width: 0;
+}
+
+.powershell-card-title strong {
+    overflow-wrap: anywhere;
+}
+
+.powershell-card-title span,
+.powershell-sha {
+    color: #929cac;
+    font-size: 12px;
+}
+
+.powershell-sha {
+    font-family: Consolas, monospace;
+    overflow-wrap: anywhere;
+    text-align: right;
+}
+
+.powershell-settings {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.powershell-setting-arguments {
+    grid-column: span 6;
+}
+
+.powershell-setting-phase,
+.powershell-setting-mode,
+.powershell-setting-timeout {
+    grid-column: span 2;
+}
+
+.powershell-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+.powershell-unavailable {
+    color: #ff9a92;
+}
+
+@media (max-width: 980px) {
+    .powershell-file-field,
+    .powershell-name-field,
+    .powershell-phase-field,
+    .powershell-mode-field,
+    .powershell-timeout-field,
+    .powershell-upload-action {
+        grid-column: span 6;
+    }
+
+    .powershell-setting-arguments {
+        grid-column: 1 / -1;
+    }
+
+    .powershell-setting-phase,
+    .powershell-setting-mode,
+    .powershell-setting-timeout {
+        grid-column: span 4;
+    }
+}
+
+@media (max-width: 720px) {
+    body.post-powershell-page {
+        min-width: 0;
+    }
+
+    .powershell-card-head {
+        grid-template-columns: 1fr;
+    }
+
+    .powershell-sha {
+        text-align: left;
+    }
+}
+
+@media (max-width: 620px) {
+    .powershell-file-field,
+    .powershell-name-field,
+    .powershell-phase-field,
+    .powershell-mode-field,
+    .powershell-timeout-field,
+    .powershell-upload-action,
+    .powershell-setting-arguments,
+    .powershell-setting-phase,
+    .powershell-setting-mode,
+    .powershell-setting-timeout {
+        grid-column: 1 / -1;
+    }
+
+    .powershell-actions {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .powershell-actions button {
+        width: 100%;
+    }
+}

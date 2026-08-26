@@ -1,4 +1,5 @@
 import logging
+import os
 import re
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -67,6 +68,7 @@ from app.deployments import (
     DeploymentNetworkStage,
     DeploymentNetworkSummary,
     DeploymentProgram,
+    DeploymentPowerShellResult,
     DeploymentResponse,
     DeploymentStage,
     DeploymentStageEvent,
@@ -92,6 +94,11 @@ from app.domain_join import (
     delete_domain_join_blob,
     get_domain_join_blob,
     provision_domain_join_blob,
+)
+from app.deployment_profiles import (
+    DeploymentProfileError,
+    load_default_profile,
+    update_default_profile,
 )
 from app.drivers import (
     DriverError,
@@ -138,6 +145,17 @@ from app.programs import (
     rename_program,
     save_uploaded_program,
     set_program_arguments,
+)
+from app.post_powershell import (
+    MAX_OUTPUT_SIZE_BYTES,
+    PostPowerShellError,
+    delete_script,
+    list_scripts,
+    resolve_profile_scripts,
+    result_log_path,
+    save_uploaded_script,
+    update_script_settings,
+    verified_script_path,
 )
 from app.winpe_build import (
     WinPEBuildError,
@@ -306,6 +324,7 @@ _PAGE_PERMISSIONS = {
     "/": "dashboard",
     "/images": "images",
     "/programs": "programs",
+    "/post-powershell": "post_powershell",
     "/drivers": "drivers",
     "/info": "superadmin",
     "/image-config": "image_config",
@@ -331,6 +350,8 @@ def _browser_permission(path: str) -> str | None:
         return "images"
     if path.startswith("/api/programs"):
         return "programs"
+    if path.startswith("/api/post-powershell"):
+        return "post_powershell"
     if path.startswith("/api/drivers"):
         return "drivers"
     if path.startswith("/api/info"):
@@ -467,6 +488,14 @@ def programs_page() -> FileResponse:
     )
 
 
+@app.get("/post-powershell", include_in_schema=False)
+def post_powershell_page() -> FileResponse:
+    return FileResponse(
+        STATIC_DIR / "post-powershell.html",
+        headers={"Cache-Control": "no-cache"},
+    )
+
+
 @app.get("/drivers", include_in_schema=False)
 def drivers_page() -> FileResponse:
     return FileResponse(
@@ -526,17 +555,26 @@ def require_image_config_write(request: Request) -> None:
 
 
 @app.get("/api/image-config")
-def get_image_config() -> dict:
-    return load_image_config()
+def get_image_config(session: Session = Depends(get_session)) -> dict:
+    config = load_image_config()
+    config.update(load_default_profile(session))
+    return config
 
 
 @app.post("/api/image-config")
-async def post_image_config(request: Request) -> JSONResponse:
+async def post_image_config(
+    request: Request,
+    session: Session = Depends(get_session),
+) -> JSONResponse:
     require_image_config_write(request)
     try:
         payload = await request.json()
+        profile = update_default_profile(session, payload)
         result = save_image_config(payload)
-    except ImageConfigError as exc:
+        session.commit()
+        result["config"].update(profile)
+    except (DeploymentProfileError, ImageConfigError) as exc:
+        session.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return JSONResponse(result)
 
@@ -628,6 +666,83 @@ def remove_program(name: str, request: Request) -> JSONResponse:
         status_code = 404 if "not found" in str(exc) else 400
         raise HTTPException(status_code=status_code, detail=str(exc)) from exc
     return JSONResponse(result)
+
+
+@app.get("/api/post-powershell")
+def get_post_powershell(session: Session = Depends(get_session)) -> dict:
+    try:
+        result = list_scripts(session)
+        session.commit()
+        return result
+    except PostPowerShellError as exc:
+        session.rollback()
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/api/post-powershell/upload")
+async def upload_post_powershell(
+    request: Request,
+    session: Session = Depends(get_session),
+) -> JSONResponse:
+    require_image_config_write(request)
+    try:
+        result = await save_uploaded_script(
+            session,
+            unquote(request.headers.get("x-irondeploy-filename", "")),
+            request.stream(),
+            arguments=unquote(request.headers.get("x-irondeploy-arguments", "")),
+            selection_mode=request.headers.get(
+                "x-irondeploy-selection-mode", "operator"
+            ),
+            run_phase=request.headers.get(
+                "x-irondeploy-run-phase", "after_software"
+            ),
+            timeout_seconds=request.headers.get(
+                "x-irondeploy-timeout-seconds", "600"
+            ),
+        )
+        session.commit()
+        return JSONResponse({"uploaded": True, "script": result}, status_code=201)
+    except PostPowerShellError as exc:
+        session.rollback()
+        status_code = 409 if "already exists" in str(exc) else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+
+@app.post("/api/post-powershell/{script_id}/settings")
+async def set_post_powershell_settings(
+    script_id: int,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> dict:
+    require_image_config_write(request)
+    try:
+        payload = await request.json()
+        result = update_script_settings(session, script_id, payload)
+        session.commit()
+        return {"saved": True, "script": result}
+    except (AttributeError, TypeError, ValueError):
+        session.rollback()
+        raise HTTPException(status_code=400, detail="Invalid script settings.")
+    except PostPowerShellError as exc:
+        session.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.delete("/api/post-powershell/{script_id}")
+def remove_post_powershell(
+    script_id: int,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> dict:
+    require_image_config_write(request)
+    try:
+        result = delete_script(session, script_id)
+        session.commit()
+        return result
+    except PostPowerShellError as exc:
+        session.rollback()
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.get("/api/drivers")
@@ -1180,9 +1295,12 @@ def deploy_suggest_name(
     return suggestion
 
 
-def _deployment_catalog() -> dict:
+def _deployment_catalog(session: Session | None = None) -> dict:
     image_listing = list_deployment_images()
     program_listing = list_programs()
+    post_powershell_listing = (
+        list_scripts(session) if session is not None else {"scripts": []}
+    )
     driver_listing = list_driver_packages()
     return {
         "images": [
@@ -1207,6 +1325,7 @@ def _deployment_catalog() -> dict:
             }
             for program in program_listing["programs"]
         ],
+        "postPowerShell": post_powershell_listing["scripts"],
         "drivers": [
             {
                 "vendor": package["vendor"],
@@ -1214,6 +1333,7 @@ def _deployment_catalog() -> dict:
                 "relativePath": package["relativePath"],
                 "size": package["size"],
                 "infCount": package["infCount"],
+                "fileCount": package["fileCount"],
             }
             for package in driver_listing["packages"]
             if package["infCount"] > 0
@@ -1228,8 +1348,16 @@ def deploy_catalog(
 ) -> dict:
     require_deployment_token(request, session, "authorized", "winpe")
     try:
-        return _deployment_catalog()
-    except (DeploymentImageError, ProgramError, DriverError) as exc:
+        catalog = _deployment_catalog(session)
+        session.commit()
+        return catalog
+    except (
+        DeploymentImageError,
+        ProgramError,
+        PostPowerShellError,
+        DriverError,
+    ) as exc:
+        session.rollback()
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
@@ -1248,13 +1376,16 @@ def deploy_manifest(
         raise HTTPException(status_code=409, detail="Deployment is not active")
 
     try:
-        catalog = _deployment_catalog()
+        catalog = _deployment_catalog(session)
         image_config = load_image_config()
+        deployment_profile = load_default_profile(session)
     except (
         DeploymentImageError,
         ProgramError,
+        PostPowerShellError,
         DriverError,
         ImageConfigError,
+        DeploymentProfileError,
     ) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -1283,6 +1414,13 @@ def deploy_manifest(
                 detail=f"Selected program is unavailable: {name}",
             )
         selected_programs.append(program)
+
+    try:
+        selected_post_powershell = resolve_profile_scripts(
+            session, payload.post_powershell_names
+        )
+    except PostPowerShellError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     selected_driver = None
     if payload.driver_package is not None:
@@ -1314,20 +1452,72 @@ def deploy_manifest(
             detail="Selected image SHA-256 is unavailable for staged deployment",
         )
     deployment.image_apply_mode = image_apply_mode
+    driver_apply_mode = image_config.get("driverApplyMode", "direct")
+    if driver_apply_mode not in {"direct", "staged"}:
+        driver_apply_mode = "direct"
+    deployment.driver_apply_mode = driver_apply_mode
+    session.execute(
+        delete(DeploymentPowerShellResult).where(
+            DeploymentPowerShellResult.deployment_id == deployment.id
+        )
+    )
+    post_powershell_plan = []
+    for position, script in enumerate(selected_post_powershell):
+        session.add(
+            DeploymentPowerShellResult(
+                deployment_id=deployment.id,
+                script_id=script["id"],
+                position=position,
+                name=script["name"],
+                selection_mode=script["selectionMode"],
+                run_phase=script["runPhase"],
+                arguments=script["arguments"],
+                timeout_seconds=script["timeoutSeconds"],
+                size_bytes=script["size"],
+                sha256=script["sha256"],
+                status="pending",
+                output_bytes=0,
+                output_total_bytes=0,
+                output_truncated=False,
+            )
+        )
+        post_powershell_plan.append(
+            {
+                "position": position,
+                "name": script["name"],
+                "selectionMode": script["selectionMode"],
+                "runPhase": script["runPhase"],
+                "arguments": script["arguments"],
+                "timeoutSeconds": script["timeoutSeconds"],
+                "size": script["size"],
+                "sha256": script["sha256"],
+                "maxOutputBytes": MAX_OUTPUT_SIZE_BYTES,
+                "downloadUrl": (
+                    f"/api/deploy/{deployment.id}/post-powershell/"
+                    f"{position}/script"
+                ),
+                "reportUrl": (
+                    f"/api/deploy/{deployment.id}/post-powershell/"
+                    f"{position}/report"
+                ),
+            }
+        )
     update_computer_inventory(session, deployment)
     session.commit()
     return {
         "deploymentId": deployment.id,
         "imageApplyMode": image_apply_mode,
+        "driverApplyMode": driver_apply_mode,
         "image": image,
         "programs": selected_programs,
+        "postPowerShell": post_powershell_plan,
         "driverPackage": selected_driver,
         "postinstall": {
-            "localAdminName": image_config["localAdminName"],
-            "enableBuiltInAdministrator": image_config[
+            "localAdminName": deployment_profile["localAdminName"],
+            "enableBuiltInAdministrator": deployment_profile[
                 "enableBuiltInAdministrator"
             ],
-            "enableSetupLocalAdmin": image_config["enableSetupLocalAdmin"],
+            "enableSetupLocalAdmin": deployment_profile["enableSetupLocalAdmin"],
         },
     }
 
@@ -1364,6 +1554,20 @@ def deployment_list(
         ).all()
         for program in programs:
             programs_by_deployment[program.deployment_id].append(program)
+    powershell_by_deployment: dict[int, list[DeploymentPowerShellResult]] = {
+        deployment_id: [] for deployment_id in deployment_ids
+    }
+    if deployment_ids:
+        powershell_results = session.scalars(
+            select(DeploymentPowerShellResult)
+            .where(DeploymentPowerShellResult.deployment_id.in_(deployment_ids))
+            .order_by(
+                DeploymentPowerShellResult.deployment_id,
+                DeploymentPowerShellResult.position,
+            )
+        ).all()
+        for script_result in powershell_results:
+            powershell_by_deployment[script_result.deployment_id].append(script_result)
 
     total, begin_count, completed_count, failed_count = session.execute(
         select(
@@ -1392,9 +1596,10 @@ def deployment_list(
         failed=failed_count,
         items=[
             to_deployment_list_item(
-                deployment,
-                stages_by_deployment[deployment.id],
-                programs_by_deployment[deployment.id],
+                deployment=deployment,
+                stages=stages_by_deployment[deployment.id],
+                programs=programs_by_deployment[deployment.id],
+                post_powershell=powershell_by_deployment[deployment.id],
             )
             for deployment in deployments
         ],
@@ -1424,6 +1629,11 @@ def deployment_detail(
         .where(DeploymentProgram.deployment_id == deployment_id)
         .order_by(DeploymentProgram.position)
     ).all()
+    powershell_results = session.scalars(
+        select(DeploymentPowerShellResult)
+        .where(DeploymentPowerShellResult.deployment_id == deployment_id)
+        .order_by(DeploymentPowerShellResult.position)
+    ).all()
     network_summary = session.get(DeploymentNetworkSummary, deployment_id)
     network_stages = session.scalars(
         select(DeploymentNetworkStage)
@@ -1431,11 +1641,12 @@ def deployment_detail(
         .order_by(DeploymentNetworkStage.id)
     ).all()
     return to_deployment_list_item(
-        deployment,
-        stages,
-        programs,
-        network_summary,
-        network_stages,
+        deployment=deployment,
+        stages=stages,
+        programs=programs,
+        post_powershell=powershell_results,
+        network_summary=network_summary,
+        network_stages=network_stages,
     )
 
 
@@ -1572,6 +1783,37 @@ def deployment_unattend(
         content.replace("COMPUTER_NAME", deployment.computer_name),
         media_type="application/xml",
         headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.get("/api/deploy/{deployment_id}/post-powershell/{position}/script")
+def deployment_post_powershell_script(
+    deployment_id: int,
+    position: int,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> FileResponse:
+    require_owned_deployment(deployment_id, request, session, "winpe")
+    result = session.scalar(
+        select(DeploymentPowerShellResult).where(
+            DeploymentPowerShellResult.deployment_id == deployment_id,
+            DeploymentPowerShellResult.position == position,
+        )
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="PowerShell script not found.")
+    try:
+        path = verified_script_path(result.name, result.size_bytes, result.sha256)
+    except PostPowerShellError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return FileResponse(
+        path,
+        media_type="text/plain",
+        filename=result.name,
+        headers={
+            "Cache-Control": "no-store",
+            "X-IronDeploy-SHA256": result.sha256,
+        },
     )
 
 
@@ -2123,6 +2365,109 @@ def deploy_enter_postinstall(
     if token.phase == "winpe":
         set_deployment_token_phase(session, token, "postinstall")
     return {"status": "postinstall"}
+
+
+@app.post("/api/deploy/{deployment_id}/post-powershell/{position}/report")
+async def deploy_post_powershell_report(
+    deployment_id: int,
+    position: int,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> dict:
+    require_owned_deployment(deployment_id, request, session, "postinstall")
+    result = session.scalar(
+        select(DeploymentPowerShellResult).where(
+            DeploymentPowerShellResult.deployment_id == deployment_id,
+            DeploymentPowerShellResult.position == position,
+        )
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="PowerShell result not found.")
+
+    report_status = request.headers.get("x-irondeploy-status", "").strip().lower()
+    if report_status not in {
+        "succeeded",
+        "failed",
+        "timed_out",
+        "hash_mismatch",
+        "download_failed",
+    }:
+        raise HTTPException(status_code=400, detail="Invalid PowerShell status.")
+    try:
+        duration_seconds = int(
+            request.headers.get("x-irondeploy-duration-seconds", "0")
+        )
+        total_bytes = int(request.headers.get("x-irondeploy-output-total-bytes", "0"))
+        exit_code_text = request.headers.get("x-irondeploy-exit-code", "").strip()
+        exit_code = int(exit_code_text) if exit_code_text else None
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid PowerShell metrics.") from exc
+    if not 0 <= duration_seconds <= 86400 or total_bytes < 0:
+        raise HTTPException(status_code=400, detail="Invalid PowerShell metrics.")
+    output_truncated = request.headers.get(
+        "x-irondeploy-output-truncated", "false"
+    ).lower() in {"1", "true", "yes"}
+    error_message = unquote(request.headers.get("x-irondeploy-error", ""))[:4000] or None
+
+    destination = result_log_path(deployment_id, position)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(f".{destination.name}.{os.urandom(8).hex()}.tmp")
+    output_bytes = 0
+    try:
+        with temporary.open("xb") as handle:
+            async for chunk in request.stream():
+                if not chunk:
+                    continue
+                output_bytes += len(chunk)
+                if output_bytes > MAX_OUTPUT_SIZE_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail="PowerShell output exceeds the 20 MiB report limit.",
+                    )
+                handle.write(chunk)
+        os.replace(temporary, destination)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+    result.status = report_status
+    result.exit_code = exit_code
+    result.duration_seconds = duration_seconds
+    result.output_bytes = output_bytes
+    result.output_total_bytes = max(total_bytes, output_bytes)
+    result.output_truncated = output_truncated
+    result.error_message = error_message
+    result.reported_at = datetime.now(timezone.utc)
+    session.commit()
+    return {
+        "accepted": True,
+        "position": position,
+        "status": report_status,
+        "outputBytes": output_bytes,
+    }
+
+
+@app.get("/api/deployments/{deployment_id}/post-powershell/{position}/output")
+def deployment_post_powershell_output(
+    deployment_id: int,
+    position: int,
+    session: Session = Depends(get_session),
+) -> FileResponse:
+    result = session.scalar(
+        select(DeploymentPowerShellResult).where(
+            DeploymentPowerShellResult.deployment_id == deployment_id,
+            DeploymentPowerShellResult.position == position,
+        )
+    )
+    if result is None or result.reported_at is None:
+        raise HTTPException(status_code=404, detail="PowerShell output not found.")
+    path = result_log_path(deployment_id, position)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="PowerShell output file is missing.")
+    return FileResponse(
+        path,
+        media_type="text/plain; charset=utf-8",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.post(

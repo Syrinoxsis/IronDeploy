@@ -63,7 +63,6 @@ The UI owns the first-time settings needed by both IronAPI and WinPE:
 - driver-upload safety limits;
 - WinPE API address and certificate trust;
 - WinPE image, driver, program, and drive-letter paths;
-- local administrator policy for post-install;
 - Windows time zone in the unattend template.
 
 `Allowed client networks` is part of the main **Service endpoint** settings.
@@ -72,10 +71,11 @@ empty writes `IRONAPI_ALLOWED_CLIENT_NETWORKS=` and allows clients from every
 network; the `(?)` help beside the field repeats this behavior. Loopback is
 always allowed even when CIDRs are configured.
 
-The later IronAPI `/image-config` page owns the operational image-apply choice.
-It stores `direct` or `staged` as `IRONAPI_IMAGE_APPLY_MODE` in
-`Core\Api\.env`. SetupWeb preserves that server-side setting when it rewrites
-the initial configuration and never copies it into `deploy.config.ps1`.
+The later IronAPI `/image-config` page owns the operational image- and
+driver-apply choices. It stores `direct` or `staged` as
+`IRONAPI_IMAGE_APPLY_MODE` and `IRONAPI_DRIVER_APPLY_MODE` in `Core\Api\.env`.
+SetupWeb preserves those server-side settings when it rewrites the initial
+configuration and never copies them into `deploy.config.ps1`.
 
 The UI loads existing values when reopened. Leaving a password field empty
 keeps the current stored hash or secret where the form explicitly supports
@@ -85,10 +85,14 @@ that behavior.
 
 | File | Content |
 | --- | --- |
-| `Core\Api\.env` | IronAPI listener, SMB, image-apply strategy, LDAP, ODJ, storage, and timeout settings. |
+| `Core\Api\.env` | IronAPI listener, SMB, image- and driver-apply strategies, LDAP, ODJ, storage, and timeout settings. |
 | `Core\WinPE\Runtime\deploy.config.ps1` | Credential-free WinPE runtime settings. |
 | `Core\ServerTemplates\Unattend\unattend-win11-template.xml` | Server-side Windows answer-file settings. |
 | `Core\Data\auth-bootstrap.json` | Initial superadmin name and PBKDF2-SHA256 password hash. |
+
+SetupWeb does not write the Windows image index or post-install account policy
+into WinPE. Image indexes are managed per image in IronAPI, while account policy
+is stored in the default deployment profile in SQLite.
 
 Existing `.env`, WinPE config, and unattend files are backed up under
 `Core\Logs\ConfigBackups` before replacement. Writes use temporary files followed
@@ -103,8 +107,9 @@ the bootstrap identity into SQLite at startup.
 SetupWeb writes settings to the component that consumes them:
 
 - SMB credentials stay in `Core\Api\.env`; they are never embedded in WinPE.
-- The image-apply strategy stays in `Core\Api\.env`; IronAPI returns it in the
-  deployment manifest instead of SetupWeb embedding it in WinPE.
+- The image- and driver-apply strategies stay in `Core\Api\.env`; IronAPI
+  returns them in the deployment manifest instead of SetupWeb embedding them in
+  WinPE.
 - SetupWeb can publish the fixed local `Core\Share` folder and grant read access
   to an existing `SERVER\user` or `DOMAIN\user` account. It does not create the
   account or configure shares on remote servers. The saved UNC path may use the

@@ -3,13 +3,14 @@ from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+import re
 import sqlite3
 
 from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.engine import Connection, Engine, make_url
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.config import get_settings
+from app.config import IRONDEPLOY_ROOT, get_settings
 from app.deployments import Deployment, update_computer_inventory
 from app.sqlite_migration_0001 import SQLITE_MIGRATION_0001
 
@@ -106,6 +107,7 @@ def _upgrade_sqlite_deployment_constraints(connection: Connection) -> None:
             ip_address VARCHAR(45) NOT NULL,
             image_name VARCHAR(255),
             image_apply_mode VARCHAR(16),
+            driver_apply_mode VARCHAR(16),
             target_disk_number INTEGER,
             target_disk_model VARCHAR(255),
             target_disk_size_bytes BIGINT,
@@ -136,6 +138,7 @@ def _upgrade_sqlite_deployment_constraints(connection: Connection) -> None:
             ip_address,
             image_name,
             image_apply_mode,
+            driver_apply_mode,
             target_disk_number,
             target_disk_model,
             target_disk_size_bytes,
@@ -156,6 +159,7 @@ def _upgrade_sqlite_deployment_constraints(connection: Connection) -> None:
             ip_address,
             image_name,
             image_apply_mode,
+            driver_apply_mode,
             target_disk_number,
             target_disk_model,
             target_disk_size_bytes,
@@ -279,6 +283,7 @@ def _migration_add_target_disk_snapshot(connection: Connection) -> None:
         # The migration-three inventory backfill uses the current Deployment
         # ORM model, so this nullable column must exist before that backfill.
         ("image_apply_mode", "VARCHAR(16)"),
+        ("driver_apply_mode", "VARCHAR(16)"),
     )
     for column_name, column_type in additions:
         if column_name in existing_columns:
@@ -475,6 +480,299 @@ def _migration_allow_early_network_adapter_snapshot(
     )
 
 
+def _legacy_deployment_profile_defaults() -> dict[str, object]:
+    """Read the three alpha-era profile settings from deploy.config.ps1."""
+
+    # TODO(1.0): remove legacy alpha configuration compatibility.
+    values: dict[str, object] = {
+        "local_admin_name": "localadmin",
+        "enable_builtin_administrator": True,
+        "enable_setup_local_admin": True,
+    }
+    runtime = IRONDEPLOY_ROOT / "WinPE" / "Runtime"
+    for path in (
+        runtime / "deploy.config.example.ps1",
+        runtime / "deploy.config.ps1",
+    ):
+        try:
+            lines = path.read_text(encoding="utf-8-sig").splitlines()
+        except OSError:
+            continue
+
+        configured: dict[str, object] = {}
+        for line in lines:
+            name_match = re.match(
+                r"^\s*\$SetupLocalAdminName\s*=\s*(['\"])(.*?)\1\s*$",
+                line,
+            )
+            if name_match:
+                name = name_match.group(2).replace("''", "'").strip()
+                if re.fullmatch(r"[A-Za-z0-9._-]{1,20}", name):
+                    configured["local_admin_name"] = name
+                continue
+            bool_match = re.match(
+                r"^\s*\$(EnableBuiltInAdministrator|EnableSetupLocalAdmin|"
+                r"DisableSetupLocalAdmin)\s*=\s*\$(true|false)\s*$",
+                line,
+                re.IGNORECASE,
+            )
+            if bool_match:
+                configured[bool_match.group(1).lower()] = (
+                    bool_match.group(2).lower() == "true"
+                )
+
+        if "enablebuiltinadministrator" in configured:
+            values["enable_builtin_administrator"] = configured[
+                "enablebuiltinadministrator"
+            ]
+        if "enablesetuplocaladmin" in configured:
+            values["enable_setup_local_admin"] = configured[
+                "enablesetuplocaladmin"
+            ]
+        elif "disablesetuplocaladmin" in configured:
+            values["enable_setup_local_admin"] = not bool(
+                configured["disablesetuplocaladmin"]
+            )
+        if "local_admin_name" in configured:
+            values["local_admin_name"] = configured["local_admin_name"]
+    return values
+
+
+def _migration_add_default_deployment_profile(connection: Connection) -> None:
+    if "deployment_profiles" not in inspect(connection).get_table_names():
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE deployment_profiles (
+                id INTEGER NOT NULL PRIMARY KEY,
+                name VARCHAR(64) NOT NULL UNIQUE,
+                description TEXT,
+                is_default BOOLEAN NOT NULL,
+                local_admin_name VARCHAR(20) NOT NULL,
+                enable_builtin_administrator BOOLEAN NOT NULL,
+                enable_setup_local_admin BOOLEAN NOT NULL,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL,
+                CONSTRAINT ck_deployment_profiles_positive_id CHECK (id > 0)
+            )
+            """
+        )
+    connection.exec_driver_sql(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_deployment_profiles_default "
+        "ON deployment_profiles (is_default) WHERE is_default = 1"
+    )
+    existing_default = connection.execute(
+        text("SELECT id FROM deployment_profiles WHERE is_default = 1 LIMIT 1")
+    ).first()
+    if existing_default is None:
+        defaults = _legacy_deployment_profile_defaults()
+        connection.execute(
+            text(
+                """
+                INSERT INTO deployment_profiles (
+                    id,
+                    name,
+                    description,
+                    is_default,
+                    local_admin_name,
+                    enable_builtin_administrator,
+                    enable_setup_local_admin,
+                    created_at,
+                    updated_at
+                ) SELECT
+                    COALESCE(MAX(id), 0) + 1,
+                    'Default',
+                    'Default deployment settings',
+                    1,
+                    :local_admin_name,
+                    :enable_builtin_administrator,
+                    :enable_setup_local_admin,
+                    CURRENT_TIMESTAMP,
+                    CURRENT_TIMESTAMP
+                FROM deployment_profiles
+                """
+            ),
+            defaults,
+        )
+
+
+def _migration_add_driver_apply_strategy(connection: Connection) -> None:
+    deployment_columns = {
+        column["name"]
+        for column in inspect(connection).get_columns(Deployment.__tablename__)
+    }
+    if "driver_apply_mode" not in deployment_columns:
+        connection.execute(
+            text(
+                "ALTER TABLE deployments "
+                "ADD COLUMN driver_apply_mode VARCHAR(16)"
+            )
+        )
+
+    table_sql = (
+        connection.exec_driver_sql(
+            "SELECT sql FROM sqlite_master "
+            "WHERE type = 'table' AND name = ?",
+            ("deployment_network_stages",),
+        ).scalar_one_or_none()
+        or ""
+    )
+    if "'driver_download'" in table_sql.lower():
+        return
+
+    connection.exec_driver_sql(
+        """
+        CREATE TABLE deployment_network_stages_driver_strategy_upgrade (
+            id INTEGER NOT NULL PRIMARY KEY,
+            deployment_id INTEGER NOT NULL,
+            stage VARCHAR(64) NOT NULL,
+            started_at DATETIME NOT NULL,
+            completed_at DATETIME NOT NULL,
+            duration_seconds FLOAT NOT NULL,
+            icmp_status VARCHAR(16) NOT NULL,
+            ping_sent INTEGER NOT NULL,
+            ping_received INTEGER NOT NULL,
+            ping_lost INTEGER NOT NULL,
+            loss_percentage FLOAT,
+            rtt_min_ms FLOAT,
+            rtt_avg_ms FLOAT,
+            rtt_max_ms FLOAT,
+            latency_spikes INTEGER NOT NULL,
+            bytes_received BIGINT,
+            average_inbound_mbps FLOAT,
+            link_utilization_percent FLOAT,
+            CONSTRAINT ck_deployment_network_stages_stage CHECK (
+                stage IN (
+                    'image_download', 'image_apply', 'driver_download',
+                    'driver_injection', 'postinstall_copy'
+                )
+            ),
+            CONSTRAINT ck_deployment_network_stages_icmp_status CHECK (
+                icmp_status IN ('available', 'unavailable', 'not_measured')
+            ),
+            CONSTRAINT uq_deployment_network_stages_deployment_stage
+                UNIQUE (deployment_id, stage),
+            FOREIGN KEY(deployment_id) REFERENCES deployments (id)
+                ON DELETE CASCADE
+        )
+        """
+    )
+    connection.exec_driver_sql(
+        """
+        INSERT INTO deployment_network_stages_driver_strategy_upgrade (
+            id, deployment_id, stage, started_at, completed_at,
+            duration_seconds, icmp_status, ping_sent, ping_received,
+            ping_lost, loss_percentage, rtt_min_ms, rtt_avg_ms,
+            rtt_max_ms, latency_spikes, bytes_received,
+            average_inbound_mbps, link_utilization_percent
+        )
+        SELECT
+            id, deployment_id, stage, started_at, completed_at,
+            duration_seconds, icmp_status, ping_sent, ping_received,
+            ping_lost, loss_percentage, rtt_min_ms, rtt_avg_ms,
+            rtt_max_ms, latency_spikes, bytes_received,
+            average_inbound_mbps, link_utilization_percent
+        FROM deployment_network_stages
+        """
+    )
+    connection.exec_driver_sql("DROP TABLE deployment_network_stages")
+    connection.exec_driver_sql(
+        "ALTER TABLE deployment_network_stages_driver_strategy_upgrade "
+        "RENAME TO deployment_network_stages"
+    )
+    connection.exec_driver_sql(
+        "CREATE INDEX ix_deployment_network_stages_deployment_id "
+        "ON deployment_network_stages (deployment_id)"
+    )
+
+
+def _migration_add_post_powershell(connection: Connection) -> None:
+    connection.exec_driver_sql(
+        """
+        CREATE TABLE IF NOT EXISTS post_powershell_scripts (
+            id INTEGER NOT NULL PRIMARY KEY,
+            name VARCHAR(255) NOT NULL UNIQUE,
+            size_bytes BIGINT NOT NULL,
+            modified_ns BIGINT NOT NULL,
+            sha256 VARCHAR(64) NOT NULL,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL
+        )
+        """
+    )
+    connection.exec_driver_sql(
+        """
+        CREATE TABLE IF NOT EXISTS deployment_profile_scripts (
+            profile_id INTEGER NOT NULL,
+            script_id INTEGER NOT NULL,
+            position INTEGER NOT NULL,
+            selection_mode VARCHAR(16) NOT NULL,
+            run_phase VARCHAR(24) NOT NULL,
+            arguments VARCHAR(500) NOT NULL,
+            timeout_seconds INTEGER NOT NULL,
+            PRIMARY KEY (profile_id, script_id),
+            CONSTRAINT uq_deployment_profile_scripts_position
+                UNIQUE (profile_id, position),
+            CONSTRAINT ck_deployment_profile_scripts_selection_mode
+                CHECK (selection_mode IN ('automatic', 'operator')),
+            CONSTRAINT ck_deployment_profile_scripts_run_phase
+                CHECK (run_phase IN ('before_software', 'after_software')),
+            CONSTRAINT ck_deployment_profile_scripts_timeout
+                CHECK (timeout_seconds BETWEEN 1 AND 10800),
+            FOREIGN KEY(profile_id) REFERENCES deployment_profiles (id)
+                ON DELETE CASCADE,
+            FOREIGN KEY(script_id) REFERENCES post_powershell_scripts (id)
+                ON DELETE CASCADE
+        )
+        """
+    )
+    connection.exec_driver_sql(
+        """
+        CREATE TABLE IF NOT EXISTS deployment_powershell_results (
+            id INTEGER NOT NULL PRIMARY KEY,
+            deployment_id BIGINT NOT NULL,
+            script_id INTEGER,
+            position INTEGER NOT NULL,
+            name VARCHAR(255) NOT NULL,
+            selection_mode VARCHAR(16) NOT NULL,
+            run_phase VARCHAR(24) NOT NULL,
+            arguments VARCHAR(500) NOT NULL,
+            timeout_seconds INTEGER NOT NULL,
+            size_bytes BIGINT NOT NULL,
+            sha256 VARCHAR(64) NOT NULL,
+            status VARCHAR(24) NOT NULL,
+            exit_code INTEGER,
+            duration_seconds INTEGER,
+            output_bytes BIGINT NOT NULL,
+            output_total_bytes BIGINT NOT NULL,
+            output_truncated BOOLEAN NOT NULL,
+            error_message TEXT,
+            reported_at DATETIME,
+            CONSTRAINT uq_deployment_powershell_results_position
+                UNIQUE (deployment_id, position),
+            CONSTRAINT ck_deployment_powershell_results_selection_mode
+                CHECK (selection_mode IN ('automatic', 'operator')),
+            CONSTRAINT ck_deployment_powershell_results_run_phase
+                CHECK (run_phase IN ('before_software', 'after_software')),
+            CONSTRAINT ck_deployment_powershell_results_status CHECK (
+                status IN (
+                    'pending', 'succeeded', 'failed', 'timed_out',
+                    'hash_mismatch', 'download_failed'
+                )
+            ),
+            FOREIGN KEY(deployment_id) REFERENCES deployments (id)
+                ON DELETE CASCADE,
+            FOREIGN KEY(script_id) REFERENCES post_powershell_scripts (id)
+                ON DELETE SET NULL
+        )
+        """
+    )
+    connection.exec_driver_sql(
+        "CREATE INDEX IF NOT EXISTS "
+        "ix_deployment_powershell_results_deployment_id "
+        "ON deployment_powershell_results (deployment_id)"
+    )
+
+
 MIGRATIONS = (
     Migration(1, "create current schema", _migration_create_schema),
     Migration(2, "add legacy columns", _migration_add_legacy_columns),
@@ -493,6 +791,17 @@ MIGRATIONS = (
         6,
         "allow early network adapter snapshot",
         _migration_allow_early_network_adapter_snapshot,
+    ),
+    Migration(
+        7,
+        "add default deployment profile",
+        _migration_add_default_deployment_profile,
+    ),
+    Migration(8, "add post-powershell scripts", _migration_add_post_powershell),
+    Migration(
+        9,
+        "add driver apply strategy",
+        _migration_add_driver_apply_strategy,
     ),
 )
 

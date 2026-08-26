@@ -52,7 +52,7 @@ IronAPI reads `Core\Api\.env`. Its settings are grouped by responsibility:
 | Group | Examples |
 | --- | --- |
 | Listener | access mode, bind address, port, access log, allowed client networks |
-| Deployment | authorization and deployment timeouts, image-apply strategy |
+| Deployment | authorization and deployment timeouts, image- and driver-apply strategies |
 | SMB | share path and configured account returned to authorized WinPE; the account must be read-only in SMB and NTFS |
 | Storage | SQLite database and temporary ODJ directory |
 | Naming and LDAP | name prefix/range, domain controller, base DN, LDAP TLS |
@@ -74,15 +74,18 @@ IronAPI answers requests from several sources rather than one central catalog:
 | Images, indexes, and SHA-256 hashes | `Core\Share\Images` plus server-side image metadata |
 | Driver packages | `Core\Share\Drivers` |
 | Programs, arguments, sizes, and hashes | `Core\Share\Programs` and its metadata file |
-| SMB access and image apply strategy | server-side `Core\Api\.env` |
+| Post-PowerShell payloads and profile policy | Private `Core\Library\PostPowerShell` storage plus SQLite profile bindings |
+| SMB access and image/driver apply strategies | server-side `Core\Api\.env` |
 | Unattend and post-install files | `Core\ServerTemplates` |
 | Computer-name availability | SQLite history plus LDAP when configured |
 | ODJ result | `djoin.exe`, Active Directory, and `Core\ODJ\pending` |
-| WinPE runtime settings | `Core\WinPE\Runtime\deploy.config.ps1` |
+| WinPE bootstrap settings | `Core\WinPE\Runtime\deploy.config.ps1` |
+| Default post-install account policy | SQLite deployment profile |
 
 The manifest endpoint validates the current selection against the current
 server catalog and returns image/index/hash details, `imageApplyMode`,
-driver-package metadata, selected programs, and post-install settings. WinPE
+`driverApplyMode`, driver-package metadata, selected programs, selected or
+automatic PowerShell scripts, and post-install settings. WinPE
 checks the image size, checks the driver package's total size and INF count,
 and compares selected program installers with their expected SHA-256 after
 copying. In staged mode WinPE also verifies the downloaded image against the
@@ -91,11 +94,26 @@ and refuses to execute a mismatched installer. Driver packages are validated
 by their server-approved relative path, total size, and INF count rather than
 a content hash.
 
-`imageApplyMode` accepts `direct` or `staged` and defaults to `direct` to
-preserve the established behavior. IronAPI refuses to issue a staged manifest
-when the selected image has no valid SHA-256. No additional endpoint is used:
-WinPE reads the value once from `POST /api/deploy/{id}/manifest` for the current
-deployment.
+Post-PowerShell scripts use authenticated IronAPI HTTP(S) routes rather than
+SMB. WinPE verifies each download against the manifest SHA-256, and
+post-install verifies it again immediately before execution. Profile bindings
+hold automatic/operator policy, before/after-software phase, raw arguments,
+and a timeout from 1 second through 3 hours. Failures never change the
+deployment terminal status. IronAPI
+stores up to 20 MiB of raw output per execution under
+`Core\Logs\PostPowerShell` and loads it lazily on deployment details.
+
+`imageApplyMode` accepts `direct` or `staged`; new installations default to
+`staged`. IronAPI refuses to issue a staged manifest when the selected image
+has no valid SHA-256. No additional endpoint is used: WinPE reads the value
+once from `POST /api/deploy/{id}/manifest` for the current deployment. A WinPE
+runtime receiving a missing or unsupported value falls back to `direct`.
+
+`driverApplyMode` uses the same `direct` or `staged` values and the same
+manifest endpoint, with `staged` as the new-installation default. Direct mode
+keeps DISM on the selected SMB package. Staged mode copies the package locally
+and validates its byte, file, and INF counts before offline injection. A WinPE
+runtime receiving a missing or unsupported value falls back to `direct`.
 
 ## Browser interface
 
@@ -106,6 +124,7 @@ The IronAPI browser interface provides:
 - WinPE authorization policy;
 - WIM/ESD image upload, WIM rename, index selection, and ESD-to-WIM conversion;
 - program upload, rename, arguments, hash metadata, and removal;
+- Post-PowerShell upload, arguments, phase, selection mode, timeout, and removal;
 - driver vendor/package upload and cleanup;
 - WinPE and image configuration;
 - WIM or ISO rebuild controls.
@@ -125,12 +144,13 @@ Key WinPE-facing routes are:
 | `GET /api/deploy/auth/policy` | Active WinPE authorization mode | SQLite authorization policy |
 | `POST /api/deploy/auth/login` and `/authorize` | Short-lived deployment bearer | IronAPI accounts or the server-owned PIN/credential-free policy |
 | `GET /api/deploy/suggest-name` | Suggested and previously used computer names | Naming configuration, LDAP, and SQLite inventory |
-| `GET /api/deploy/catalog` | Available images, indexes, programs, hashes, and driver-package metadata | `Core\Share` and its server-side metadata |
+| `GET /api/deploy/catalog` | Available images, indexes, programs, PowerShell choices, hashes, and driver-package metadata | `Core\Share`, `Core\Library`, SQLite profiles, and server-side metadata |
 | `POST /api/deploy/begin` | Deployment ID and bound bearer state | Submitted hardware, target-disk snapshot, selection data, and SQLite |
 | `POST /api/deploy/{id}/manifest` | Validated server-approved deployment plan | Current catalog and image settings |
 | `GET /api/deploy/{id}/smb-credentials` | Configured SMB connection details; the account must be read-only | `Core\Api\.env` |
 | `PUT /api/deploy/{id}/network-diagnostics/adapters` | Early API/SMB adapter, IP, route relationship, and negotiated link-speed snapshot | WinPE network interfaces and SQLite |
 | Unattend and post-install routes | Per-deployment answer file and scripts | `Core\ServerTemplates` and image settings |
+| Post-PowerShell routes | Authenticated `.ps1` downloads plus per-script status and bounded raw output | Resolved profile manifest, SQLite, private `Core\Library\PostPowerShell` storage, and `Core\Logs` |
 | Domain-join routes | ODJ provisioning, download, and acknowledgement | Active Directory and `Core\ODJ\pending` |
 | Stage, error, diagnostics, and completion routes | Deployment progress and final result | SQLite deployment state |
 
@@ -212,14 +232,19 @@ measurement. Staged deployments report `image_download` separately from
 download window, while local DISM progress and duration belong to the apply
 stage.
 
+Driver deployments follow the same measurement boundary. Direct mode measures
+SMB activity during `driver_injection`. Staged mode reports network activity in
+`driver_download`; the following local `driver_injection` stage records time
+without attributing network bytes to the local DISM work.
+
 The server controls which routes are available in the WinPE and post-install
 phases. The installed machine uses the persisted deployment state only to
 submit its post-install results and final completion.
 
 ## Deployment state
 
-IronAPI stores deployment identity and status, the selected image name and
-image-apply strategy, the operator-confirmed target disk number/model/size
+IronAPI stores deployment identity and status, the selected image name, image-
+and driver-apply strategies, the operator-confirmed target disk number/model/size
 snapshot, domain-join choice, stages, errors, computer inventory, program
 results, early adapter data, and aggregate diagnostics in SQLite. An adapter
 snapshot may exist before the aggregate report is complete. Stale active
@@ -254,6 +279,9 @@ records completed versions in `schema_migrations`.
 Migration 6 makes final-only columns in `deployment_network_summaries` nullable
 so an adapter snapshot can be stored before aggregate measurements finish.
 Existing completed diagnostic rows are copied without changing their values.
+Migration 7 creates the default deployment profile that owns post-install
+account policy. It intentionally starts with Alpha defaults instead of reading
+legacy values from the WinPE runtime configuration.
 
 Before migrating a file-backed database, IronAPI:
 

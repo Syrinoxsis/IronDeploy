@@ -4,6 +4,7 @@ const STAGE_LABELS = {
     disk_partitioning: "Disk partitioning",
     image_download: "Download image",
     image_apply: "Apply image",
+    driver_download: "Download drivers",
     driver_injection: "Driver injection",
     deployment_state: "Save deployment state",
     unattend_generation: "Generate unattend.xml",

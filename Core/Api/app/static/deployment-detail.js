@@ -4,6 +4,7 @@ const DETAIL_STAGE_LABELS = {
     disk_partitioning: "Disk partitioning",
     image_download: "Download image",
     image_apply: "Apply image",
+    driver_download: "Download drivers",
     driver_injection: "Driver injection",
     deployment_state: "Save deployment state",
     unattend_generation: "Generate unattend.xml",
@@ -35,6 +36,9 @@ const detailElements = {
     programList: document.querySelector("#program-list"),
     programEmpty: document.querySelector("#program-empty"),
     programCount: document.querySelector("#program-count"),
+    powershellList: document.querySelector("#powershell-list"),
+    powershellEmpty: document.querySelector("#powershell-empty"),
+    powershellCount: document.querySelector("#powershell-count"),
     copyState: document.querySelector("#copy-state"),
     networkReportState: document.querySelector("#network-report-state"),
     networkEmpty: document.querySelector("#network-empty"),
@@ -114,7 +118,11 @@ function detailStatusLabel(status) {
         running: "Running",
         skipped: "Skipped",
         installed: "Installed",
+        succeeded: "Succeeded",
         timed_out: "Timed out",
+        hash_mismatch: "SHA-256 mismatch",
+        download_failed: "Download failed",
+        pending: "Pending",
     }[status] || status || "-";
 }
 
@@ -216,7 +224,8 @@ function createNetworkStageMetric(labelText, valueText) {
 
 function renderNetworkStages(stages) {
     const order = [
-        "image_download", "image_apply", "driver_injection", "postinstall_copy",
+        "image_download", "image_apply", "driver_download", "driver_injection",
+        "postinstall_copy",
     ];
     const byStage = new Map(stages.map((stage) => [stage.stage, stage]));
     detailElements.networkStageList.replaceChildren();
@@ -552,6 +561,131 @@ function renderPrograms(programs) {
     }
 }
 
+function renderPowerShell(scripts) {
+    const outputStates = new Map();
+    for (const output of detailElements.powershellList.querySelectorAll(
+        ".powershell-output[data-position]",
+    )) {
+        const pre = output.querySelector("pre");
+        outputStates.set(output.dataset.position, {
+            open: output.open,
+            loaded: output.dataset.loaded === "true",
+            outputUrl: output.dataset.outputUrl,
+            outputBytes: output.dataset.outputBytes,
+            text: pre?.textContent || "",
+            isError: pre?.classList.contains("is-error") || false,
+            scrollTop: pre?.scrollTop || 0,
+            scrollLeft: pre?.scrollLeft || 0,
+        });
+    }
+
+    detailElements.powershellList.replaceChildren();
+    detailElements.powershellCount.textContent = `${scripts.length} ${detailText(
+        scripts.length === 1 ? "script" : "scripts",
+    )}`;
+    detailElements.powershellEmpty.hidden = scripts.length !== 0;
+    detailElements.powershellList.hidden = scripts.length === 0;
+
+    for (const script of scripts) {
+        const card = document.createElement("article");
+        card.className = `program-card powershell-result status-${script.status}`;
+        const head = document.createElement("div");
+        head.className = "program-card-head";
+        const name = document.createElement("strong");
+        name.className = "program-name";
+        name.textContent = script.name;
+        const status = document.createElement("span");
+        status.className = "program-status";
+        status.textContent = detailText(detailStatusLabel(script.status));
+        head.append(name, status);
+
+        const meta = document.createElement("div");
+        meta.className = "program-meta";
+        for (const value of [
+            script.run_phase === "before_software" ? "Before software" : "After software",
+            script.selection_mode === "automatic" ? "Automatic" : "Operator selected",
+            `Timeout: ${script.timeout_seconds}s`,
+            `Duration: ${script.duration_seconds ?? "-"}s`,
+            `Exit code: ${script.exit_code ?? "-"}`,
+        ]) {
+            const item = document.createElement("span");
+            item.textContent = detailText(value);
+            meta.append(item);
+        }
+        card.append(head, meta);
+        if (script.error_message) {
+            const error = document.createElement("p");
+            error.className = "program-error";
+            error.textContent = script.error_message;
+            card.append(error);
+        }
+        if (script.output_truncated) {
+            const warning = document.createElement("p");
+            warning.className = "powershell-output-warning";
+            warning.textContent = `Output reached the 20 MiB retention limit. ${script.output_total_bytes.toLocaleString()} bytes were produced; the remainder was discarded.`;
+            card.append(warning);
+        }
+        if (script.output_url) {
+            const output = document.createElement("details");
+            output.className = "powershell-output";
+            output.dataset.position = String(script.position);
+            output.dataset.outputUrl = script.output_url;
+            output.dataset.outputBytes = String(script.output_bytes);
+            const summary = document.createElement("summary");
+            summary.textContent = `Raw output (${script.output_bytes.toLocaleString()} bytes)`;
+            const pre = document.createElement("pre");
+            const previous = outputStates.get(String(script.position));
+            const canReuseOutput = previous?.loaded
+                && !previous.isError
+                && previous.outputUrl === script.output_url
+                && previous.outputBytes === String(script.output_bytes);
+            let loaded = Boolean(canReuseOutput);
+            let loading = false;
+            output.dataset.loaded = String(loaded);
+            output.dataset.loading = "false";
+            pre.textContent = loaded ? previous.text : "Open to load output...";
+            pre.classList.toggle("is-error", loaded && previous.isError);
+
+            async function loadOutput() {
+                if (!output.open || loaded || loading) return;
+                loading = true;
+                output.dataset.loading = "true";
+                pre.textContent = "Loading...";
+                pre.classList.remove("is-error");
+                try {
+                    const response = await fetch(script.output_url, { cache: "no-store" });
+                    if (!response.ok) throw new Error(`Output request failed (${response.status}).`);
+                    pre.textContent = await response.text();
+                    loaded = true;
+                    output.dataset.loaded = "true";
+                } catch (error) {
+                    pre.textContent = error.message;
+                    pre.classList.add("is-error");
+                    loaded = true;
+                    output.dataset.loaded = "true";
+                } finally {
+                    loading = false;
+                    output.dataset.loading = "false";
+                }
+            }
+
+            output.addEventListener("toggle", loadOutput);
+            output.append(summary, pre);
+            card.append(output);
+            if (previous?.open) {
+                output.open = true;
+                window.requestAnimationFrame(() => {
+                    if (!pre.isConnected || !canReuseOutput) return;
+                    pre.scrollTop = previous.scrollTop;
+                    pre.scrollLeft = previous.scrollLeft;
+                });
+                void loadOutput();
+            }
+        }
+        detailElements.powershellList.append(card);
+    }
+}
+
 function renderDeployment(deployment) {
     detailState.startedAt = deployment.started_at;
     detailState.completedAt = deployment.completed_at;
@@ -574,6 +708,7 @@ function renderDeployment(deployment) {
     setCopyableField("ip_address", deployment.ip_address);
     setCopyableField("image_name", deployment.image_name);
     setCopyableField("image_apply_mode", deployment.imageApplyMode);
+    setCopyableField("driver_apply_mode", deployment.driverApplyMode);
     setCopyableField("target_disk", formatTargetDisk(deployment));
     setCopyableField(
         "domain_join",
@@ -593,6 +728,7 @@ function renderDeployment(deployment) {
         deployment.last_error_message || "";
     renderStages(deployment.stages || []);
     renderPrograms(deployment.programs || []);
+    renderPowerShell(deployment.post_powershell || []);
     renderNetworkDiagnostics(deployment.network_diagnostics);
 
     detailElements.loading.hidden = true;

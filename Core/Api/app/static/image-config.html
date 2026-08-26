@@ -246,7 +246,7 @@
                          data-settings-view-panel="technical-settings" hidden>
                     <header class="inspector-heading">
                         <h1>Technical settings</h1>
-                        <p>Configure how WinPE downloads and applies Windows images.</p>
+                        <p>Configure how WinPE reads Windows images and driver packages.</p>
                     </header>
                     <fieldset class="settings-choice-group">
                         <legend>Image apply method</legend>
@@ -262,6 +262,23 @@
                             <span>
                                 <strong>Apply directly from SMB</strong>
                                 <em>Keep the existing behavior and let DISM read the WIM from the share.</em>
+                            </span>
+                        </label>
+                    </fieldset>
+                    <fieldset class="settings-choice-group">
+                        <legend>Driver package method</legend>
+                        <label class="settings-choice-row">
+                            <input name="driverApplyMode" type="radio" value="staged">
+                            <span>
+                                <strong>Download drivers first</strong>
+                                <em>Copy and validate the selected package locally before offline injection.</em>
+                            </span>
+                        </label>
+                        <label class="settings-choice-row">
+                            <input name="driverApplyMode" type="radio" value="direct">
+                            <span>
+                                <strong>Inject directly from SMB</strong>
+                                <em>Keep the existing behavior and let DISM read drivers from the share.</em>
                             </span>
                         </label>
                     </fieldset>

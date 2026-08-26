@@ -43,6 +43,13 @@ class DatabaseSafetyTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary_directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary_directory.cleanup)
+        self.irondeploy_root = Path(self.temporary_directory.name) / "IronDeploy"
+        root_patch = patch(
+            "app.database.IRONDEPLOY_ROOT",
+            self.irondeploy_root,
+        )
+        root_patch.start()
+        self.addCleanup(root_patch.stop)
         self.database_path = (
             Path(self.temporary_directory.name) / "irondeploy.db"
         )
@@ -157,12 +164,14 @@ class DatabaseSafetyTests(unittest.TestCase):
 
         tables = set(inspect(self.engine).get_table_names())
         self.assertIn("deployments", tables)
+        self.assertIn("deployment_profiles", tables)
         self.assertIn(MIGRATION_TABLE, tables)
         deployment_columns = {
             column["name"]
             for column in inspect(self.engine).get_columns("deployments")
         }
         self.assertIn("image_apply_mode", deployment_columns)
+        self.assertIn("driver_apply_mode", deployment_columns)
         with self.engine.connect() as connection:
             network_stage_sql = connection.execute(
                 text(
@@ -170,12 +179,59 @@ class DatabaseSafetyTests(unittest.TestCase):
                     "WHERE type = 'table' AND name = 'deployment_network_stages'"
                 )
             ).scalar_one()
+            profile_scripts_sql = connection.execute(
+                text(
+                    "SELECT sql FROM sqlite_master WHERE type = 'table' "
+                    "AND name = 'deployment_profile_scripts'"
+                )
+            ).scalar_one()
         self.assertIn("'image_download'", network_stage_sql)
+        self.assertIn("'driver_download'", network_stage_sql)
+        self.assertIn("BETWEEN 1 AND 10800", profile_scripts_sql)
+        with self.engine.connect() as connection:
+            default_profile = connection.execute(
+                text(
+                    "SELECT name, local_admin_name, "
+                    "enable_builtin_administrator, enable_setup_local_admin "
+                    "FROM deployment_profiles WHERE is_default = 1"
+                )
+            ).one()
+        self.assertEqual(
+            tuple(default_profile),
+            ("Default", "localadmin", 1, 1),
+        )
         self.assertEqual(
             self.applied_versions(),
             [migration.version for migration in MIGRATIONS],
         )
         self.assertEqual(self.backups(), [])
+
+    def test_default_profile_imports_legacy_alpha_settings(self) -> None:
+        runtime = self.irondeploy_root / "WinPE" / "Runtime"
+        runtime.mkdir(parents=True)
+        (runtime / "deploy.config.ps1").write_text(
+            "\n".join(
+                (
+                    "$SetupLocalAdminName = 'deployadmin'",
+                    "$EnableBuiltInAdministrator = $false",
+                    "$DisableSetupLocalAdmin = $true",
+                    "",
+                )
+            ),
+            encoding="utf-8",
+        )
+
+        initialize_database(self.engine)
+
+        with self.engine.connect() as connection:
+            profile = connection.execute(
+                text(
+                    "SELECT local_admin_name, enable_builtin_administrator, "
+                    "enable_setup_local_admin FROM deployment_profiles "
+                    "WHERE is_default = 1"
+                )
+            ).one()
+        self.assertEqual(tuple(profile), ("deployadmin", 0, 0))
 
     def test_early_adapter_migration_preserves_final_network_report(self) -> None:
         with self.engine.begin() as connection:
@@ -295,6 +351,7 @@ class DatabaseSafetyTests(unittest.TestCase):
         self.assertIn("target_disk_model", columns)
         self.assertIn("target_disk_size_bytes", columns)
         self.assertIn("image_apply_mode", columns)
+        self.assertIn("driver_apply_mode", columns)
         self.assertEqual(
             self.applied_versions(),
             [migration.version for migration in MIGRATIONS],

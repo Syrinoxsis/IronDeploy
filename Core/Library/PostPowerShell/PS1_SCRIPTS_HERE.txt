@@ -1,0 +1,7 @@
+Upload managed .ps1 files through the IronAPI Post-PowerShell page.
+
+This is a private server-side library and is not part of the IronDeploy SMB
+share. IronAPI binds each script to a deployment profile, calculates SHA-256,
+and publishes only profile-approved scripts through authenticated HTTP(S).
+Files copied here manually are not registered until they are uploaded through
+IronAPI.

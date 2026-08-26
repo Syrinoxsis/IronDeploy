@@ -30,6 +30,11 @@ model, and size. IronAPI records that snapshot with the deployment.
 - Report whether Offline Domain Join is configured to the WinPE interface, so
   it stops offering a domain join that IronAPI will refuse.
 
+## Post-install automation
+
+- Decide the retention period, total storage quota, and cleanup policy for raw
+  post-PowerShell output stored by IronAPI.
+
 ## Project infrastructure
 
 - Run the test suite automatically on Windows, where the WinPE and service
