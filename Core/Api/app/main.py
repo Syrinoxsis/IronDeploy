@@ -117,8 +117,8 @@ from app.drivers import (
     begin_driver_package_upload,
     cancel_driver_package_upload,
     create_vendor,
-    delete_abandoned_driver_upload,
     delete_all_abandoned_driver_uploads,
+    delete_driver_upload,
     delete_driver_package,
     delete_vendor,
     finalize_driver_package_upload,
@@ -834,15 +834,14 @@ def remove_all_abandoned_driver_uploads(request: Request) -> JSONResponse:
 
 
 @app.delete("/api/info/driver-uploads/{upload_id}")
-def remove_abandoned_driver_upload(
+def remove_driver_upload(
     upload_id: str,
     request: Request,
 ) -> JSONResponse:
     require_image_config_write(request)
     try:
-        result = delete_abandoned_driver_upload(
+        result = delete_driver_upload(
             upload_id,
-            _driver_upload_limits(),
         )
     except DriverError as exc:
         status_code = 404 if "not found" in str(exc).lower() else 400

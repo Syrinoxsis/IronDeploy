@@ -80,7 +80,9 @@ function renderUpload(upload) {
         : translate("Invalid upload metadata");
     const id = document.createElement("span");
     id.className = "upload-id";
-    id.textContent = upload.uploadId;
+    id.textContent = upload.slot
+        ? `${upload.uploadId} · ${translate("slot")} ${upload.slot}`
+        : upload.uploadId;
     identity.append(name, id);
 
     const details = document.createElement("div");
@@ -93,41 +95,48 @@ function renderUpload(upload) {
 
     const status = document.createElement("span");
     status.className = `upload-status ${upload.status}`;
-    status.textContent = translate(
-        upload.status === "abandoned"
-            ? "Abandoned"
-            : upload.status === "active"
-                ? "Active upload"
-                : "Invalid"
-    );
+    const statusLabels = {
+        abandoned: "Abandoned",
+        active: "Active upload",
+        interrupted: "Interrupted",
+        invalid: "Invalid",
+    };
+    status.textContent = translate(statusLabels[upload.status] || "Invalid");
 
     row.append(identity, details, status);
-    if (upload.status !== "active") {
-        const remove = document.createElement("button");
-        remove.type = "button";
-        remove.className = "danger-button";
-        remove.textContent = translate("Delete");
-        remove.addEventListener("click", async () => {
-            const confirmation = upload.status === "invalid"
-                ? "Delete this invalid upload? Its temporary files cannot be recovered."
-                : "Delete this abandoned upload? Its temporary files cannot be recovered.";
-            if (!window.confirm(translate(confirmation))) return;
-            remove.disabled = true;
-            try {
-                await apiFetch(
-                    `/api/info/driver-uploads/${encodeURIComponent(upload.uploadId)}`,
-                    { method: "DELETE" }
-                );
-                if (await loadInfo()) {
-                    showMessage(translate("Temporary upload deleted."));
-                }
-            } catch (error) {
-                remove.disabled = false;
-                showMessage(error.message, "error");
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "danger-button";
+    remove.textContent = translate(
+        upload.status === "active" ? "Stop and delete" : "Delete"
+    );
+    remove.addEventListener("click", async () => {
+        const confirmations = {
+            active: "Stop and delete this active upload? Its temporary files cannot be recovered.",
+            interrupted: "Delete this interrupted upload? Its temporary files cannot be recovered.",
+            invalid: "Delete this invalid upload? Its temporary files cannot be recovered.",
+            abandoned: "Delete this abandoned upload? Its temporary files cannot be recovered.",
+        };
+        if (!window.confirm(translate(confirmations[upload.status]))) return;
+        remove.disabled = true;
+        try {
+            const result = await apiFetch(
+                `/api/info/driver-uploads/${encodeURIComponent(upload.uploadId)}`,
+                { method: "DELETE" }
+            );
+            if (await loadInfo()) {
+                showMessage(translate(
+                    result.deletionPending
+                        ? "Upload stopped. Temporary files are being removed."
+                        : "Temporary upload deleted."
+                ));
             }
-        });
-        row.append(remove);
-    }
+        } catch (error) {
+            remove.disabled = false;
+            showMessage(error.message, "error");
+        }
+    });
+    row.append(remove);
     return row;
 }
 
@@ -155,6 +164,7 @@ function renderInfo(payload) {
     elements.uploadSummary.textContent =
         `${counts.total} ${translate("unfinished")} ? ` +
         `${counts.active} ${translate("active")} ? ` +
+        `${counts.interrupted} ${translate("interrupted")} ? ` +
         `${counts.abandoned} ${translate("abandoned")} ? ` +
         `${counts.invalid} ${translate("invalid")}`;
     elements.deleteAbandonedButton.disabled = counts.abandoned === 0;

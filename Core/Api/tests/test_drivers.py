@@ -8,6 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from app import drivers as drivers_module
 from app.drivers import (
     DriverError,
     DriverUploadLimits,
@@ -16,6 +17,7 @@ from app.drivers import (
     create_vendor,
     delete_abandoned_driver_upload,
     delete_all_abandoned_driver_uploads,
+    delete_driver_upload,
     delete_driver_package,
     delete_vendor,
     finalize_driver_package_upload,
@@ -39,6 +41,8 @@ class DriverManagementTests(unittest.TestCase):
         self.drivers_dir = self.root / "Drivers"
         self.drivers_dir.mkdir()
         self.test_limits = DriverUploadLimits(min_free_space_gib=1)
+        drivers_module._active_uploads.clear()
+        self.addCleanup(drivers_module._active_uploads.clear)
 
     def test_vendor_create_rename_and_delete(self) -> None:
         create_vendor("Lenovo", self.drivers_dir)
@@ -183,8 +187,8 @@ class DriverManagementTests(unittest.TestCase):
 
         staging_files = (
             self.drivers_dir
-            / ".irondeploy-uploads"
-            / upload["uploadId"]
+            / ".upload-temp"
+            / "1"
             / "files"
         )
         self.assertEqual(
@@ -317,6 +321,28 @@ class DriverManagementTests(unittest.TestCase):
                 )
             )
 
+        suffix = ".inf"
+        near_limit_name_length = (
+            240
+            - len(str(package_root.absolute()))
+            - 1
+            - len(suffix)
+        )
+        near_limit_name = ("x" * near_limit_name_length) + suffix
+        self.assertEqual(
+            len(str((package_root / near_limit_name).absolute())),
+            240,
+        )
+        asyncio.run(
+            save_uploaded_driver_file(
+                upload["uploadId"],
+                near_limit_name,
+                _chunks(b"driver"),
+                self.drivers_dir,
+                DriverUploadLimits(max_full_path=240),
+            )
+        )
+
     def test_begin_upload_checks_unfinished_count_and_free_space(self) -> None:
         create_vendor("HP", self.drivers_dir)
         limits = DriverUploadLimits(max_active_uploads=1, min_free_space_gib=1)
@@ -338,20 +364,58 @@ class DriverManagementTests(unittest.TestCase):
                     "HP", "ProBook", self.drivers_dir, limits
                 )
 
-    def test_info_lists_and_deletes_only_abandoned_uploads(self) -> None:
+    def test_slots_restart_status_and_administrative_deletion(self) -> None:
         create_vendor("Lenovo", self.drivers_dir)
-        abandoned = begin_driver_package_upload(
+        first = begin_driver_package_upload(
             "Lenovo", "T14", self.drivers_dir, self.test_limits
         )
-        active = begin_driver_package_upload(
+        second = begin_driver_package_upload(
             "Lenovo", "X1", self.drivers_dir, self.test_limits
         )
-        abandoned_metadata = (
-            self.drivers_dir
-            / ".irondeploy-uploads"
-            / abandoned["uploadId"]
-            / "upload.json"
+
+        first_directory = self.drivers_dir / ".upload-temp" / "1"
+        second_directory = self.drivers_dir / ".upload-temp" / "2"
+        self.assertTrue((first_directory / "files").is_dir())
+        self.assertTrue((first_directory / "temp").is_dir())
+        first_payload = json.loads(
+            (first_directory / "upload.json").read_text(encoding="utf-8")
         )
+        self.assertEqual(first_payload["uploadId"], first["uploadId"])
+        self.assertEqual(first_payload["slot"], 1)
+
+        active_info = get_driver_upload_info(self.test_limits, self.drivers_dir)
+        self.assertEqual(active_info["counts"]["active"], 2)
+        self.assertEqual(active_info["counts"]["interrupted"], 0)
+
+        drivers_module._active_uploads.clear()
+        restarted_info = get_driver_upload_info(self.test_limits, self.drivers_dir)
+        self.assertEqual(restarted_info["counts"]["active"], 0)
+        self.assertEqual(restarted_info["counts"]["interrupted"], 2)
+        with self.assertRaisesRegex(DriverError, "interrupted"):
+            asyncio.run(
+                save_uploaded_driver_file(
+                    first["uploadId"],
+                    "Network/net.inf",
+                    _chunks(b"driver"),
+                    self.drivers_dir,
+                )
+            )
+
+        deleted_interrupted = delete_driver_upload(
+            first["uploadId"],
+            self.drivers_dir,
+        )
+        self.assertTrue(deleted_interrupted["deleted"])
+        replacement = begin_driver_package_upload(
+            "Lenovo", "P1", self.drivers_dir, self.test_limits
+        )
+        replacement_payload = json.loads(
+            (first_directory / "upload.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(replacement_payload["uploadId"], replacement["uploadId"])
+        self.assertEqual(replacement_payload["slot"], 1)
+
+        abandoned_metadata = second_directory / "upload.json"
         payload = json.loads(abandoned_metadata.read_text(encoding="utf-8"))
         payload["updatedAt"] = (
             datetime.now(timezone.utc) - timedelta(hours=25)
@@ -366,31 +430,112 @@ class DriverManagementTests(unittest.TestCase):
             self.drivers_dir,
         )
         self.assertEqual(info["counts"]["active"], 1)
+        self.assertEqual(info["counts"]["interrupted"], 0)
         self.assertEqual(info["counts"]["abandoned"], 1)
         statuses = {
             item["uploadId"]: item["status"] for item in info["uploads"]
         }
-        self.assertEqual(statuses[abandoned["uploadId"]], "abandoned")
-        self.assertEqual(statuses[active["uploadId"]], "active")
+        self.assertEqual(statuses[second["uploadId"]], "abandoned")
+        self.assertEqual(statuses[replacement["uploadId"]], "active")
 
         with self.assertRaisesRegex(DriverError, "Only abandoned"):
             delete_abandoned_driver_upload(
-                active["uploadId"],
+                replacement["uploadId"],
                 DriverUploadLimits(upload_ttl_hours=24),
                 self.drivers_dir,
             )
+        deleted_active = delete_driver_upload(
+            replacement["uploadId"],
+            self.drivers_dir,
+        )
+        self.assertTrue(deleted_active["deleted"])
+        self.assertFalse(first_directory.exists())
+
         deleted = delete_all_abandoned_driver_uploads(
             DriverUploadLimits(upload_ttl_hours=24),
             self.drivers_dir,
         )
-        self.assertEqual(deleted["uploadIds"], [abandoned["uploadId"]])
-        self.assertTrue(
-            (
-                self.drivers_dir
-                / ".irondeploy-uploads"
-                / active["uploadId"]
-            ).is_dir()
+        self.assertEqual(deleted["uploadIds"], [second["uploadId"]])
+        self.assertFalse(second_directory.exists())
+
+    def test_completed_files_use_short_slot_paths(self) -> None:
+        create_vendor("Dell", self.drivers_dir)
+        upload = begin_driver_package_upload(
+            "Dell", "Latitude", self.drivers_dir, self.test_limits
         )
+        asyncio.run(
+            save_uploaded_driver_file(
+                upload["uploadId"],
+                "Network/Intel/e1d.inf",
+                _chunks(b"driver"),
+                self.drivers_dir,
+            )
+        )
+
+        upload_directory = self.drivers_dir / ".upload-temp" / "1"
+        self.assertEqual(list((upload_directory / "temp").iterdir()), [])
+        self.assertEqual(
+            (upload_directory / "files" / "Network" / "Intel" / "e1d.inf").read_bytes(),
+            b"driver",
+        )
+        self.assertNotIn(upload["uploadId"], str(upload_directory))
+
+    def test_active_upload_can_be_stopped_while_receiving_a_file(self) -> None:
+        create_vendor("Dell", self.drivers_dir)
+        upload = begin_driver_package_upload(
+            "Dell", "Precision", self.drivers_dir, self.test_limits
+        )
+
+        async def chunks_with_admin_stop():
+            yield b"first"
+            result = delete_driver_upload(upload["uploadId"], self.drivers_dir)
+            self.assertTrue(result["deleted"] or result["deletionPending"])
+            yield b"second"
+
+        with self.assertRaisesRegex(DriverError, "cancelled"):
+            asyncio.run(
+                save_uploaded_driver_file(
+                    upload["uploadId"],
+                    "Network/net.inf",
+                    chunks_with_admin_stop(),
+                    self.drivers_dir,
+                )
+            )
+
+        self.assertFalse((self.drivers_dir / ".upload-temp" / "1").exists())
+
+    def test_legacy_uuid_directory_is_interrupted_and_can_be_deleted(self) -> None:
+        upload_id = "a" * 32
+        upload_directory = (
+            self.drivers_dir
+            / ".irondeploy-uploads"
+            / upload_id
+        )
+        (upload_directory / "files").mkdir(parents=True)
+        (upload_directory / "upload.json").write_text(
+            json.dumps(
+                {
+                    "version": 2,
+                    "vendor": "Dell",
+                    "model": "Legacy",
+                    "files": {},
+                    "size": 0,
+                    "infCount": 0,
+                    "createdAt": datetime.now(timezone.utc).isoformat(),
+                    "updatedAt": datetime.now(timezone.utc).isoformat(),
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        info = get_driver_upload_info(self.test_limits, self.drivers_dir)
+        self.assertEqual(info["uploads"][0]["uploadId"], upload_id)
+        self.assertEqual(info["uploads"][0]["status"], "interrupted")
+        self.assertIsNone(info["uploads"][0]["slot"])
+
+        deleted = delete_driver_upload(upload_id, self.drivers_dir)
+        self.assertTrue(deleted["deleted"])
+        self.assertFalse(upload_directory.exists())
 
 
 if __name__ == "__main__":

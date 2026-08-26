@@ -72,7 +72,7 @@ IronAPI answers requests from several sources rather than one central catalog:
 | --- | --- |
 | Accounts, permissions, deployments, stages, inventory, and computer-name formats | `Core\Data\irondeploy.db` |
 | Images, indexes, and SHA-256 hashes | `Core\Share\Images` plus server-side image metadata |
-| Driver packages and temporary staged TAR files | `Core\Share\Drivers`; TAR files live under the hidden `.irondeploy-archives` directory |
+| Driver packages and temporary upload data | `Core\Share\Drivers`; unfinished uploads use numbered slots under `.upload-temp`, while staged TAR files live under `.irondeploy-archives` |
 | Programs, arguments, sizes, and hashes | `Core\Share\Programs` and its metadata file |
 | Post-PowerShell payloads and profile policy | Private `Core\Library\PostPowerShell` storage plus SQLite profile bindings |
 | SMB access and image/driver apply strategies | server-side `Core\Api\.env` |
