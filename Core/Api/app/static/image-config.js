@@ -17,6 +17,8 @@ const elements = {
     keyboardLayoutChoice: document.querySelector("#keyboardLayoutChoice"),
     addKeyboardLayout: document.querySelector("#addKeyboardLayout"),
     keyboardLayoutList: document.querySelector("#keyboardLayoutList"),
+    computerNameFormatList: document.querySelector("#computerNameFormatList"),
+    addComputerNameFormat: document.querySelector("#addComputerNameFormat"),
     systemLocale: document.querySelector("#systemLocale"),
     uiLanguage: document.querySelector("#uiLanguage"),
     userLocale: document.querySelector("#userLocale"),
@@ -44,6 +46,7 @@ const elements = {
 let pendingBuildTarget = null;
 let keyboardLayoutChoices = [];
 let selectedKeyboardLayouts = [];
+let computerNameFormats = [];
 let isDirty = false;
 
 function translated(text) {
@@ -225,6 +228,183 @@ function updateBuiltinWarning() {
     elements.builtinPasswordWarning.hidden = !needsPassword;
 }
 
+function normalizedNameFormat(raw = {}) {
+    return {
+        prefix: String(raw.prefix || "").toLowerCase(),
+        numberWidth: Number.parseInt(raw.numberWidth, 10) || 5,
+        startNumber: Number.isInteger(Number(raw.startNumber))
+            ? Number(raw.startNumber)
+            : 1,
+        domainLinked: Boolean(raw.domainLinked),
+    };
+}
+
+function nameFormatPattern(format) {
+    const width = Math.max(1, Number(format.numberWidth) || 1);
+    return `${format.prefix || "?"}${"#".repeat(Math.min(width, 14))}`;
+}
+
+function escapedHtml(value) {
+    return String(value).replace(/[&<>'"]/g, (character) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        "'": "&#39;",
+        '"': "&quot;",
+    })[character]);
+}
+
+function collectComputerNameFormats() {
+    return [...elements.computerNameFormatList.querySelectorAll("[data-name-format]")]
+        .map((row) => ({
+            prefix: row.querySelector('[data-format-field="prefix"]').value,
+            numberWidth: Number.parseInt(
+                row.querySelector('[data-format-field="numberWidth"]').value,
+                10
+            ),
+            startNumber: Number.parseInt(
+                row.querySelector('[data-format-field="startNumber"]').value,
+                10
+            ),
+            domainLinked: row.querySelector(
+                '[data-format-field="domainLinked"]'
+            ).checked,
+        }));
+}
+
+function renderComputerNameFormats(formats) {
+    computerNameFormats = (formats || []).map(normalizedNameFormat);
+    elements.computerNameFormatList.replaceChildren(
+        ...computerNameFormats.map((format, index) => {
+            const row = document.createElement("article");
+            row.className = "name-format-card";
+            row.dataset.nameFormat = String(index);
+            row.innerHTML = `
+                <header class="name-format-head">
+                    <div>
+                        <strong>${translated("Allowed format")}</strong>
+                        <span data-format-pattern>${escapedHtml(nameFormatPattern(format))}</span>
+                    </div>
+                    <button class="name-format-remove" type="button"
+                            data-format-action="remove">${translated("Remove")}</button>
+                </header>
+                <div class="name-format-fields">
+                    <label class="field">
+                        <span class="field-label">${translated("Prefix")}</span>
+                        <input data-format-field="prefix" maxlength="14"
+                               value="${escapedHtml(format.prefix)}" spellcheck="false">
+                    </label>
+                    <label class="field">
+                        <span class="field-label">${translated("Number width")}</span>
+                        <input data-format-field="numberWidth" type="number"
+                               min="1" max="14" value="${format.numberWidth}">
+                    </label>
+                    <label class="field">
+                        <span class="field-label">${translated("Starting number")}</span>
+                        <input data-format-field="startNumber" type="number"
+                               min="0" value="${format.startNumber}">
+                    </label>
+                </div>
+                <div class="name-format-domain-row">
+                    <span class="name-format-domain-copy">
+                        <strong>${translated("Linked to Active Directory")}</strong>
+                        <em>${translated("Read the last matching name from the domain.")}</em>
+                    </span>
+                    <span class="name-format-domain-actions">
+                        <button class="name-format-check" type="button"
+                                data-format-action="check"
+                                ${format.domainLinked ? "" : "hidden"}>
+                            ${translated("Test connection")}
+                        </button>
+                        <label class="switch-control"
+                               aria-label="${translated("Linked to Active Directory")}">
+                            <input data-format-field="domainLinked" type="checkbox"
+                                   ${format.domainLinked ? "checked" : ""}>
+                            <span class="switch-track" aria-hidden="true"></span>
+                        </label>
+                    </span>
+                </div>
+                <p class="name-format-status" data-format-status hidden></p>
+            `;
+            row.querySelector('[data-format-action="remove"]').disabled =
+                computerNameFormats.length === 1;
+            return row;
+        })
+    );
+    elements.addComputerNameFormat.disabled = computerNameFormats.length >= 20;
+}
+
+function refreshNameFormatRow(row) {
+    const prefix = row.querySelector('[data-format-field="prefix"]').value
+        .trim()
+        .toLowerCase();
+    const numberWidth = Number.parseInt(
+        row.querySelector('[data-format-field="numberWidth"]').value,
+        10
+    );
+    const domainLinked = row.querySelector(
+        '[data-format-field="domainLinked"]'
+    ).checked;
+    row.querySelector("[data-format-pattern]").textContent = nameFormatPattern({
+        prefix,
+        numberWidth,
+    });
+    row.querySelector('[data-format-action="check"]').hidden = !domainLinked;
+    const status = row.querySelector("[data-format-status]");
+    status.hidden = true;
+    status.textContent = "";
+    status.className = "name-format-status";
+}
+
+async function checkComputerNameFormat(row) {
+    const button = row.querySelector('[data-format-action="check"]');
+    const status = row.querySelector("[data-format-status]");
+    const format = {
+        prefix: row.querySelector('[data-format-field="prefix"]').value,
+        numberWidth: Number.parseInt(
+            row.querySelector('[data-format-field="numberWidth"]').value,
+            10
+        ),
+        startNumber: Number.parseInt(
+            row.querySelector('[data-format-field="startNumber"]').value,
+            10
+        ),
+        domainLinked: row.querySelector(
+            '[data-format-field="domainLinked"]'
+        ).checked,
+    };
+    button.disabled = true;
+    status.hidden = false;
+    status.className = "name-format-status checking";
+    status.textContent = translated("Checking Active Directory...");
+    try {
+        const result = await apiFetch(
+            "/api/image-config/computer-name-formats/check",
+            { method: "POST", body: JSON.stringify(format) }
+        );
+        if (!result.directory_available) {
+            status.className = "name-format-status error";
+            status.textContent = `${translated("Domain unavailable")}: ${result.error}`;
+            if (result.history_last_name) {
+                status.textContent += ` ${translated("IronDeploy history maximum")}: ${result.history_last_name}.`;
+            }
+            return;
+        }
+        status.className = result.error
+            ? "name-format-status warning"
+            : "name-format-status success";
+        const lastName = result.last_name || translated("no matching names");
+        const suggestedName = result.suggested_name || translated("range exhausted");
+        status.textContent = `${translated("Connected")}. ${translated("Last domain name")}: ${lastName}. ${translated("Next name")}: ${suggestedName}.`;
+        if (result.error) status.textContent += ` ${result.error}`;
+    } catch (error) {
+        status.className = "name-format-status error";
+        status.textContent = error.message;
+    } finally {
+        button.disabled = false;
+    }
+}
+
 function renderConfig(config) {
     renderTimeZones(config.timeZones || [], config.timeZone);
     setKeyboardLayouts(config.keyboardLayouts || [], config.inputLocale);
@@ -257,6 +437,7 @@ function renderConfig(config) {
     elements.builtinPasswordStatus.textContent = config.hasBuiltInAdministratorPassword
         ? "A password is saved. Leave blank to keep it or enter a new one."
         : "No password is saved. Enter at least 8 characters.";
+    renderComputerNameFormats(config.computerNameFormats || []);
     updateBuiltinWarning();
     elements.filesNote.textContent = "";
     setDirty(false);
@@ -300,6 +481,7 @@ async function save() {
             systemLocale: elements.systemLocale.value,
             uiLanguage: elements.uiLanguage.value,
             userLocale: elements.userLocale.value,
+            computerNameFormats: collectComputerNameFormats(),
         };
         const result = await apiFetch("/api/image-config", {
             method: "POST",
@@ -404,6 +586,43 @@ elements.addKeyboardLayout.addEventListener("click", () => {
     ) {
         selectedKeyboardLayouts.push(layout);
         renderKeyboardLayouts();
+        setDirty(true);
+    }
+});
+
+elements.addComputerNameFormat.addEventListener("click", () => {
+    const formats = collectComputerNameFormats();
+    if (formats.length >= 20) return;
+    formats.push({
+        prefix: "new",
+        numberWidth: 3,
+        startNumber: 1,
+        domainLinked: false,
+    });
+    renderComputerNameFormats(formats);
+    setDirty(true);
+});
+
+elements.computerNameFormatList.addEventListener("input", (event) => {
+    const row = event.target.closest("[data-name-format]");
+    if (row) refreshNameFormatRow(row);
+});
+elements.computerNameFormatList.addEventListener("change", (event) => {
+    const row = event.target.closest("[data-name-format]");
+    if (row) refreshNameFormatRow(row);
+});
+elements.computerNameFormatList.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-format-action]");
+    if (!button) return;
+    const row = button.closest("[data-name-format]");
+    if (button.dataset.formatAction === "check") {
+        checkComputerNameFormat(row);
+        return;
+    }
+    if (button.dataset.formatAction === "remove") {
+        const formats = collectComputerNameFormats();
+        formats.splice(Number(row.dataset.nameFormat), 1);
+        renderComputerNameFormats(formats);
         setDirty(true);
     }
 });

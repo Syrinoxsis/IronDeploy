@@ -2686,8 +2686,7 @@ function Get-IronDeployNameSuggestion {
         [string]$MacAddress
     )
 
-    $LastDomainName = $null
-    $SuggestedName = $null
+    $NameFormats = @()
     $KnownComputerNames = @()
 
     try {
@@ -2708,24 +2707,25 @@ function Get-IronDeployNameSuggestion {
             -TimeoutSec 10 `
             -UseBasicParsing
 
-        $LastDomainName = [string]$NameResponse.last_domain_name
-        $SuggestedName = [string]$NameResponse.suggested_name
+        $NameFormats = @($NameResponse.formats) |
+            Where-Object { $null -ne $_ }
         $KnownComputerNames = @($NameResponse.known_computer_names) |
             Where-Object { $null -ne $_ }
     } catch {
         Write-IronLog "[WARN] IronAPI unavailable: $($_.Exception.Message)" -Level warn
+        $NameFormats = @()
         $KnownComputerNames = @()
     }
 
     return [pscustomobject]@{
-        LastDomainName = $LastDomainName
-        SuggestedName = $SuggestedName
+        NameFormats = @($NameFormats)
         KnownComputerNames = @($KnownComputerNames)
     }
 }
 
 # Validates a computer name. Returns the normalised (lower-case) name or throws
-# a plain error when the format is wrong. Format: pc + 5 digits.
+# a plain error when it is not a valid Windows computer name. IronAPI owns and
+# authoritatively validates the configured naming formats.
 function Test-IronDeployComputerName {
     param(
         [Parameter(Mandatory = $true)]
@@ -2734,8 +2734,11 @@ function Test-IronDeployComputerName {
     )
 
     $Trimmed = ([string]$ComputerName).Trim()
-    if ($Trimmed -notmatch "^(?i:pc)\d{5}$") {
-        throw "Invalid name. Expected format: pc00001"
+    if (
+        $Trimmed.Length -gt 15 -or
+        $Trimmed -notmatch "^(?i:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)$"
+    ) {
+        throw "Invalid Windows computer name"
     }
     return $Trimmed.ToLowerInvariant()
 }

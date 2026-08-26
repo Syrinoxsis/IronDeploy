@@ -16,9 +16,6 @@ def make_settings(**overrides) -> Settings:
     values = {
         "database_url": "sqlite:///test.db",
         "deployment_secret_sha256": "0" * 64,
-        "name_prefix": "pc",
-        "name_width": 5,
-        "name_start": 1,
         "allowed_client_networks": (IPv4Network("192.0.2.0/24"),),
         "ldap_server": "dc01.example.test",
         "ldap_base_dn": "DC=example,DC=test",
@@ -96,7 +93,7 @@ class ComputerExistsTests(unittest.TestCase):
                 {"cn": ["unrelated"], "sAMAccountName": []},
             ],
         ) as search:
-            suggestion = suggest_computer_name(self.settings)
+            suggestion = suggest_computer_name(self.settings, "pc", 5, 1)
 
         self.assertEqual(suggestion.last_domain_name, "pc00008")
         self.assertEqual(suggestion.suggested_name, "pc00009")

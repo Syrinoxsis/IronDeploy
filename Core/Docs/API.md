@@ -55,7 +55,7 @@ IronAPI reads `Core\Api\.env`. Its settings are grouped by responsibility:
 | Deployment | authorization and deployment timeouts, image- and driver-apply strategies |
 | SMB | share path and configured account returned to authorized WinPE; the account must be read-only in SMB and NTFS |
 | Storage | SQLite database and temporary ODJ directory |
-| Naming and LDAP | name prefix/range, domain controller, base DN, LDAP TLS |
+| LDAP | domain controller, base DN, and LDAP TLS |
 | Offline Domain Join | domain, target OU, `djoin.exe`, timeout, blob lifetime |
 | Driver uploads | file, depth, path, concurrency, lifetime, and free-space limits |
 
@@ -70,7 +70,7 @@ IronAPI answers requests from several sources rather than one central catalog:
 
 | Information | Source |
 | --- | --- |
-| Accounts, permissions, deployments, stages, inventory | `Core\Data\irondeploy.db` |
+| Accounts, permissions, deployments, stages, inventory, and computer-name formats | `Core\Data\irondeploy.db` |
 | Images, indexes, and SHA-256 hashes | `Core\Share\Images` plus server-side image metadata |
 | Driver packages | `Core\Share\Drivers` |
 | Programs, arguments, sizes, and hashes | `Core\Share\Programs` and its metadata file |
@@ -196,6 +196,20 @@ such as `To Be Filled By O.E.M.`, malformed values, and WMI read failures are
 reported as `null` and never block preflight or deployment. Name-history lookup
 and computer inventory fall back to the normalized MAC address. A later missing
 serial does not erase a valid serial already stored for that MAC address.
+
+Computer-name formats are configured under `/image-config` in the WinPE
+interface section. A format contains a prefix, fixed numeric width, starting
+number, order, and an Active Directory linkage flag. Non-domain formats use the
+maximum matching numeric suffix ever recorded in SQLite, regardless of which
+deployment was most recent. Domain-linked formats read the maximum exclusively
+from Active Directory. When that read fails, the response reports the domain
+as unavailable and may include the SQLite maximum only as operator context; it
+does not generate a fallback suggestion or permit domain join.
+
+`POST /api/deploy/begin` validates the submitted name against the current
+format table. A domain join additionally requires a domain-linked format,
+configured ODJ, and a successful read-only directory check. The image-settings
+page exposes the same read-only check for each domain-linked format.
 
 The bound bearer cannot be reused to begin a second deployment. The manifest
 response is generated when requested; it is not stored as a separate immutable

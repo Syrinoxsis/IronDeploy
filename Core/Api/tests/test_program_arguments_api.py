@@ -5,9 +5,6 @@ import unittest
 from unittest.mock import patch
 
 os.environ.setdefault("IRONAPI_DATABASE_URL", "sqlite:///:memory:")
-os.environ.setdefault("IRONAPI_NAME_PREFIX", "pc")
-os.environ.setdefault("IRONAPI_NAME_WIDTH", "5")
-os.environ.setdefault("IRONAPI_NAME_START", "1")
 os.environ.setdefault("IRONAPI_ALLOWED_CLIENT_NETWORKS", "192.0.2.0/24")
 os.environ.setdefault("IRONAPI_LDAP_SERVER", "dc01.example.test")
 os.environ.setdefault("IRONAPI_LDAP_BASE_DN", "DC=example,DC=test")

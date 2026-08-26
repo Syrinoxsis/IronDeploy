@@ -501,6 +501,42 @@ class DeploymentProfile(Base):
     )
 
 
+class ComputerNameFormat(Base):
+    """Ordered server-owned rule for generated WinPE computer names."""
+
+    __tablename__ = "computer_name_formats"
+    __table_args__ = (
+        CheckConstraint(
+            "number_width BETWEEN 1 AND 14",
+            name="ck_computer_name_formats_number_width",
+        ),
+        CheckConstraint(
+            "start_number >= 0",
+            name="ck_computer_name_formats_start_number",
+        ),
+        CheckConstraint(
+            "position >= 0",
+            name="ck_computer_name_formats_position",
+        ),
+        UniqueConstraint(
+            "prefix",
+            "number_width",
+            name="uq_computer_name_formats_pattern",
+        ),
+        UniqueConstraint(
+            "position",
+            name="uq_computer_name_formats_position",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    prefix: Mapped[str] = mapped_column(String(14), nullable=False)
+    number_width: Mapped[int] = mapped_column(Integer, nullable=False)
+    start_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    domain_linked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
 class Computer(Base):
     __tablename__ = "computers"
     __table_args__ = (

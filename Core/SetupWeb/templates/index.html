@@ -303,22 +303,11 @@
 
         <section class="view" id="unsorted">
           <div class="page-head">
-            <h2>Computers and Active Directory</h2>
-            <p>Define predictable computer names and optional Active Directory integration.</p>
+            <h2>Active Directory</h2>
+            <p>Configure optional directory lookup and Offline Domain Join.</p>
           </div>
           <div class="settings-flow single-column">
             <section class="settings-block numbered-block" data-step="1">
-              <div class="block-head"><div><h3>Computer naming</h3><p>Build predictable names and preview the next generated value.</p></div></div>
-              <div class="naming-layout">
-                <div class="form-grid three">
-                  <label><span class="field-title">Computer prefix</span><input data-api="IRONAPI_NAME_PREFIX" /></label>
-                  <label><span class="field-title">Number width</span><input data-api="IRONAPI_NAME_WIDTH" inputmode="numeric" /></label>
-                  <label><span class="field-title">Starting number</span><input data-api="IRONAPI_NAME_START" inputmode="numeric" /></label>
-                </div>
-                <div class="name-preview"><span>Next generated name</span><strong id="computerNamePreview">pc00001</strong><small>Existing LDAP names are skipped automatically.</small></div>
-              </div>
-            </section>
-            <section class="settings-block numbered-block" data-step="2">
               <div class="block-head"><div><h3>Directory and domain join</h3><p>Leave both groups empty to deploy without Active Directory.</p></div></div>
               <div class="integration-grid">
                 <div class="integration-group">

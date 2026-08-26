@@ -16,6 +16,17 @@ from sqlalchemy import case, delete, func, select, update
 from sqlalchemy.orm import Session
 
 from app.config import IRONDEPLOY_ROOT, get_settings
+from app.computer_names import (
+    ComputerNameFormatError,
+    NameSuggestion,
+    build_name_suggestion,
+    check_unsaved_domain_format,
+    evaluate_name_format,
+    get_name_formats,
+    match_name_format,
+    serialize_name_format,
+    update_name_formats,
+)
 from app.database import SessionLocal, get_session, initialize_database
 from app.auth import (
     DEPLOYMENT_COMPLETION_RECEIPT_TTL,
@@ -124,9 +135,7 @@ from app.image_config import (
 )
 from app.ldap_names import (
     DirectoryLookupError,
-    NameSuggestion,
     computer_exists,
-    suggest_computer_name,
 )
 from app.deployment_images import (
     cancel_esd_conversion,
@@ -558,6 +567,10 @@ def require_image_config_write(request: Request) -> None:
 def get_image_config(session: Session = Depends(get_session)) -> dict:
     config = load_image_config()
     config.update(load_default_profile(session))
+    config["computerNameFormats"] = [
+        serialize_name_format(name_format)
+        for name_format in get_name_formats(session)
+    ]
     return config
 
 
@@ -570,13 +583,40 @@ async def post_image_config(
     try:
         payload = await request.json()
         profile = update_default_profile(session, payload)
+        if "computerNameFormats" in payload:
+            update_name_formats(session, payload["computerNameFormats"])
         result = save_image_config(payload)
         session.commit()
         result["config"].update(profile)
-    except (DeploymentProfileError, ImageConfigError) as exc:
+        result["config"]["computerNameFormats"] = [
+            serialize_name_format(name_format)
+            for name_format in get_name_formats(session)
+        ]
+    except (
+        ComputerNameFormatError,
+        DeploymentProfileError,
+        ImageConfigError,
+    ) as exc:
         session.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return JSONResponse(result)
+
+
+@app.post("/api/image-config/computer-name-formats/check")
+async def check_image_config_computer_name_format(
+    request: Request,
+    session: Session = Depends(get_session),
+) -> dict:
+    require_image_config_write(request)
+    try:
+        payload = await request.json()
+        return check_unsaved_domain_format(
+            session,
+            get_settings(),
+            payload,
+        ).__dict__
+    except ComputerNameFormatError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.get("/api/deployment-images")
@@ -1280,19 +1320,11 @@ def deploy_suggest_name(
         normalized_serial,
         normalized_mac,
     )
-    try:
-        suggestion = suggest_computer_name(settings)
-    except DirectoryLookupError as exc:
-        suggestion = NameSuggestion(
-            last_domain_name=None,
-            suggested_name="",
-            max_existing_number=None,
-            source="manual",
-            ldap_enabled=settings.ldap_enabled,
-            ldap_error=str(exc),
-        )
-    suggestion.known_computer_names = known_computer_names
-    return suggestion
+    return build_name_suggestion(
+        session,
+        settings,
+        known_computer_names,
+    )
 
 
 def _deployment_catalog(session: Session | None = None) -> dict:
@@ -1684,9 +1716,28 @@ def deploy_begin(
             detail="This WinPE login has already been used for a deployment.",
         )
 
+    settings = get_settings()
+    name_format = match_name_format(
+        get_name_formats(session),
+        payload.computer_name,
+    )
+    if name_format is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Computer name does not match an allowed naming format.",
+        )
+    if payload.domain_join and not name_format.domain_linked:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Domain join is not allowed for the selected computer-name "
+                "format."
+            ),
+        )
+
     # Reject an impossible domain join before WinPE erases the selected disk,
     # rather than once the deployment has already destroyed the target.
-    if payload.domain_join and not get_settings().odj_enabled:
+    if payload.domain_join and not settings.odj_enabled:
         raise HTTPException(
             status_code=409,
             detail=(
@@ -1694,6 +1745,16 @@ def deploy_begin(
                 "configured on IronAPI."
             ),
         )
+    if payload.domain_join:
+        format_status = evaluate_name_format(session, settings, name_format)
+        if not format_status.directory_available:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Domain join was requested, but Active Directory is "
+                    f"unavailable: {format_status.error}"
+                ),
+            )
 
     deployment = Deployment(
         computer_name=payload.computer_name,

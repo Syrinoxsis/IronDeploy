@@ -6,9 +6,6 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 os.environ.setdefault("IRONAPI_DATABASE_URL", "sqlite:///:memory:")
-os.environ.setdefault("IRONAPI_NAME_PREFIX", "pc")
-os.environ.setdefault("IRONAPI_NAME_WIDTH", "5")
-os.environ.setdefault("IRONAPI_NAME_START", "1")
 os.environ.setdefault("IRONAPI_ALLOWED_CLIENT_NETWORKS", "192.0.2.0/24")
 os.environ.setdefault("IRONAPI_LDAP_SERVER", "dc01.example.test")
 os.environ.setdefault("IRONAPI_LDAP_BASE_DN", "DC=example,DC=test")
@@ -195,6 +192,7 @@ class ImageConfigPageTests(unittest.TestCase):
             "language",
             "keyboard-layouts",
             "locale-time",
+            "computer-naming",
             "technical-settings",
         ):
             self.assertIn(f'data-settings-view="{view}"', self.html)
@@ -228,6 +226,16 @@ class ImageConfigPageTests(unittest.TestCase):
         self.assertIn('name="driverApplyMode" type="radio" value="direct"', self.html)
         self.assertIn("config.driverApplyMode || \"direct\"", self.javascript)
         self.assertIn("driverApplyMode:", self.javascript)
+
+    def test_computer_naming_is_managed_in_the_winpe_interface(self) -> None:
+        self.assertIn('id="computerNameFormatList"', self.html)
+        self.assertIn('id="addComputerNameFormat"', self.html)
+        self.assertIn("computerNameFormats:", self.javascript)
+        self.assertIn(
+            "/api/image-config/computer-name-formats/check",
+            self.javascript,
+        )
+        self.assertIn("name-format-card", self.css)
 
     def test_redesigned_workspace_has_russian_localization(self) -> None:
         for text in (

@@ -74,9 +74,6 @@ class Settings(BaseModel):
     smb_user: str = Field(default="", repr=False)
     smb_password: str = Field(default="", repr=False)
 
-    name_prefix: str
-    name_width: int = Field(ge=1, le=20)
-    name_start: int = Field(ge=0)
     allowed_client_networks: tuple[IPv4Network | IPv6Network, ...]
     deployment_authorization_timeout_minutes: int = Field(default=10, ge=5, le=30)
     deployment_timeout_minutes: int = Field(default=90, ge=30, le=240)
@@ -122,9 +119,6 @@ def get_settings() -> Settings:
         smb_share_path=getenv("IRONAPI_SMB_SHARE_PATH", "").strip(),
         smb_user=getenv("IRONAPI_SMB_USER", "").strip(),
         smb_password=getenv("IRONAPI_SMB_PASSWORD", "").strip(),
-        name_prefix=_get_required_env("IRONAPI_NAME_PREFIX"),
-        name_width=_get_int("IRONAPI_NAME_WIDTH"),
-        name_start=_get_int("IRONAPI_NAME_START"),
         allowed_client_networks=_get_allowed_client_networks(),
         deployment_authorization_timeout_minutes=_get_int_or_default(
             "IRONAPI_DEPLOYMENT_AUTHORIZATION_TIMEOUT_MINUTES", 10

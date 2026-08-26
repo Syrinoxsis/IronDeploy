@@ -1,9 +1,6 @@
 import os
 
 os.environ.setdefault("IRONAPI_DATABASE_URL", "sqlite:///:memory:")
-os.environ.setdefault("IRONAPI_NAME_PREFIX", "pc")
-os.environ.setdefault("IRONAPI_NAME_WIDTH", "5")
-os.environ.setdefault("IRONAPI_NAME_START", "1")
 os.environ.setdefault("IRONAPI_ALLOWED_CLIENT_NETWORKS", "192.0.2.0/24")
 os.environ.setdefault("IRONAPI_LDAP_SERVER", "dc01.example.test")
 os.environ.setdefault("IRONAPI_LDAP_BASE_DN", "DC=example,DC=test")
@@ -30,7 +27,12 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from app.config import _get_allowed_client_networks
-from app.deployments import Base, DEPLOYMENT_COMPLETED, Deployment
+from app.deployments import (
+    Base,
+    ComputerNameFormat,
+    DEPLOYMENT_COMPLETED,
+    Deployment,
+)
 from app.auth import (
     DeploymentToken,
     create_deployment_token,
@@ -87,13 +89,21 @@ class ClientAccessTests(unittest.TestCase):
                 started_at=datetime.now(timezone.utc),
                 completed_at=datetime.now(timezone.utc),
             )
-            session.add(deployment)
+            session.add_all([
+                deployment,
+                ComputerNameFormat(
+                    prefix="pc",
+                    number_width=5,
+                    start_number=1,
+                    domain_linked=True,
+                    position=0,
+                ),
+            ])
             session.commit()
 
             settings = SimpleNamespace(
                 ldap_enabled=False,
-                name_prefix="pc",
-                name_width=5,
+                odj_enabled=False,
             )
             with (
                 patch("app.main.require_deployment_token"),
@@ -106,10 +116,12 @@ class ClientAccessTests(unittest.TestCase):
                     session=session,
                 )
 
-        self.assertEqual(suggestion.suggested_name, "")
-        self.assertFalse(suggestion.ldap_enabled)
-        self.assertIn("not configured", suggestion.ldap_error or "")
-        known = suggestion.known_computer_names or []
+        self.assertEqual(len(suggestion.formats), 1)
+        self.assertIsNone(suggestion.formats[0].suggested_name)
+        self.assertFalse(suggestion.formats[0].directory_available)
+        self.assertIn("not configured", suggestion.formats[0].error or "")
+        self.assertEqual(suggestion.formats[0].history_last_name, "pc00042")
+        known = suggestion.known_computer_names
         self.assertTrue(
             any(
                 item.computer_name == "pc00042"

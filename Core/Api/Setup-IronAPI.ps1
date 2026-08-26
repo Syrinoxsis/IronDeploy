@@ -280,12 +280,6 @@ function Show-CurrentConfiguration {
         ))
     )
     Write-Host (
-        "Name scheme  : {0} + {1} digits, starts at {2}" -f `
-            (Get-Setting $settings "IRONAPI_NAME_PREFIX" "<missing>"),
-            (Get-Setting $settings "IRONAPI_NAME_WIDTH" "<missing>"),
-            (Get-Setting $settings "IRONAPI_NAME_START" "<missing>")
-    )
-    Write-Host (
         "LDAP server  : " +
         (Get-Setting $settings "IRONAPI_LDAP_SERVER" "<disabled>")
     )
@@ -346,55 +340,6 @@ function Configure-Database {
 
     Save-EnvUpdates ([ordered]@{
         IRONAPI_DATABASE_URL = $databaseUrl
-    })
-}
-
-function Configure-Naming {
-    $settings = Read-EnvSettings
-    Write-Heading "Computer naming"
-
-    $prefix = Read-ConfiguredValue `
-        -Label "Computer name prefix" `
-        -HelpText "Text before the number. Example: prefix 'pc' produces pc00001." `
-        -CurrentValue (Get-Setting $settings "IRONAPI_NAME_PREFIX" "pc") `
-        -Validator {
-            param($value)
-            if ($value -notmatch "^[a-zA-Z][a-zA-Z0-9-]{0,14}$") {
-                return "Use 1-15 letters, digits, or hyphens; start with a letter."
-            }
-            return $null
-        }
-
-    $width = Read-ConfiguredValue `
-        -Label "Number width" `
-        -HelpText "Digits after the prefix. Example: 5 produces pc00001." `
-        -CurrentValue (Get-Setting $settings "IRONAPI_NAME_WIDTH" "5") `
-        -Validator {
-            param($value)
-            $number = 0
-            if (![int]::TryParse($value, [ref]$number) -or $number -lt 1 -or $number -gt 20) {
-                return "Enter an integer from 1 to 20."
-            }
-            return $null
-        }
-
-    $start = Read-ConfiguredValue `
-        -Label "Starting number" `
-        -HelpText "First number used when LDAP contains no matching computers. Example: 1." `
-        -CurrentValue (Get-Setting $settings "IRONAPI_NAME_START" "1") `
-        -Validator {
-            param($value)
-            $number = 0
-            if (![int]::TryParse($value, [ref]$number) -or $number -lt 0) {
-                return "Enter a non-negative integer."
-            }
-            return $null
-        }
-
-    Save-EnvUpdates ([ordered]@{
-        IRONAPI_NAME_PREFIX = $prefix.ToLowerInvariant()
-        IRONAPI_NAME_WIDTH = $width
-        IRONAPI_NAME_START = $start
     })
 }
 
@@ -677,17 +622,6 @@ function Test-IronApiConfiguration {
     Write-ValidationPass "Configuration file exists"
 
     $settings = Read-EnvSettings
-    $requiredNames = @(
-        "IRONAPI_NAME_PREFIX",
-        "IRONAPI_NAME_WIDTH",
-        "IRONAPI_NAME_START"
-    )
-    foreach ($name in $requiredNames) {
-        if ([string]::IsNullOrWhiteSpace((Get-Setting $settings $name ""))) {
-            Write-ValidationFailure "$name is missing or empty"
-        }
-    }
-
     $accessMode = Get-Setting $settings "IRONAPI_ACCESS_MODE" ""
     $bindHost = Get-Setting $settings "IRONAPI_BIND_HOST" ""
     $portValue = Get-Setting $settings "IRONAPI_PORT" ""
@@ -760,26 +694,6 @@ function Test-IronApiConfiguration {
     }
     else {
         Write-ValidationFailure "Configure IronAPI SMB credentials through SetupWeb"
-    }
-
-    $width = 0
-    $widthValue = Get-Setting $settings "IRONAPI_NAME_WIDTH" ""
-    if (
-        [int]::TryParse($widthValue, [ref]$width) -and
-        $width -ge 1 -and
-        $width -le 20
-    ) {
-        Write-ValidationPass "Computer name width is valid"
-    } else {
-        Write-ValidationFailure "IRONAPI_NAME_WIDTH must be from 1 to 20"
-    }
-
-    $start = 0
-    $startValue = Get-Setting $settings "IRONAPI_NAME_START" ""
-    if ([int]::TryParse($startValue, [ref]$start) -and $start -ge 0) {
-        Write-ValidationPass "Computer name start is valid"
-    } else {
-        Write-ValidationFailure "IRONAPI_NAME_START must be non-negative"
     }
 
     $blobMaxAge = 0
@@ -948,7 +862,6 @@ function Restart-IronApiService {
 function Invoke-FullSetup {
     Write-Heading "IronAPI initial setup"
     Configure-Database
-    Configure-Naming
     Configure-Ldap
     Configure-Odj
     Test-IronApiConfiguration | Out-Null
@@ -958,12 +871,11 @@ function Show-Menu {
     Write-Heading "IronAPI setup menu"
     Write-Host "1. Show current configuration"
     Write-Host "2. Database"
-    Write-Host "3. Computer naming"
-    Write-Host "4. LDAP"
-    Write-Host "5. Offline Domain Join"
-    Write-Host "6. Validate configuration"
-    Write-Host "7. Restart IronAPI service"
-    Write-Host "8. Run full setup"
+    Write-Host "3. LDAP"
+    Write-Host "4. Offline Domain Join"
+    Write-Host "5. Validate configuration"
+    Write-Host "6. Restart IronAPI service"
+    Write-Host "7. Run full setup"
     Write-Host "0. Exit"
 }
 
@@ -993,12 +905,11 @@ while ($true) {
     switch ($choice) {
         "1" { Show-CurrentConfiguration }
         "2" { Configure-Database }
-        "3" { Configure-Naming }
-        "4" { Configure-Ldap }
-        "5" { Configure-Odj }
-        "6" { Test-IronApiConfiguration | Out-Null }
-        "7" { Restart-IronApiService }
-        "8" { Invoke-FullSetup }
+        "3" { Configure-Ldap }
+        "4" { Configure-Odj }
+        "5" { Test-IronApiConfiguration | Out-Null }
+        "6" { Restart-IronApiService }
+        "7" { Invoke-FullSetup }
         "0" { return }
         default {
             Write-Host "Unknown option." -ForegroundColor Yellow

@@ -230,20 +230,27 @@ $IronDeployGuiXaml = @'
                     </Border>
 
                     <StackPanel Grid.Row="1">
-                        <TextBlock x:Name="ComputerNameLabel" Text="COMPUTER NAME" Style="{StaticResource Label}"/>
-                        <TextBox x:Name="NameBox" MaxLength="7"/>
-                        <TextBlock x:Name="NameHint" Style="{StaticResource Label}"
-                                   Margin="0,4,0,0"
-                                   Text="Format: pc + 5 digits (e.g. pc00001)"/>
-
-                        <TextBlock x:Name="SuggestedText" Margin="0,6,0,0"
-                                   Foreground="{StaticResource AccentBrush}"/>
-                        <TextBlock x:Name="LastDomainText"
-                                   Foreground="{StaticResource MutedBrush}" FontSize="12"/>
-                        <Button x:Name="KnownDeploymentsButton"
-                                Content="Deployments of this computer"
-                                HorizontalAlignment="Left" Margin="0,8,0,0"
-                                Padding="12,7" Visibility="Collapsed"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="12"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock x:Name="ComputerNameLabel" Text="COMPUTER NAME"
+                                           Style="{StaticResource Label}"/>
+                                <TextBox x:Name="NameBox" MaxLength="15"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock x:Name="KnownDeploymentsCompactLabel"
+                                           Text="DEPLOYMENTS OF THIS COMPUTER"
+                                           Style="{StaticResource Label}"/>
+                                <Button x:Name="KnownDeploymentsButton"
+                                        Content="No previous deployments"
+                                        HorizontalAlignment="Stretch"
+                                        Padding="12,7"/>
+                            </StackPanel>
+                        </Grid>
                         <Popup x:Name="KnownDeploymentsPopup"
                                Placement="Bottom" StaysOpen="False"
                                AllowsTransparency="True" PopupAnimation="Fade">
@@ -272,8 +279,44 @@ $IronDeployGuiXaml = @'
                             </Border>
                         </Popup>
 
+                        <Border Background="{StaticResource CardBrush}"
+                                BorderBrush="#FF3A3A50" BorderThickness="1"
+                                CornerRadius="6" Padding="12,8" Margin="0,8,0,0">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="145"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <TextBlock x:Name="AllowedFormatsLabel" Grid.Row="0"
+                                           Text="ALLOWED FORMATS" FontSize="12"
+                                           Foreground="{StaticResource TextBrush}"/>
+                                <TextBlock x:Name="AllowedFormatsText" Grid.Row="0" Grid.Column="1"
+                                           TextWrapping="Wrap" FontSize="12"
+                                           Foreground="{StaticResource MutedBrush}"/>
+                                <TextBlock x:Name="LastNamesLabel" Grid.Row="1" Margin="0,5,0,0"
+                                           Text="LAST NAMES" FontSize="12"
+                                           Foreground="{StaticResource TextBrush}"/>
+                                <TextBlock x:Name="LastNamesText" Grid.Row="1" Grid.Column="1"
+                                           Margin="0,5,0,0" TextWrapping="Wrap" FontSize="12"
+                                           Foreground="{StaticResource MutedBrush}"/>
+                                <TextBlock x:Name="SuggestedNamesLabel" Grid.Row="2" Margin="0,5,0,0"
+                                           Text="SUGGESTED NAMES" FontSize="12"
+                                           Foreground="{StaticResource TextBrush}"/>
+                                <WrapPanel x:Name="SuggestedNamesPanel" Grid.Row="2" Grid.Column="1"
+                                           Margin="0,2,0,0"/>
+                            </Grid>
+                        </Border>
+                        <TextBlock x:Name="NameHint" Style="{StaticResource Label}"
+                                   Margin="0,4,0,0" TextWrapping="Wrap"
+                                   Text="Enter a name matching an allowed format."/>
+
                         <TextBlock x:Name="WindowsImageLabel" Text="WINDOWS IMAGE" Style="{StaticResource Label}"
-                                   Margin="0,14,0,0"/>
+                                   Margin="0,10,0,0"/>
                         <ComboBox x:Name="ImageCombo" DisplayMemberPath="Display"
                                   Height="34" FontSize="14" Padding="8,4"/>
 
@@ -674,8 +717,10 @@ function Start-IronDeployGui {
         "StepOneIndicator", "StepTwoIndicator", "StepThreeIndicator",
         "SerialLabel", "MacLabel", "ComputerNameLabel", "WindowsImageLabel", "TargetDiskLabel",
         "SerialText", "MacText", "NameBox", "NameHint",
-        "SuggestedText", "LastDomainText", "KnownList",
-        "KnownDeploymentsButton", "KnownDeploymentsPopup", "KnownDeploymentsTitle",
+        "AllowedFormatsLabel", "AllowedFormatsText", "LastNamesLabel", "LastNamesText",
+        "SuggestedNamesLabel", "SuggestedNamesPanel", "KnownList",
+        "KnownDeploymentsCompactLabel", "KnownDeploymentsButton",
+        "KnownDeploymentsPopup", "KnownDeploymentsTitle",
         "ImageCombo", "DiskCombo", "DomainCheck", "WipeCheck",
         "ConfirmComputerLabel", "ConfirmImageLabel", "ConfirmDiskLabel", "ConfirmDomainLabel", "WipeWarningText",
         "ConfirmModelLabel", "ConfirmModelText",
@@ -704,6 +749,7 @@ function Start-IronDeployGui {
     $script:IronGuiState.AutoRebootCancelled = $false
     $script:IronGuiState.LoginErrorKey = $null
     $script:IronGuiState.CurrentActivity = ""
+    $script:IronGuiState.NameFormats = @()
     $script:IronGuiPreflightJob = $null
     $script:IronGuiDeployJob = $null
     $script:IronGuiLoginJob = $null
@@ -744,10 +790,24 @@ function Start-IronDeployGui {
             SerialLabel = "SERIAL NUMBER"
             MacLabel = "PRIMARY MAC"
             ComputerNameLabel = "COMPUTER NAME"
-            NameFormat = "Format: pc + 5 digits (e.g. pc00001)"
-            NameInvalid = "Invalid name. Expected format: pc00001"
-            SuggestedName = "Suggested name: {0}"
-            LastDomainName = "Last name in domain: {0}"
+            NameFormat = "Enter a name matching an allowed format."
+            NameInvalid = "The name does not match an allowed format."
+            NameFormatReady = "Matched format: {0}"
+            DomainFormatUnavailable = "Active Directory is unavailable for {0}. Domain join is disabled."
+            DomainJoinUnavailable = "Domain join is unavailable for {0}: {1}"
+            LocalFormatNoDomain = "Format {0} is not linked to Active Directory."
+            AllowedFormatsLabel = "ALLOWED FORMATS"
+            LastNamesLabel = "LAST NAMES"
+            SuggestedNamesLabel = "SUGGESTED NAMES"
+            DomainSource = "Active Directory"
+            HistorySource = "IronDeploy"
+            LastNameItem = "{0} ({1})"
+            NoLastNameItem = "{0}: none ({1})"
+            DomainUnavailableItem = "{0}: domain unavailable"
+            DomainUnavailableHistoryItem = "{0}: domain unavailable; IronDeploy history: {1}"
+            NoSuggestions = "No suggestions are available."
+            KnownDeploymentsCompactLabel = "DEPLOYMENTS OF THIS COMPUTER"
+            NoPreviousDeployments = "No previous deployments"
             KnownDeploymentsButton = "Deployments of this computer ({0})  {1}"
             KnownDeploymentsTitle = "DEPLOYMENTS OF THIS COMPUTER"
             KnownDeployment = "Previously deployed as {0} ({1}, deployment #{2})"
@@ -810,10 +870,24 @@ function Start-IronDeployGui {
             SerialLabel = "СЕРИЙНЫЙ НОМЕР"
             MacLabel = "ОСНОВНОЙ MAC-АДРЕС"
             ComputerNameLabel = "ИМЯ КОМПЬЮТЕРА"
-            NameFormat = "Формат: pc + 5 цифр (например, pc00001)"
-            NameInvalid = "Недопустимое имя. Ожидаемый формат: pc00001"
-            SuggestedName = "Предлагаемое имя: {0}"
-            LastDomainName = "Последнее имя в домене: {0}"
+            NameFormat = "Введите имя, соответствующее допустимому формату."
+            NameInvalid = "Имя не соответствует ни одному допустимому формату."
+            NameFormatReady = "Выбран формат: {0}"
+            DomainFormatUnavailable = "Active Directory недоступна для {0}. Ввод в домен отключён."
+            DomainJoinUnavailable = "Ввод в домен недоступен для {0}: {1}"
+            LocalFormatNoDomain = "Формат {0} не связан с Active Directory."
+            AllowedFormatsLabel = "ДОПУСТИМЫЕ ФОРМАТЫ"
+            LastNamesLabel = "ПОСЛЕДНИЕ ИМЕНА"
+            SuggestedNamesLabel = "ПРЕДЛАГАЕМЫЕ ИМЕНА"
+            DomainSource = "Active Directory"
+            HistorySource = "IronDeploy"
+            LastNameItem = "{0} ({1})"
+            NoLastNameItem = "{0}: нет ({1})"
+            DomainUnavailableItem = "{0}: домен недоступен"
+            DomainUnavailableHistoryItem = "{0}: домен недоступен; в истории IronDeploy: {1}"
+            NoSuggestions = "Предложений нет."
+            KnownDeploymentsCompactLabel = "РАЗВЁРТЫВАНИЯ ЭТОГО КОМПЬЮТЕРА"
+            NoPreviousDeployments = "Предыдущих развёртываний нет"
             KnownDeploymentsButton = "Развёртывания этого компьютера ({0})  {1}"
             KnownDeploymentsTitle = "РАЗВЁРТЫВАНИЯ ЭТОГО КОМПЬЮТЕРА"
             KnownDeployment = "Ранее развёрнут как {0} ({1}, развёртывание №{2})"
@@ -879,6 +953,151 @@ function Start-IronDeployGui {
         step  = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.Color]::FromRgb(0x4C, 0x8B, 0xF5))
     }
 
+    $script:IronGuiGetMatchedNameFormat = {
+        param([string]$ComputerName)
+
+        $candidate = ([string]$ComputerName).Trim()
+        foreach ($nameFormat in @($script:IronGuiState.NameFormats)) {
+            $prefix = [regex]::Escape([string]$nameFormat.prefix)
+            $width = [int]$nameFormat.number_width
+            if ($candidate -match "^(?i:$prefix)\d{$width}$") {
+                return $nameFormat
+            }
+        }
+        return $null
+    }
+
+    $script:IronGuiUpdateNameFormatState = {
+        $nameText = ([string]$script:IronGuiUi.NameBox.Text).Trim()
+        $matched = & $script:IronGuiGetMatchedNameFormat $nameText
+        $domainAvailable = (
+            $null -ne $matched -and
+            [bool]$matched.domain_linked -and
+            [bool]$matched.domain_join_available
+        )
+        if (-not $domainAvailable -and [bool]$script:IronGuiUi.DomainCheck.IsChecked) {
+            $script:IronGuiUi.DomainCheck.IsChecked = $false
+        }
+        $script:IronGuiUi.DomainCheck.IsEnabled = $domainAvailable
+
+        if ($nameText.Length -gt 0 -and $null -eq $matched) {
+            $script:IronGuiUi.NameHint.Text = & $script:IronGuiGetText "NameInvalid"
+            $script:IronGuiUi.NameHint.Foreground = $script:IronGuiBrushes["error"]
+        } elseif ($null -eq $matched) {
+            $script:IronGuiUi.NameHint.Text = & $script:IronGuiGetText "NameFormat"
+            $script:IronGuiUi.NameHint.Foreground = [System.Windows.Media.Brushes]::Gray
+        } elseif (
+            [bool]$matched.domain_linked -and
+            -not [bool]$matched.directory_available
+        ) {
+            $script:IronGuiUi.NameHint.Text = & $script:IronGuiGetText `
+                "DomainFormatUnavailable" @([string]$matched.pattern)
+            $script:IronGuiUi.NameHint.Foreground = $script:IronGuiBrushes["warn"]
+        } elseif (
+            [bool]$matched.domain_linked -and
+            -not [bool]$matched.domain_join_available
+        ) {
+            $script:IronGuiUi.NameHint.Text = & $script:IronGuiGetText `
+                "DomainJoinUnavailable" @(
+                    [string]$matched.pattern,
+                    [string]$matched.error
+                )
+            $script:IronGuiUi.NameHint.Foreground = $script:IronGuiBrushes["warn"]
+        } elseif (-not [bool]$matched.domain_linked) {
+            $script:IronGuiUi.NameHint.Text = & $script:IronGuiGetText `
+                "LocalFormatNoDomain" @([string]$matched.pattern)
+            $script:IronGuiUi.NameHint.Foreground = $script:IronGuiBrushes["info"]
+        } else {
+            $script:IronGuiUi.NameHint.Text = & $script:IronGuiGetText `
+                "NameFormatReady" @([string]$matched.pattern)
+            $script:IronGuiUi.NameHint.Foreground = $script:IronGuiBrushes["ok"]
+        }
+        return $matched
+    }
+
+    $script:IronGuiRenderNameFormats = {
+        $formats = @($script:IronGuiState.NameFormats)
+        $allowed = @()
+        $lastNames = @()
+        $suggestions = @()
+        foreach ($nameFormat in $formats) {
+            $source = if ([bool]$nameFormat.domain_linked) {
+                & $script:IronGuiGetText "DomainSource"
+            } else {
+                & $script:IronGuiGetText "HistorySource"
+            }
+            $allowed += "{0} — {1}" -f ([string]$nameFormat.pattern), $source
+
+            if (
+                [bool]$nameFormat.domain_linked -and
+                -not [bool]$nameFormat.directory_available
+            ) {
+                if (-not [string]::IsNullOrWhiteSpace(
+                    [string]$nameFormat.history_last_name
+                )) {
+                    $lastNames += & $script:IronGuiGetText `
+                        "DomainUnavailableHistoryItem" @(
+                            [string]$nameFormat.pattern,
+                            [string]$nameFormat.history_last_name
+                        )
+                } else {
+                    $lastNames += & $script:IronGuiGetText `
+                        "DomainUnavailableItem" @([string]$nameFormat.pattern)
+                }
+            } elseif (-not [string]::IsNullOrWhiteSpace(
+                [string]$nameFormat.last_name
+            )) {
+                $lastNames += & $script:IronGuiGetText "LastNameItem" @(
+                    [string]$nameFormat.last_name,
+                    $source
+                )
+            } else {
+                $lastNames += & $script:IronGuiGetText "NoLastNameItem" @(
+                    [string]$nameFormat.pattern,
+                    $source
+                )
+            }
+
+            if (-not [string]::IsNullOrWhiteSpace(
+                [string]$nameFormat.suggested_name
+            )) {
+                $suggestions += [string]$nameFormat.suggested_name
+            }
+        }
+
+        $script:IronGuiUi.AllowedFormatsText.Text = $allowed -join "    "
+        $script:IronGuiUi.LastNamesText.Text = $lastNames -join "    "
+        $script:IronGuiUi.SuggestedNamesPanel.Children.Clear()
+        foreach ($suggestion in $suggestions) {
+            $button = New-Object System.Windows.Controls.Button
+            $button.Content = $suggestion
+            $button.Tag = $suggestion
+            $button.Padding = New-Object System.Windows.Thickness(10, 4, 10, 4)
+            $button.Margin = New-Object System.Windows.Thickness(0, 0, 6, 3)
+            $button.FontSize = 12
+            $button.Foreground = $script:IronGuiWindow.Resources["AccentBrush"]
+            $button.Add_Click({
+                param($eventSender, $eventArgs)
+                $script:IronGuiUi.NameBox.Text = [string]$eventSender.Tag
+            })
+            [void]$script:IronGuiUi.SuggestedNamesPanel.Children.Add($button)
+        }
+        if ($suggestions.Count -eq 0) {
+            $empty = New-Object System.Windows.Controls.TextBlock
+            $empty.Text = & $script:IronGuiGetText "NoSuggestions"
+            $empty.Foreground = $script:IronGuiWindow.Resources["MutedBrush"]
+            $empty.FontSize = 12
+            [void]$script:IronGuiUi.SuggestedNamesPanel.Children.Add($empty)
+        }
+        if (
+            -not ([string]$script:IronGuiUi.NameBox.Text).Trim() -and
+            $suggestions.Count -gt 0
+        ) {
+            $script:IronGuiUi.NameBox.Text = $suggestions[0]
+        }
+        [void](& $script:IronGuiUpdateNameFormatState)
+    }
+
     $script:IronGuiTranslateActivity = {
         param([string]$Activity)
 
@@ -928,7 +1147,9 @@ function Start-IronDeployGui {
             "HeaderSubtitle", "LoginTitle", "LoginDescription",
             "LoginUsernameLabel", "LoginPasswordLabel", "LoginPinLabel", "StepOneIndicator",
             "StepTwoIndicator", "StepThreeIndicator", "SerialLabel", "MacLabel", "ComputerNameLabel",
-            "KnownDeploymentsTitle", "WindowsImageLabel", "TargetDiskLabel", "ConfirmModelLabel",
+            "AllowedFormatsLabel", "LastNamesLabel", "SuggestedNamesLabel",
+            "KnownDeploymentsCompactLabel", "KnownDeploymentsTitle",
+            "WindowsImageLabel", "TargetDiskLabel", "ConfirmModelLabel",
             "ConfirmComputerLabel",
             "ConfirmImageLabel", "ConfirmDiskLabel", "ConfirmDomainLabel", "NoProgramsText",
             "NoPostPowerShellText",
@@ -974,15 +1195,8 @@ function Start-IronDeployGui {
                 ([string]$script:IronGuiState.LoginErrorKey)
         }
 
+        & $script:IronGuiRenderNameFormats
         & $script:IronGuiUpdateDeployButton
-        if ([string]$script:IronGuiState.SuggestedName -match "^pc\d{5}$") {
-            $script:IronGuiUi.SuggestedText.Text = & $script:IronGuiGetText `
-                "SuggestedName" @($script:IronGuiState.SuggestedName)
-        }
-        if ([string]$script:IronGuiState.LastDomainName -match "^pc\d{5}$") {
-            $script:IronGuiUi.LastDomainText.Text = & $script:IronGuiGetText `
-                "LastDomainName" @($script:IronGuiState.LastDomainName)
-        }
 
         $programCount = @($script:IronGuiProgramChecks).Count
         $script:IronGuiUi.ProgramsLabel.Text = if ($programCount -gt 0) {
@@ -1011,6 +1225,11 @@ function Start-IronDeployGui {
         if ($knownNames.Count -gt 0) {
             $script:IronGuiUi.KnownDeploymentsButton.Content = & $script:IronGuiGetText `
                 "KnownDeploymentsButton" @($knownNames.Count, [char]0x25BE)
+            $script:IronGuiUi.KnownDeploymentsButton.IsEnabled = $true
+        } else {
+            $script:IronGuiUi.KnownDeploymentsButton.Content = & $script:IronGuiGetText `
+                "NoPreviousDeployments"
+            $script:IronGuiUi.KnownDeploymentsButton.IsEnabled = $false
         }
 
         $script:IronGuiUi.ConfirmDomainText.Text = if (
@@ -1210,7 +1429,8 @@ try {
     # Wizard validation and navigation ---------------------------------------
     $script:IronGuiUpdateDeployButton = {
         $nameText = ([string]$script:IronGuiUi.NameBox.Text).Trim()
-        $nameOk = $nameText -match "^(?i:pc)\d{5}$"
+        $matchedNameFormat = & $script:IronGuiUpdateNameFormatState
+        $nameOk = $null -ne $matchedNameFormat
         $imageOk = $null -ne $script:IronGuiUi.ImageCombo.SelectedItem
         $diskOk = $null -ne $script:IronGuiUi.DiskCombo.SelectedItem
         $driverChoiceOk = (
@@ -1230,13 +1450,6 @@ try {
             $confirmOk -and -not $script:IronGuiState.Deploying
         )
 
-        if ($nameText.Length -gt 0 -and -not $nameOk) {
-            $script:IronGuiUi.NameHint.Text = & $script:IronGuiGetText "NameInvalid"
-            $script:IronGuiUi.NameHint.Foreground = $script:IronGuiBrushes["error"]
-        } else {
-            $script:IronGuiUi.NameHint.Text = & $script:IronGuiGetText "NameFormat"
-            $script:IronGuiUi.NameHint.Foreground = [System.Windows.Media.Brushes]::Gray
-        }
     }
 
     $script:IronGuiShowWizardStep = {
@@ -1418,8 +1631,7 @@ try {
     $Sync.Mac = $hw.MacAddress
     $Sync.Model = $hw.Model
     $sug = Get-IronDeployNameSuggestion -SerialNumber $hw.SerialNumber -MacAddress $hw.MacAddress
-    $Sync.LastDomainName = [string]$sug.LastDomainName
-    $Sync.SuggestedName = [string]$sug.SuggestedName
+    $Sync.NameFormats = @($sug.NameFormats)
     $Sync.KnownDeployments = @($sug.KnownComputerNames)
     $Sync.Images = @(
         Get-IronDeployImageList | ForEach-Object {
@@ -1488,7 +1700,7 @@ try {
         $script:IronGuiUi.PreflightRetry.Visibility = "Collapsed"
         $script:IronGuiUi.PreflightRebootButton.Visibility = "Collapsed"
         $script:IronGuiUi.KnownDeploymentsPopup.IsOpen = $false
-        $script:IronGuiUi.KnownDeploymentsButton.Visibility = "Collapsed"
+        $script:IronGuiUi.KnownDeploymentsButton.IsEnabled = $false
         $script:IronGuiPreflightJob = Start-IronGuiRunspace `
             -Variables @{
                 Sync = $script:IronGuiState
@@ -1532,17 +1744,7 @@ try {
             $script:IronGuiUi.DiskCombo.SelectedIndex = -1
             & $script:IronGuiUpdateWipeWarning
 
-            if ([string]$script:IronGuiState.SuggestedName -match "^pc\d{5}$") {
-                $script:IronGuiUi.SuggestedText.Text = & $script:IronGuiGetText `
-                    "SuggestedName" @($script:IronGuiState.SuggestedName)
-                if (-not ([string]$script:IronGuiUi.NameBox.Text).Trim()) {
-                    $script:IronGuiUi.NameBox.Text = [string]$script:IronGuiState.SuggestedName
-                }
-            }
-            if ([string]$script:IronGuiState.LastDomainName -match "^pc\d{5}$") {
-                $script:IronGuiUi.LastDomainText.Text = & $script:IronGuiGetText `
-                    "LastDomainName" @($script:IronGuiState.LastDomainName)
-            }
+            & $script:IronGuiRenderNameFormats
             $script:IronGuiUi.ProgramsPanel.Children.Clear()
             $script:IronGuiProgramChecks = @()
             foreach ($program in @($script:IronGuiState.Programs)) {
@@ -1661,7 +1863,11 @@ try {
             if ($knownNames.Count -gt 0) {
                 $script:IronGuiUi.KnownDeploymentsButton.Content = & $script:IronGuiGetText `
                     "KnownDeploymentsButton" @($knownNames.Count, [char]0x25BE)
-                $script:IronGuiUi.KnownDeploymentsButton.Visibility = "Visible"
+                $script:IronGuiUi.KnownDeploymentsButton.IsEnabled = $true
+            } else {
+                $script:IronGuiUi.KnownDeploymentsButton.Content = & $script:IronGuiGetText `
+                    "NoPreviousDeployments"
+                $script:IronGuiUi.KnownDeploymentsButton.IsEnabled = $false
             }
 
             $script:IronGuiUi.PreflightOverlay.Visibility = "Collapsed"
