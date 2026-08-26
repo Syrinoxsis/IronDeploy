@@ -48,9 +48,11 @@ Set-IronGuiWindowBounds -Window $window
 $ui = @{}
 foreach ($name in @(
     "LoginPanel", "SetupPanel", "ProgressPanel", "PreflightOverlay",
-    "SerialText", "MacText", "NameBox", "SuggestedText", "LastDomainText",
+    "SerialText", "MacText", "NameBox", "NameHint",
+    "AllowedFormatsText", "LastNamesPanel", "SuggestedNamesPanel",
     "KnownList", "KnownDeploymentsButton", "KnownDeploymentsPopup",
-    "ImageCombo", "DiskCombo", "DomainCheck", "DeployButton", "SetupRebootButton",
+    "ImageCombo", "DiskCombo", "DomainCheck", "DomainJoinNotice", "DomainJoinHint",
+    "DeployButton", "SetupRebootButton",
     "ActivityText", "DeployProgress", "LogView",
     "ResultBar", "ResultTitle", "ResultMessage", "CountdownText",
     "RebootButton", "CancelRebootButton"
@@ -64,9 +66,53 @@ $ui.SetupPanel.Visibility = "Visible"
 $ui.PreflightOverlay.Visibility = "Collapsed"
 $ui.SerialText.Text = "5CD1234ABC"
 $ui.MacText.Text = "00-1A-2B-3C-4D-5E"
-$ui.SuggestedText.Text = "Suggested name: pc00042"
-$ui.LastDomainText.Text = "Last name in domain: pc00041"
-$ui.NameBox.Text = "pc00042"
+$ui.NameBox.Text = "ktc101"
+$ui.NameHint.Visibility = "Collapsed"
+$ui.AllowedFormatsText.Text = "pc##### - Active Directory    ktc### - IronDeploy"
+
+function Add-PreviewNameChip {
+    param(
+        [Parameter(Mandatory = $true)]
+        [System.Windows.Controls.Panel]$Panel,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Text,
+
+        [switch]$Suggested
+    )
+
+    if ($Suggested) {
+        $button = New-Object System.Windows.Controls.Button
+        $button.Content = $Text
+        $button.Style = $window.Resources["NameSuggestionButton"]
+        $button.Margin = New-Object System.Windows.Thickness(0, 2, 6, 2)
+        $button.Add_Click({
+            param($eventSender, $eventArgs)
+            $ui.NameBox.Text = [string]$eventSender.Content
+        })
+        [void]$Panel.Children.Add($button)
+        return
+    }
+
+    $chip = New-Object System.Windows.Controls.Border
+    $chip.Background = $window.Resources["PanelBrush"]
+    $chip.BorderBrush = $window.Resources["CardBrush"]
+    $chip.BorderThickness = New-Object System.Windows.Thickness(1)
+    $chip.CornerRadius = New-Object System.Windows.CornerRadius(5)
+    $chip.Padding = New-Object System.Windows.Thickness(8, 3, 8, 3)
+    $chip.Margin = New-Object System.Windows.Thickness(0, 2, 6, 2)
+    $chipText = New-Object System.Windows.Controls.TextBlock
+    $chipText.Text = $Text
+    $chipText.Foreground = $window.Resources["MutedBrush"]
+    $chipText.FontSize = 12
+    $chip.Child = $chipText
+    [void]$Panel.Children.Add($chip)
+}
+
+Add-PreviewNameChip -Panel $ui.LastNamesPanel -Text "pc00332 (Active Directory)"
+Add-PreviewNameChip -Panel $ui.LastNamesPanel -Text "ktc100 (IronDeploy)"
+Add-PreviewNameChip -Panel $ui.SuggestedNamesPanel -Text "pc00333" -Suggested
+Add-PreviewNameChip -Panel $ui.SuggestedNamesPanel -Text "ktc101" -Suggested
 $ui.KnownList.ItemsSource = @(
     "Previously deployed as pc00007 (serial_number, deployment #7)",
     "Previously deployed as pc00018 (mac_address, deployment #18)",
@@ -85,7 +131,20 @@ $ui.DiskCombo.ItemsSource = @(
     [pscustomobject]@{ Number = 1; Display = "#1 - SATA WDC WD10SPZX - 931.51 GiB" }
 )
 $ui.DiskCombo.SelectedIndex = 0
-$ui.DomainCheck.IsChecked = $true
+$previewWarn = New-Object System.Windows.Media.SolidColorBrush (
+    [System.Windows.Media.Color]::FromRgb(0xE3, 0xB3, 0x41)
+)
+$ui.DomainCheck.IsChecked = $false
+$ui.DomainCheck.IsEnabled = $false
+$ui.DomainJoinNotice.Background = New-Object System.Windows.Media.SolidColorBrush (
+    [System.Windows.Media.Color]::FromRgb(0x3B, 0x2F, 0x1B)
+)
+$ui.DomainJoinNotice.BorderBrush = $previewWarn
+$ui.DomainJoinNotice.BorderThickness = New-Object System.Windows.Thickness(1)
+$ui.DomainJoinNotice.Padding = New-Object System.Windows.Thickness(9, 7, 9, 7)
+$ui.DomainJoinHint.Text = "This naming format is local. Domain join is unavailable."
+$ui.DomainJoinHint.Foreground = $previewWarn
+$ui.DomainJoinHint.Visibility = "Visible"
 $ui.DeployButton.IsEnabled = $true
 $ui.DeployButton.Content = "Wipe & Deploy (PREVIEW)"
 

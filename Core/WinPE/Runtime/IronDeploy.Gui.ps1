@@ -69,6 +69,38 @@ $IronDeployGuiXaml = @'
                 </Setter.Value>
             </Setter>
         </Style>
+        <Style x:Key="NameSuggestionButton" TargetType="Button">
+            <Setter Property="Background" Value="#FF1A1A28"/>
+            <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+            <Setter Property="BorderBrush" Value="#FF3A3A50"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="10,4"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="b" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="5" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="b" Property="BorderBrush"
+                                        Value="{StaticResource AccentBrush}"/>
+                                <Setter TargetName="b" Property="Opacity" Value="0.9"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="b" Property="Opacity" Value="0.4"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
         <Style TargetType="TextBox">
             <Setter Property="Background" Value="#FF1A1A28"/>
             <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
@@ -281,34 +313,40 @@ $IronDeployGuiXaml = @'
 
                         <Border Background="{StaticResource CardBrush}"
                                 BorderBrush="#FF3A3A50" BorderThickness="1"
-                                CornerRadius="6" Padding="12,8" Margin="0,8,0,0">
+                                CornerRadius="6" Padding="12,0" Margin="0,8,0,0">
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="145"/>
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
                                 <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto"/>
-                                    <RowDefinition Height="Auto"/>
-                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition MinHeight="29"/>
+                                    <RowDefinition MinHeight="29"/>
+                                    <RowDefinition MinHeight="29"/>
                                 </Grid.RowDefinitions>
+                                <Border Grid.Row="0" Grid.ColumnSpan="2"
+                                        BorderBrush="#FF3A3A50" BorderThickness="0,0,0,1"/>
+                                <Border Grid.Row="1" Grid.ColumnSpan="2"
+                                        BorderBrush="#FF3A3A50" BorderThickness="0,0,0,1"/>
                                 <TextBlock x:Name="AllowedFormatsLabel" Grid.Row="0"
+                                           VerticalAlignment="Center"
                                            Text="ALLOWED FORMATS" FontSize="12"
                                            Foreground="{StaticResource TextBrush}"/>
                                 <TextBlock x:Name="AllowedFormatsText" Grid.Row="0" Grid.Column="1"
-                                           TextWrapping="Wrap" FontSize="12"
+                                           VerticalAlignment="Center" TextWrapping="Wrap" FontSize="12"
                                            Foreground="{StaticResource MutedBrush}"/>
-                                <TextBlock x:Name="LastNamesLabel" Grid.Row="1" Margin="0,5,0,0"
+                                <TextBlock x:Name="LastNamesLabel" Grid.Row="1"
+                                           VerticalAlignment="Center"
                                            Text="LAST NAMES" FontSize="12"
                                            Foreground="{StaticResource TextBrush}"/>
-                                <TextBlock x:Name="LastNamesText" Grid.Row="1" Grid.Column="1"
-                                           Margin="0,5,0,0" TextWrapping="Wrap" FontSize="12"
-                                           Foreground="{StaticResource MutedBrush}"/>
-                                <TextBlock x:Name="SuggestedNamesLabel" Grid.Row="2" Margin="0,5,0,0"
+                                <WrapPanel x:Name="LastNamesPanel" Grid.Row="1" Grid.Column="1"
+                                           VerticalAlignment="Center"/>
+                                <TextBlock x:Name="SuggestedNamesLabel" Grid.Row="2"
+                                           VerticalAlignment="Center"
                                            Text="SUGGESTED NAMES" FontSize="12"
                                            Foreground="{StaticResource TextBrush}"/>
                                 <WrapPanel x:Name="SuggestedNamesPanel" Grid.Row="2" Grid.Column="1"
-                                           Margin="0,2,0,0"/>
+                                           VerticalAlignment="Center"/>
                             </Grid>
                         </Border>
                         <TextBlock x:Name="NameHint" Style="{StaticResource Label}"
@@ -316,18 +354,27 @@ $IronDeployGuiXaml = @'
                                    Text="Enter a name matching an allowed format."/>
 
                         <TextBlock x:Name="WindowsImageLabel" Text="WINDOWS IMAGE" Style="{StaticResource Label}"
-                                   Margin="0,10,0,0"/>
+                                   Margin="0,8,0,0"/>
                         <ComboBox x:Name="ImageCombo" DisplayMemberPath="Display"
                                   Height="34" FontSize="14" Padding="8,4"/>
 
                         <TextBlock x:Name="TargetDiskLabel" Text="TARGET DISK" Style="{StaticResource Label}"
-                                   Margin="0,14,0,0"/>
+                                   Margin="0,8,0,0"/>
                         <ComboBox x:Name="DiskCombo" DisplayMemberPath="Display"
                                   Height="34" FontSize="14" Padding="8,4"/>
 
-                        <CheckBox x:Name="DomainCheck" Margin="0,16,0,0"
-                                  Foreground="{StaticResource TextBrush}"
-                                  Content="Join Active Directory domain (Offline Domain Join)"/>
+                        <Border x:Name="DomainJoinNotice" Margin="0,10,0,0"
+                                Background="Transparent" BorderBrush="Transparent"
+                                BorderThickness="0" CornerRadius="6" Padding="0">
+                            <StackPanel>
+                                <CheckBox x:Name="DomainCheck"
+                                          Foreground="{StaticResource TextBrush}"
+                                          Content="Join Active Directory domain (Offline Domain Join)"/>
+                                <TextBlock x:Name="DomainJoinHint" Margin="25,4,0,0"
+                                           FontSize="11" TextWrapping="Wrap"
+                                           Visibility="Collapsed"/>
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
                 </Grid>
 
@@ -717,11 +764,11 @@ function Start-IronDeployGui {
         "StepOneIndicator", "StepTwoIndicator", "StepThreeIndicator",
         "SerialLabel", "MacLabel", "ComputerNameLabel", "WindowsImageLabel", "TargetDiskLabel",
         "SerialText", "MacText", "NameBox", "NameHint",
-        "AllowedFormatsLabel", "AllowedFormatsText", "LastNamesLabel", "LastNamesText",
+        "AllowedFormatsLabel", "AllowedFormatsText", "LastNamesLabel", "LastNamesPanel",
         "SuggestedNamesLabel", "SuggestedNamesPanel", "KnownList",
         "KnownDeploymentsCompactLabel", "KnownDeploymentsButton",
         "KnownDeploymentsPopup", "KnownDeploymentsTitle",
-        "ImageCombo", "DiskCombo", "DomainCheck", "WipeCheck",
+        "ImageCombo", "DiskCombo", "DomainCheck", "DomainJoinNotice", "DomainJoinHint", "WipeCheck",
         "ConfirmComputerLabel", "ConfirmImageLabel", "ConfirmDiskLabel", "ConfirmDomainLabel", "WipeWarningText",
         "ConfirmModelLabel", "ConfirmModelText",
         "ConfirmComputerText", "ConfirmImageText", "ConfirmDiskText", "ConfirmDomainText",
@@ -795,6 +842,9 @@ function Start-IronDeployGui {
             NameFormatReady = "Matched format: {0}"
             DomainFormatUnavailable = "Active Directory is unavailable for {0}. Domain join is disabled."
             DomainJoinUnavailable = "Domain join is unavailable for {0}: {1}"
+            DomainJoinLocalFormat = "This naming format is local. Domain join is unavailable."
+            DomainJoinDirectoryUnavailable = "Active Directory is unavailable for this naming format. Domain join is unavailable."
+            DomainJoinNotConfigured = "Offline Domain Join is not configured for this naming format."
             LocalFormatNoDomain = "Format {0} is not linked to Active Directory."
             AllowedFormatsLabel = "ALLOWED FORMATS"
             LastNamesLabel = "LAST NAMES"
@@ -875,6 +925,9 @@ function Start-IronDeployGui {
             NameFormatReady = "Выбран формат: {0}"
             DomainFormatUnavailable = "Active Directory недоступна для {0}. Ввод в домен отключён."
             DomainJoinUnavailable = "Ввод в домен недоступен для {0}: {1}"
+            DomainJoinLocalFormat = "Этот формат имени локальный. Ввод в домен недоступен."
+            DomainJoinDirectoryUnavailable = "Active Directory недоступна для этого формата. Ввод в домен недоступен."
+            DomainJoinNotConfigured = "Offline Domain Join для этого формата не настроен."
             LocalFormatNoDomain = "Формат {0} не связан с Active Directory."
             AllowedFormatsLabel = "ДОПУСТИМЫЕ ФОРМАТЫ"
             LastNamesLabel = "ПОСЛЕДНИЕ ИМЕНА"
@@ -967,6 +1020,57 @@ function Start-IronDeployGui {
         return $null
     }
 
+    $script:IronGuiSetDomainJoinNotice = {
+        param(
+            [ValidateSet("normal", "warning", "error")]
+            [string]$State = "normal",
+            [string]$Message = ""
+        )
+
+        $notice = $script:IronGuiUi.DomainJoinNotice
+        $hint = $script:IronGuiUi.DomainJoinHint
+        $notice.Background = [System.Windows.Media.Brushes]::Transparent
+        $notice.BorderBrush = [System.Windows.Media.Brushes]::Transparent
+        $notice.BorderThickness = New-Object System.Windows.Thickness(0)
+        $notice.Padding = New-Object System.Windows.Thickness(0)
+        $hint.Visibility = "Collapsed"
+        $hint.Text = ""
+        $script:IronGuiUi.NameHint.Visibility = if ($State -eq "normal") {
+            "Visible"
+        } else {
+            "Collapsed"
+        }
+
+        if ($State -eq "normal") {
+            return
+        }
+
+        $isError = $State -eq "error"
+        if ($isError) {
+            $notice.Background = New-Object System.Windows.Media.SolidColorBrush (
+                [System.Windows.Media.Color]::FromRgb(0x3A, 0x23, 0x28)
+            )
+        } else {
+            $notice.Background = New-Object System.Windows.Media.SolidColorBrush (
+                [System.Windows.Media.Color]::FromRgb(0x3B, 0x2F, 0x1B)
+            )
+        }
+        $notice.BorderBrush = if ($isError) {
+            $script:IronGuiBrushes["error"]
+        } else {
+            $script:IronGuiBrushes["warn"]
+        }
+        $notice.BorderThickness = New-Object System.Windows.Thickness(1)
+        $notice.Padding = New-Object System.Windows.Thickness(9, 7, 9, 7)
+        $hint.Text = $Message
+        $hint.Foreground = if ($isError) {
+            $script:IronGuiBrushes["error"]
+        } else {
+            $script:IronGuiBrushes["warn"]
+        }
+        $hint.Visibility = "Visible"
+    }
+
     $script:IronGuiUpdateNameFormatState = {
         $nameText = ([string]$script:IronGuiUi.NameBox.Text).Trim()
         $matched = & $script:IronGuiGetMatchedNameFormat $nameText
@@ -981,15 +1085,20 @@ function Start-IronDeployGui {
         $script:IronGuiUi.DomainCheck.IsEnabled = $domainAvailable
 
         if ($nameText.Length -gt 0 -and $null -eq $matched) {
+            & $script:IronGuiSetDomainJoinNotice "normal"
             $script:IronGuiUi.NameHint.Text = & $script:IronGuiGetText "NameInvalid"
             $script:IronGuiUi.NameHint.Foreground = $script:IronGuiBrushes["error"]
         } elseif ($null -eq $matched) {
+            & $script:IronGuiSetDomainJoinNotice "normal"
             $script:IronGuiUi.NameHint.Text = & $script:IronGuiGetText "NameFormat"
             $script:IronGuiUi.NameHint.Foreground = [System.Windows.Media.Brushes]::Gray
         } elseif (
             [bool]$matched.domain_linked -and
             -not [bool]$matched.directory_available
         ) {
+            & $script:IronGuiSetDomainJoinNotice "error" (
+                & $script:IronGuiGetText "DomainJoinDirectoryUnavailable"
+            )
             $script:IronGuiUi.NameHint.Text = & $script:IronGuiGetText `
                 "DomainFormatUnavailable" @([string]$matched.pattern)
             $script:IronGuiUi.NameHint.Foreground = $script:IronGuiBrushes["warn"]
@@ -997,6 +1106,9 @@ function Start-IronDeployGui {
             [bool]$matched.domain_linked -and
             -not [bool]$matched.domain_join_available
         ) {
+            & $script:IronGuiSetDomainJoinNotice "warning" (
+                & $script:IronGuiGetText "DomainJoinNotConfigured"
+            )
             $script:IronGuiUi.NameHint.Text = & $script:IronGuiGetText `
                 "DomainJoinUnavailable" @(
                     [string]$matched.pattern,
@@ -1004,10 +1116,14 @@ function Start-IronDeployGui {
                 )
             $script:IronGuiUi.NameHint.Foreground = $script:IronGuiBrushes["warn"]
         } elseif (-not [bool]$matched.domain_linked) {
+            & $script:IronGuiSetDomainJoinNotice "warning" (
+                & $script:IronGuiGetText "DomainJoinLocalFormat"
+            )
             $script:IronGuiUi.NameHint.Text = & $script:IronGuiGetText `
                 "LocalFormatNoDomain" @([string]$matched.pattern)
             $script:IronGuiUi.NameHint.Foreground = $script:IronGuiBrushes["info"]
         } else {
+            & $script:IronGuiSetDomainJoinNotice "normal"
             $script:IronGuiUi.NameHint.Text = & $script:IronGuiGetText `
                 "NameFormatReady" @([string]$matched.pattern)
             $script:IronGuiUi.NameHint.Foreground = $script:IronGuiBrushes["ok"]
@@ -1066,16 +1182,32 @@ function Start-IronDeployGui {
         }
 
         $script:IronGuiUi.AllowedFormatsText.Text = $allowed -join "    "
-        $script:IronGuiUi.LastNamesText.Text = $lastNames -join "    "
+        $script:IronGuiUi.LastNamesPanel.Children.Clear()
+        foreach ($lastName in $lastNames) {
+            $chip = New-Object System.Windows.Controls.Border
+            $chip.Background = $script:IronGuiWindow.Resources["PanelBrush"]
+            $chip.BorderBrush = $script:IronGuiWindow.Resources["CardBrush"]
+            $chip.BorderThickness = New-Object System.Windows.Thickness(1)
+            $chip.CornerRadius = New-Object System.Windows.CornerRadius(5)
+            $chip.Padding = New-Object System.Windows.Thickness(8, 3, 8, 3)
+            $chip.Margin = New-Object System.Windows.Thickness(0, 2, 6, 2)
+
+            $chipText = New-Object System.Windows.Controls.TextBlock
+            $chipText.Text = [string]$lastName
+            $chipText.Foreground = $script:IronGuiWindow.Resources["MutedBrush"]
+            $chipText.FontSize = 12
+            $chipText.MaxWidth = 330
+            $chipText.TextWrapping = "Wrap"
+            $chip.Child = $chipText
+            [void]$script:IronGuiUi.LastNamesPanel.Children.Add($chip)
+        }
         $script:IronGuiUi.SuggestedNamesPanel.Children.Clear()
         foreach ($suggestion in $suggestions) {
             $button = New-Object System.Windows.Controls.Button
             $button.Content = $suggestion
             $button.Tag = $suggestion
-            $button.Padding = New-Object System.Windows.Thickness(10, 4, 10, 4)
-            $button.Margin = New-Object System.Windows.Thickness(0, 0, 6, 3)
-            $button.FontSize = 12
-            $button.Foreground = $script:IronGuiWindow.Resources["AccentBrush"]
+            $button.Style = $script:IronGuiWindow.Resources["NameSuggestionButton"]
+            $button.Margin = New-Object System.Windows.Thickness(0, 2, 6, 2)
             $button.Add_Click({
                 param($eventSender, $eventArgs)
                 $script:IronGuiUi.NameBox.Text = [string]$eventSender.Tag
