@@ -52,7 +52,7 @@ IronAPI reads `Core\Api\.env`. Its settings are grouped by responsibility:
 | Group | Examples |
 | --- | --- |
 | Listener | access mode, bind address, port, access log, allowed client networks |
-| Deployment | authorization and deployment timeouts, image- and driver-apply strategies |
+| Deployment | authorization and deployment timeouts, image- and driver-apply strategies, staged-driver TAR limit and wait timeout |
 | SMB | share path and configured account returned to authorized WinPE; the account must be read-only in SMB and NTFS |
 | Storage | SQLite database and temporary ODJ directory |
 | LDAP | domain controller, base DN, and LDAP TLS |
@@ -72,7 +72,7 @@ IronAPI answers requests from several sources rather than one central catalog:
 | --- | --- |
 | Accounts, permissions, deployments, stages, inventory, and computer-name formats | `Core\Data\irondeploy.db` |
 | Images, indexes, and SHA-256 hashes | `Core\Share\Images` plus server-side image metadata |
-| Driver packages | `Core\Share\Drivers` |
+| Driver packages and temporary staged TAR files | `Core\Share\Drivers`; TAR files live under the hidden `.irondeploy-archives` directory |
 | Programs, arguments, sizes, and hashes | `Core\Share\Programs` and its metadata file |
 | Post-PowerShell payloads and profile policy | Private `Core\Library\PostPowerShell` storage plus SQLite profile bindings |
 | SMB access and image/driver apply strategies | server-side `Core\Api\.env` |
@@ -111,9 +111,24 @@ runtime receiving a missing or unsupported value falls back to `direct`.
 
 `driverApplyMode` uses the same `direct` or `staged` values and the same
 manifest endpoint, with `staged` as the new-installation default. Direct mode
-keeps DISM on the selected SMB package. Staged mode copies the package locally
-and validates its byte, file, and INF counts before offline injection. A WinPE
-runtime receiving a missing or unsupported value falls back to `direct`.
+keeps DISM on the selected SMB package. For staged mode, accepting the final
+manifest immediately starts one fresh, uncompressed TAR for that deployment.
+The manifest returns a status URL and bounded wait time. The protected
+`GET /api/deploy/{id}/driver-archive` route accepts only the active deployment's
+WinPE token and reports `preparing`, `ready`, or `failed`; the payload remains on
+the existing read-only SMB data plane. WinPE downloads that single TAR, then
+extracts and validates its byte, file, and INF counts before offline injection.
+A WinPE runtime receiving a missing or unsupported apply mode falls back to
+`direct`.
+
+Server TAR storage is bounded by `IRONAPI_DRIVER_ARCHIVE_MAX_GIB` (25 GiB by
+default). The hard combined limit includes both `drivers.tar.partial` and ready
+`drivers.tar` files plus space reserved for active builds. Archives are not
+reused between deployments. They are removed after driver download completion
+or failure, any terminal deployment error or success, and stale-deployment
+expiry. If IronAPI restarts while a task is marked `preparing`, the task is
+discarded and built again. `IRONAPI_DRIVER_ARCHIVE_WAIT_TIMEOUT_MINUTES`
+controls how long WinPE waits for readiness; it defaults to 15 minutes.
 
 ## Browser interface
 

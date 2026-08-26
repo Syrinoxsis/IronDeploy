@@ -83,23 +83,22 @@ if ($script:Warnings.Count -ne 2) { throw 'Expected two fallback warnings' }
 """,
         )
 
-    def test_staged_copy_validates_package_and_cleanup_removes_it(self) -> None:
+    def test_staged_copy_validates_tar_and_cleanup_removes_it(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            source = root / "share" / "Vendor" / "Model"
-            (source / "sub").mkdir(parents=True)
-            (source / "driver.inf").write_bytes(b"inf-payload")
-            (source / "sub" / "driver.sys").write_bytes(b"sys-payload")
+            source = root / "share" / ".irondeploy-archives" / "42"
+            source.mkdir(parents=True)
+            archive = source / "drivers.tar"
+            archive.write_bytes(b"tar-payload")
             local_drive = root / "local"
             local_drive.mkdir()
-            expected_size = sum(path.stat().st_size for path in source.rglob("*"))
-            escaped_source = str(source).replace("'", "''")
+            escaped_source = str(archive).replace("'", "''")
             escaped_local = str(local_drive).replace("'", "''")
 
             self.assert_powershell(
                 [
                     "Test-IronRobocopyExitCode",
-                    "Copy-IronDriverPackageToLocalStaging",
+                    "Copy-IronDriverArchiveToLocalStaging",
                     "Remove-IronStagedDriverArtifacts",
                 ],
                 f"""
@@ -110,27 +109,25 @@ function Get-PSDrive {{
     return [pscustomobject]@{{ Free = 1GB }}
 }}
 function robocopy.exe {{
-    param($SourceDirectory, $DestinationDirectory)
+    param($SourceDirectory, $DestinationDirectory, $SourceName)
     New-Item -ItemType Directory -Path $DestinationDirectory -Force | Out-Null
     Copy-Item `
-        -Path (Join-Path $SourceDirectory '*') `
-        -Destination $DestinationDirectory `
-        -Recurse `
+        -LiteralPath (Join-Path $SourceDirectory $SourceName) `
+        -Destination (Join-Path $DestinationDirectory $SourceName) `
         -Force
     $global:LASTEXITCODE = 3
 }}
-$result = Copy-IronDriverPackageToLocalStaging `
+$result = Copy-IronDriverArchiveToLocalStaging `
     -SourcePath '{escaped_source}' `
-    -ExpectedLength {expected_size} `
-    -ExpectedFileCount 2 `
-    -ExpectedInfCount 1 `
+    -ExpectedArchiveLength {archive.stat().st_size} `
+    -ExpectedExtractedLength 25 `
     -DeploymentId 42
 if ($result.RobocopyExitCode -ne 3) {{ throw 'Robocopy code was not retained' }}
-if (-not (Test-Path -LiteralPath $result.Path -PathType Container)) {{
-    throw 'Final staged driver directory is missing'
+if (-not (Test-Path -LiteralPath $result.ArchivePath -PathType Leaf)) {{
+    throw 'Final staged driver TAR is missing'
 }}
-if (Test-Path -LiteralPath (Join-Path $result.StagingDirectory 'drivers.partial')) {{
-    throw 'Partial directory should be renamed after verification'
+if (Test-Path -LiteralPath (Join-Path $result.StagingDirectory 'archive.partial')) {{
+    throw 'Partial transfer directory should be removed after verification'
 }}
 Remove-IronStagedDriverArtifacts `
     -StagingDirectory $result.StagingDirectory `
@@ -174,6 +171,9 @@ if (-not $script:IronNetworkDiagnostics.StageWindows.ContainsKey('driver_injecti
         self.assertIn('$script:DriverApplyMode -eq "staged"', pipeline)
         self.assertIn('Start-DeploymentStage "driver_download"', pipeline)
         self.assertIn('Start-DeploymentStage "driver_injection"', pipeline)
+        self.assertIn("Wait-IronDriverArchive", pipeline)
+        self.assertIn("Copy-IronDriverArchiveToLocalStaging", pipeline)
+        self.assertIn("Expand-IronDriverArchive", pipeline)
         self.assertIn('Set-IronProgress 60 "Downloading driver package"', pipeline)
         self.assertIn('Set-IronProgress 66 "Injecting driver package"', pipeline)
         self.assertIn("/Driver:$DriverPackagePathToInject", pipeline)

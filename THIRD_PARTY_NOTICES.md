@@ -50,3 +50,17 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+## 7-Zip Extra 26.02
+
+IronDeploy includes the unmodified x64 standalone `7za.exe` utility from
+7-Zip Extra 26.02.
+
+Copyright (C) 1999-2026 Igor Pavlov.
+
+7-Zip is primarily licensed under the GNU Lesser General Public License, with
+portions licensed under the BSD 3-clause and BSD 2-clause licenses. Full
+license information is available in
+[`LICENSES/7-Zip-LICENSE.txt`](LICENSES/7-Zip-LICENSE.txt).
+
+Project and corresponding source code: https://www.7-zip.org/download.html

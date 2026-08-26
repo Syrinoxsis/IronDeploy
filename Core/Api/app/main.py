@@ -128,6 +128,13 @@ from app.drivers import (
     rename_vendor,
     save_uploaded_driver_file,
 )
+from app.driver_archives import (
+    DriverArchiveError,
+    cleanup_driver_archive,
+    get_driver_archive_status,
+    prepare_driver_archive,
+    shutdown_driver_archive_workers,
+)
 from app.image_config import (
     ImageConfigError,
     load_image_config,
@@ -189,7 +196,10 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     initialize_database()
     with SessionLocal() as session:
         bootstrap_superadmin(session)
-    yield
+    try:
+        yield
+    finally:
+        shutdown_driver_archive_workers()
 
 
 app = FastAPI(title="IronAPI", version="0.0.1-alpha.1", lifespan=lifespan)
@@ -1536,6 +1546,20 @@ def deploy_manifest(
         )
     update_computer_inventory(session, deployment)
     session.commit()
+    driver_archive = None
+    if selected_driver is not None and driver_apply_mode == "staged":
+        settings = get_settings()
+        try:
+            prepare_driver_archive(deployment.id, selected_driver, settings)
+        except DriverArchiveError as exc:
+            cleanup_driver_archive(deployment.id)
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        driver_archive = {
+            "statusUrl": f"/api/deploy/{deployment.id}/driver-archive",
+            "waitTimeoutSeconds": settings.driver_archive_wait_timeout_minutes * 60,
+        }
+    else:
+        cleanup_driver_archive(deployment.id)
     return {
         "deploymentId": deployment.id,
         "imageApplyMode": image_apply_mode,
@@ -1544,6 +1568,7 @@ def deploy_manifest(
         "programs": selected_programs,
         "postPowerShell": post_powershell_plan,
         "driverPackage": selected_driver,
+        "driverArchive": driver_archive,
         "postinstall": {
             "localAdminName": deployment_profile["localAdminName"],
             "enableBuiltInAdministrator": deployment_profile[
@@ -1552,6 +1577,46 @@ def deploy_manifest(
             "enableSetupLocalAdmin": deployment_profile["enableSetupLocalAdmin"],
         },
     }
+
+
+@app.get("/api/deploy/{deployment_id}/driver-archive")
+def deployment_driver_archive_status(
+    deployment_id: int,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> JSONResponse:
+    expire_stale_deployments(session)
+    deployment, _ = require_owned_deployment(
+        deployment_id, request, session, "winpe"
+    )
+    if deployment.status != DEPLOYMENT_BEGIN:
+        raise HTTPException(status_code=409, detail="Deployment is not active")
+    if deployment.driver_apply_mode != "staged":
+        raise HTTPException(
+            status_code=409,
+            detail="Driver archive transport is not active for this deployment.",
+        )
+    try:
+        archive = get_driver_archive_status(deployment_id, get_settings())
+    except DriverArchiveError as exc:
+        return JSONResponse(
+            {"status": "failed", "error": str(exc)},
+            headers={"Cache-Control": "no-store"},
+        )
+    response_status = 202 if archive.get("status") == "preparing" else 200
+    return JSONResponse(
+        {
+            "status": archive.get("status"),
+            "archiveRelativePath": archive.get("archiveRelativePath"),
+            "archiveSize": archive.get("archiveSize"),
+            "sourceSize": archive.get("sourceSize"),
+            "sourceFileCount": archive.get("sourceFileCount"),
+            "sourceInfCount": archive.get("sourceInfCount"),
+            "error": archive.get("error"),
+        },
+        status_code=response_status,
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.get("/api/deployments", response_model=DeploymentListResponse)
@@ -2190,6 +2255,7 @@ def deploy_error(
         discard_domain_join_blob(deployment.computer_name)
 
     session.commit()
+    cleanup_driver_archive(deployment_id)
     session.refresh(deployment)
     revoke_deployment_token(session, token)
     return to_deployment_response(deployment)
@@ -2408,6 +2474,8 @@ def deploy_stage_event(
         stage_record.completed_at = now
 
     session.commit()
+    if stage == "driver_download" and event in {"complete", "fail", "skip"}:
+        cleanup_driver_archive(deployment_id)
     session.refresh(stage_record)
     return to_deployment_stage_response(stage_record)
 
@@ -2619,6 +2687,7 @@ def deploy_complete(
     if deployment.domain_join:
         discard_domain_join_blob(deployment.computer_name)
 
+    cleanup_driver_archive(deployment_id)
     session.commit()
 
     session.refresh(deployment)

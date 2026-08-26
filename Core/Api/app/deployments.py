@@ -1067,6 +1067,9 @@ def expire_stale_deployments(
 
     if stale_deployments:
         session.commit()
+        from app.driver_archives import cleanup_driver_archives
+
+        cleanup_driver_archives([deployment.id for deployment in stale_deployments])
 
     # Housekeeping hook: this runs on nearly every deployment request, which is
     # the only scheduler IronAPI has. It catches blobs whose deployment row was

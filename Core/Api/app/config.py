@@ -83,6 +83,8 @@ class Settings(BaseModel):
     driver_upload_ttl_hours: int = Field(default=24, ge=1, le=8760)
     driver_max_active_uploads: int = Field(default=3, ge=1, le=100)
     driver_min_free_space_gib: int = Field(default=25, ge=1, le=10240)
+    driver_archive_max_gib: int = Field(default=25, ge=1, le=10240)
+    driver_archive_wait_timeout_minutes: int = Field(default=15, ge=1, le=120)
 
     ldap_server: str | None
     ldap_base_dn: str | None
@@ -139,6 +141,12 @@ def get_settings() -> Settings:
         ),
         driver_min_free_space_gib=_get_int_or_default(
             "IRONAPI_DRIVER_MIN_FREE_SPACE_GIB", 25
+        ),
+        driver_archive_max_gib=_get_int_or_default(
+            "IRONAPI_DRIVER_ARCHIVE_MAX_GIB", 25
+        ),
+        driver_archive_wait_timeout_minutes=_get_int_or_default(
+            "IRONAPI_DRIVER_ARCHIVE_WAIT_TIMEOUT_MINUTES", 15
         ),
         ldap_server=_get_optional_env("IRONAPI_LDAP_SERVER"),
         ldap_base_dn=_get_optional_env("IRONAPI_LDAP_BASE_DN"),

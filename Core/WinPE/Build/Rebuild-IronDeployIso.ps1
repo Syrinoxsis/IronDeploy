@@ -46,6 +46,14 @@ $FilesToCopy = @(
         Destination = Join-Path $MountDir "IronDeploy\diskpart-uefi.txt"
     },
     @{
+        Source = Join-Path $RuntimeRoot "Tools\7-Zip\7za.exe"
+        Destination = Join-Path $MountDir "IronDeploy\Tools\7-Zip\7za.exe"
+    },
+    @{
+        Source = Join-Path $RuntimeRoot "Tools\7-Zip\7-Zip-LICENSE.txt"
+        Destination = Join-Path $MountDir "IronDeploy\Tools\7-Zip\7-Zip-LICENSE.txt"
+    },
+    @{
         Source = Join-Path $RuntimeRoot "startnet.cmd"
         Destination = Join-Path $MountDir "Windows\System32\startnet.cmd"
     }

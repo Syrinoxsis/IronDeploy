@@ -60,6 +60,8 @@ The UI owns the first-time settings needed by both IronAPI and WinPE:
   The ODJ security action can restrict `Core\ODJ` to SYSTEM, Administrators, and
   an existing Windows account that runs IronAPI;
 - deployment and authorization timeouts;
+- staged-driver TAR storage limit (25 GiB by default) and WinPE archive-ready
+  wait timeout (15 minutes by default);
 - driver-upload safety limits;
 - WinPE API address and certificate trust;
 - WinPE image, driver, program, and drive-letter paths;

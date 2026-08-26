@@ -33,6 +33,8 @@ API_NAMES = (
     "IRONAPI_DRIVER_UPLOAD_TTL_HOURS",
     "IRONAPI_DRIVER_MAX_ACTIVE_UPLOADS",
     "IRONAPI_DRIVER_MIN_FREE_SPACE_GIB",
+    "IRONAPI_DRIVER_ARCHIVE_MAX_GIB",
+    "IRONAPI_DRIVER_ARCHIVE_WAIT_TIMEOUT_MINUTES",
     "IRONAPI_SMB_SHARE_PATH",
     "IRONAPI_SMB_USER",
     "IRONAPI_SMB_PASSWORD",
@@ -672,6 +674,8 @@ def normalize_api(values: dict[str, Any]) -> dict[str, str]:
         "IRONAPI_DRIVER_UPLOAD_TTL_HOURS": (1, 8760),
         "IRONAPI_DRIVER_MAX_ACTIVE_UPLOADS": (1, 100),
         "IRONAPI_DRIVER_MIN_FREE_SPACE_GIB": (1, 10240),
+        "IRONAPI_DRIVER_ARCHIVE_MAX_GIB": (1, 10240),
+        "IRONAPI_DRIVER_ARCHIVE_WAIT_TIMEOUT_MINUTES": (1, 120),
     }
     for name, (minimum, maximum) in driver_integer_ranges.items():
         value = parse_int(result[name], name)

@@ -1,3 +1,4 @@
+import json
 import os
 
 os.environ.setdefault("IRONAPI_DATABASE_URL", "sqlite:///:memory:")
@@ -60,6 +61,7 @@ from app.main import (
     deploy_error,
     deploy_image_selected,
     deploy_manifest,
+    deployment_driver_archive_status,
     deployment_list,
 )
 
@@ -497,6 +499,9 @@ class DeploymentTimeoutTests(unittest.TestCase):
 
             with patch("app.main._deployment_catalog", return_value=catalog), patch(
                 "app.main.load_image_config", return_value=image_config
+            ), patch(
+                "app.main.prepare_driver_archive",
+                return_value={"status": "preparing"},
             ):
                 result = deploy_manifest(
                     deployment.id,
@@ -513,6 +518,11 @@ class DeploymentTimeoutTests(unittest.TestCase):
             self.assertEqual(result["image"]["sha256"], "b" * 64)
             self.assertEqual(result["imageApplyMode"], "staged")
             self.assertEqual(result["driverApplyMode"], "staged")
+            self.assertEqual(
+                result["driverArchive"]["statusUrl"],
+                f"/api/deploy/{deployment.id}/driver-archive",
+            )
+            self.assertEqual(result["driverArchive"]["waitTimeoutSeconds"], 900)
             self.assertEqual(result["programs"][0]["arguments"], "/qn /norestart")
             self.assertEqual(result["programs"][0]["sha256"], "a" * 64)
             self.assertEqual(
@@ -577,6 +587,62 @@ class DeploymentTimeoutTests(unittest.TestCase):
                 session.get(Deployment, deployment.id).driver_apply_mode,
                 "direct",
             )
+
+    def test_driver_archive_status_requires_owned_staged_deployment(self) -> None:
+        with Session(self.engine) as session:
+            deployment = self.deployment(datetime.now(timezone.utc))
+            deployment.driver_apply_mode = "staged"
+            session.add(deployment)
+            session.commit()
+            request = self.deployment_request(session, deployment.id)
+            archive = {
+                "status": "ready",
+                "archiveRelativePath": (
+                    f".irondeploy-archives\\{deployment.id}\\drivers.tar"
+                ),
+                "archiveSize": 4096,
+                "sourceSize": 2048,
+                "sourceFileCount": 2,
+                "sourceInfCount": 1,
+                "error": None,
+            }
+
+            with patch("app.main.expire_stale_deployments"), patch(
+                "app.main.get_driver_archive_status", return_value=archive
+            ) as get_status:
+                response = deployment_driver_archive_status(
+                    deployment.id,
+                    request,
+                    session,
+                )
+
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.headers["cache-control"], "no-store")
+            self.assertEqual(json.loads(response.body), archive)
+            get_status.assert_called_once()
+
+    def test_driver_archive_status_rejects_unowned_deployment(self) -> None:
+        with Session(self.engine) as session:
+            deployment = self.deployment(datetime.now(timezone.utc))
+            deployment.driver_apply_mode = "staged"
+            session.add(deployment)
+            other_deployment = self.deployment(datetime.now(timezone.utc))
+            other_deployment.computer_name = "pc00999"
+            other_deployment.serial_number = "OTHER123"
+            other_deployment.mac_address = "00:11:22:33:44:55"
+            session.add(other_deployment)
+            session.commit()
+            request = self.deployment_request(session, other_deployment.id)
+
+            with patch("app.main.expire_stale_deployments"):
+                with self.assertRaises(HTTPException) as raised:
+                    deployment_driver_archive_status(
+                        deployment.id,
+                        request,
+                        session,
+                    )
+
+            self.assertIn(raised.exception.status_code, {401, 403})
 
     def test_error_endpoint_records_deployment_and_stage_message(self) -> None:
         with Session(self.engine) as session:
