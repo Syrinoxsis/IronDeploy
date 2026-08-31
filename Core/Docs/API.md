@@ -138,9 +138,10 @@ The IronAPI browser interface provides:
 - browser user and permission management;
 - WinPE authorization policy;
 - WIM/ESD image upload, WIM rename, index selection, and ESD-to-WIM conversion;
-- program upload, rename, arguments, hash metadata, and removal;
-- Post-PowerShell upload, arguments, phase, selection mode, timeout, and removal;
-- driver vendor/package upload and cleanup;
+- program upload, rename, arguments, availability, hash metadata, and removal;
+- Post-PowerShell upload, arguments, phase, selection mode, timeout, availability,
+  and removal;
+- driver vendor/package upload, availability, and cleanup;
 - WinPE and image configuration;
 - WIM or ISO rebuild controls.
 
@@ -182,6 +183,13 @@ Administrative routes manage users, permissions, WinPE authorization, images,
 drivers, programs, and image settings. Upload routes validate names and keep
 payloads inside their owning directories. Long-running ESD conversion and
 WinPE build operations expose their current state separately.
+
+Programs, Post-PowerShell scripts, and driver packages each have a server-side
+availability switch. Disabling an item preserves its payload and settings in
+the administration interface but removes it from `GET /api/deploy/catalog`.
+The manifest endpoint builds a fresh catalog, so a disabled item is also
+rejected if an older WinPE screen or a manually submitted request still names
+it. Existing items and newly discovered files default to enabled.
 
 ### WinPE authorization
 

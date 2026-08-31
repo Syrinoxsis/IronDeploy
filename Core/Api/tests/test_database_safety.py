@@ -169,6 +169,11 @@ class DatabaseSafetyTests(unittest.TestCase):
         }
         self.assertIn("image_apply_mode", deployment_columns)
         self.assertIn("driver_apply_mode", deployment_columns)
+        post_powershell_columns = {
+            column["name"]
+            for column in inspect(self.engine).get_columns("post_powershell_scripts")
+        }
+        self.assertIn("enabled", post_powershell_columns)
         with self.engine.connect() as connection:
             network_stage_sql = connection.execute(
                 text(

@@ -127,6 +127,7 @@ from app.drivers import (
     rename_driver_package,
     rename_vendor,
     save_uploaded_driver_file,
+    set_driver_package_enabled,
 )
 from app.driver_archives import (
     DriverArchiveError,
@@ -161,6 +162,7 @@ from app.programs import (
     rename_program,
     save_uploaded_program,
     set_program_arguments,
+    set_program_enabled,
 )
 from app.post_powershell import (
     MAX_OUTPUT_SIZE_BYTES,
@@ -170,6 +172,7 @@ from app.post_powershell import (
     resolve_profile_scripts,
     result_log_path,
     save_uploaded_script,
+    update_script_enabled,
     update_script_settings,
     verified_script_path,
 )
@@ -707,6 +710,20 @@ async def rename_uploaded_program(name: str, request: Request) -> JSONResponse:
     return JSONResponse(result)
 
 
+@app.post("/api/programs/{name}/enabled")
+async def update_program_enabled(name: str, request: Request) -> JSONResponse:
+    require_image_config_write(request)
+    try:
+        payload = await request.json()
+        result = set_program_enabled(name, payload.get("enabled"))
+    except (AttributeError, TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="enabled must be a boolean.")
+    except ProgramError as exc:
+        status_code = 404 if "not found" in str(exc) else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+    return JSONResponse({"saved": True, "program": result})
+
+
 @app.delete("/api/programs/{name}")
 def remove_program(name: str, request: Request) -> JSONResponse:
     require_image_config_write(request)
@@ -777,6 +794,27 @@ async def set_post_powershell_settings(
     except PostPowerShellError as exc:
         session.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/post-powershell/{script_id}/enabled")
+async def set_post_powershell_enabled(
+    script_id: int,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> dict:
+    require_image_config_write(request)
+    try:
+        payload = await request.json()
+        result = update_script_enabled(session, script_id, payload.get("enabled"))
+        session.commit()
+        return {"saved": True, "script": result}
+    except (AttributeError, TypeError, ValueError):
+        session.rollback()
+        raise HTTPException(status_code=400, detail="enabled must be a boolean.")
+    except PostPowerShellError as exc:
+        session.rollback()
+        status_code = 404 if "not found" in str(exc) else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
 
 @app.delete("/api/post-powershell/{script_id}")
@@ -982,6 +1020,28 @@ def remove_driver_package(
         status_code = 404 if "not found" in str(exc) else 400
         raise HTTPException(status_code=status_code, detail=str(exc)) from exc
     return JSONResponse(result)
+
+
+@app.post("/api/drivers/packages/{vendor}/{model}/enabled")
+async def update_driver_package_enabled(
+    vendor: str,
+    model: str,
+    request: Request,
+) -> JSONResponse:
+    require_image_config_write(request)
+    try:
+        payload = await request.json()
+        package = set_driver_package_enabled(
+            vendor,
+            model,
+            payload.get("enabled"),
+        )
+    except (AttributeError, TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="enabled must be a boolean.")
+    except DriverError as exc:
+        status_code = 404 if "not found" in str(exc) else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+    return JSONResponse({"saved": True, "package": package})
 
 
 @app.post("/api/deployment-images/{name}/default-index")
@@ -1365,8 +1425,13 @@ def _deployment_catalog(session: Session | None = None) -> dict:
                 "sha256": program["sha256"],
             }
             for program in program_listing["programs"]
+            if program["enabled"]
         ],
-        "postPowerShell": post_powershell_listing["scripts"],
+        "postPowerShell": [
+            script
+            for script in post_powershell_listing["scripts"]
+            if script["enabled"]
+        ],
         "drivers": [
             {
                 "vendor": package["vendor"],
@@ -1377,7 +1442,7 @@ def _deployment_catalog(session: Session | None = None) -> dict:
                 "fileCount": package["fileCount"],
             }
             for package in driver_listing["packages"]
-            if package["infCount"] > 0
+            if package["enabled"] and package["infCount"] > 0
         ],
     }
 

@@ -118,6 +118,55 @@ class DeploymentTimeoutTests(unittest.TestCase):
 
         self.assertEqual(catalog["images"][0]["sha256"], image_sha256)
 
+    def test_deployment_catalog_hides_disabled_payloads(self) -> None:
+        programs = [
+            {
+                "name": name,
+                "size": 10,
+                "type": "MSI",
+                "arguments": "",
+                "sha256": "a" * 64,
+                "enabled": enabled,
+            }
+            for name, enabled in (("enabled.msi", True), ("disabled.msi", False))
+        ]
+        packages = [
+            {
+                "vendor": "Vendor",
+                "model": model,
+                "relativePath": f"Vendor\\{model}",
+                "size": 20,
+                "infCount": 1,
+                "fileCount": 1,
+                "enabled": enabled,
+            }
+            for model, enabled in (("Enabled", True), ("Disabled", False))
+        ]
+        scripts = [
+            {"name": "enabled.ps1", "enabled": True},
+            {"name": "disabled.ps1", "enabled": False},
+        ]
+        with patch(
+            "app.main.list_deployment_images", return_value={"images": []}
+        ), patch(
+            "app.main.list_programs", return_value={"programs": programs}
+        ), patch(
+            "app.main.list_driver_packages", return_value={"packages": packages}
+        ), patch(
+            "app.main.list_scripts", return_value={"scripts": scripts}
+        ):
+            catalog = _deployment_catalog(object())
+
+        self.assertEqual([item["name"] for item in catalog["programs"]], ["enabled.msi"])
+        self.assertEqual(
+            [item["relativePath"] for item in catalog["drivers"]],
+            ["Vendor\\Enabled"],
+        )
+        self.assertEqual(
+            [item["name"] for item in catalog["postPowerShell"]],
+            ["enabled.ps1"],
+        )
+
     def write_blob(self, computer_name: str = "pc00042") -> Path:
         blob_path = self.odj_blob_dir / f"{computer_name}.txt"
         blob_path.write_bytes(b"odj-blob")

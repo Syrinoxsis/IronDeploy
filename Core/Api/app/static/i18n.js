@@ -1,6 +1,8 @@
 (() => {
     const STORAGE_KEY = "irondeploy-language";
     const ru = {
+        "Enabled": "Включено",
+        "Disabled": "Выключено",
         "WinPE interface": "Интерфейс WinPE",
         "Computer naming": "Имена компьютеров",
         "Define the formats WinPE accepts and where each next name is read from.": "Задайте допустимые форматы WinPE и источник следующего имени для каждого из них.",
@@ -624,6 +626,12 @@
         if (match) return `${match[1]} заблокирован.`;
         match = value.match(/^(.+) enabled\.$/);
         if (match) return `${match[1]} включён.`;
+        match = value.match(/^(.+) (enabled|disabled) for WinPE\.$/);
+        if (match) {
+            return `${match[1]}: ${match[2] === "enabled" ? "доступно" : "скрыто"} в WinPE.`;
+        }
+        match = value.match(/^Offer (.+) in WinPE$/);
+        if (match) return `Показывать ${match[1]} в WinPE`;
         match = value.match(/^Allows the (.+) page and its backend API\.$/);
         if (match) return `Разрешает страницу «${t(match[1])}» и её API.`;
         return value;

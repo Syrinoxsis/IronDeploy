@@ -26,6 +26,7 @@ from app.drivers import (
     rename_driver_package,
     rename_vendor,
     save_uploaded_driver_file,
+    set_driver_package_enabled,
 )
 
 
@@ -255,6 +256,30 @@ class DriverManagementTests(unittest.TestCase):
         )
         self.assertTrue(deleted["deleted"])
         self.assertEqual(list_driver_packages(self.drivers_dir)["packages"], [])
+
+    def test_enabled_state_is_persisted_across_package_and_vendor_renames(self) -> None:
+        create_vendor("Lenovo", self.drivers_dir)
+        package = self.drivers_dir / "Lenovo" / "T14"
+        package.mkdir()
+        (package / "driver.inf").write_bytes(b"driver")
+
+        initial = list_driver_packages(self.drivers_dir)["packages"][0]
+        self.assertTrue(initial["enabled"])
+        disabled = set_driver_package_enabled(
+            "lenovo", "t14", False, self.drivers_dir
+        )
+        self.assertFalse(disabled["enabled"])
+
+        rename_driver_package("Lenovo", "T14", "ThinkPad T14", self.drivers_dir)
+        rename_vendor("Lenovo", "LENOVO", self.drivers_dir)
+        renamed = list_driver_packages(self.drivers_dir)["packages"][0]
+        self.assertEqual(renamed["relativePath"], "LENOVO\\ThinkPad T14")
+        self.assertFalse(renamed["enabled"])
+
+        with self.assertRaisesRegex(DriverError, "boolean"):
+            set_driver_package_enabled(
+                "LENOVO", "ThinkPad T14", "false", self.drivers_dir
+            )
 
     def test_upload_rejects_missing_vendor_and_existing_package(self) -> None:
         with self.assertRaisesRegex(DriverError, "Vendor not found"):

@@ -141,6 +141,7 @@ def _serialize(
             script.modified_ns / 1_000_000_000, timezone.utc
         ).isoformat(),
         "available": available,
+        "enabled": script.enabled,
         "position": assignment.position,
         "selectionMode": assignment.selection_mode,
         "runPhase": assignment.run_phase,
@@ -283,6 +284,25 @@ def update_script_settings(
     return _serialize(script, assignment, available=available)
 
 
+def update_script_enabled(
+    session: Session,
+    script_id: int,
+    enabled: bool,
+) -> dict[str, Any]:
+    if type(enabled) is not bool:
+        raise PostPowerShellError("enabled must be a boolean.")
+    profile = get_default_profile(session)
+    script = session.get(PostPowerShellScript, script_id)
+    assignment = session.get(DeploymentProfileScript, (profile.id, script_id))
+    if script is None or assignment is None:
+        raise PostPowerShellError("PowerShell script not found.")
+    script.enabled = enabled
+    script.updated_at = datetime.now(timezone.utc)
+    available = _refresh_signature(script)
+    session.flush()
+    return _serialize(script, assignment, available=available)
+
+
 def delete_script(session: Session, script_id: int) -> dict[str, Any]:
     script = session.get(PostPowerShellScript, script_id)
     if script is None:
@@ -304,7 +324,12 @@ def resolve_profile_scripts(
     requested_names: list[str],
 ) -> list[dict[str, Any]]:
     listing = list_scripts(session)
-    by_name = {item["name"].casefold(): item for item in listing["scripts"]}
+    eligible = [
+        item
+        for item in listing["scripts"]
+        if item["enabled"]
+    ]
+    by_name = {item["name"].casefold(): item for item in eligible}
     requested = {name.casefold() for name in requested_names}
     unavailable = sorted(name for name in requested if name not in by_name)
     if unavailable:
@@ -312,7 +337,7 @@ def resolve_profile_scripts(
             "Selected PowerShell script is unavailable: " + unavailable[0]
         )
     selected: list[dict[str, Any]] = []
-    for item in listing["scripts"]:
+    for item in eligible:
         if (
             item["selectionMode"] == "automatic"
             or item["name"].casefold() in requested

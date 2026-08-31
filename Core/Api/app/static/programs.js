@@ -117,7 +117,7 @@ function normalizeProgramName(value, sourceName, useSourceWhenBlank = false) {
 
 function createProgramCard(program) {
     const card = document.createElement("article");
-    card.className = "image-card";
+    card.className = `image-card availability-card${program.enabled ? "" : " is-disabled"}`;
 
     const top = document.createElement("div");
     top.className = "image-card-top";
@@ -137,6 +137,46 @@ function createProgramCard(program) {
 
     const actions = document.createElement("div");
     actions.className = "image-actions";
+    const availability = document.createElement("label");
+    availability.className = "availability-toggle";
+    const enabled = document.createElement("input");
+    enabled.type = "checkbox";
+    enabled.role = "switch";
+    enabled.checked = Boolean(program.enabled);
+    enabled.setAttribute("aria-label", `Offer ${program.name} in WinPE`);
+    const track = document.createElement("span");
+    track.className = "availability-track";
+    track.setAttribute("aria-hidden", "true");
+    const state = document.createElement("span");
+    state.className = "availability-state";
+    function updateAvailability() {
+        state.textContent = program.enabled ? "Enabled" : "Disabled";
+        card.classList.toggle("is-disabled", !program.enabled);
+    }
+    enabled.addEventListener("change", async () => {
+        const nextEnabled = enabled.checked;
+        enabled.disabled = true;
+        try {
+            const result = await apiFetch(
+                `/api/programs/${encodeURIComponent(program.name)}/enabled`,
+                {
+                    method: "POST",
+                    body: JSON.stringify({ enabled: nextEnabled }),
+                }
+            );
+            program.enabled = Boolean(result.program.enabled);
+            enabled.checked = program.enabled;
+            updateAvailability();
+            showMessage(`${program.name} ${program.enabled ? "enabled" : "disabled"} for WinPE.`);
+        } catch (error) {
+            enabled.checked = Boolean(program.enabled);
+            showMessage(error.message, "error");
+        } finally {
+            enabled.disabled = false;
+        }
+    });
+    availability.append(enabled, track, state);
+    updateAvailability();
     const rename = document.createElement("button");
     rename.className = "secondary-button compact-button";
     rename.type = "button";
@@ -146,7 +186,7 @@ function createProgramCard(program) {
     remove.type = "button";
     remove.textContent = "Delete";
     remove.addEventListener("click", () => deleteProgram(program.name, remove));
-    actions.append(rename, remove);
+    actions.append(availability, rename, remove);
     top.append(actions);
     card.append(top);
 

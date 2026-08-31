@@ -17,6 +17,7 @@ from app.config import IRONDEPLOY_ROOT
 
 
 DRIVERS_DIR = IRONDEPLOY_ROOT / "Share" / "Drivers"
+METADATA_NAME = ".irondeploy-drivers.json"
 UPLOADS_DIRECTORY_NAME = ".upload-temp"
 LEGACY_UPLOADS_DIRECTORY_NAME = ".irondeploy-uploads"
 UPLOAD_METADATA_NAME = "upload.json"
@@ -53,6 +54,55 @@ DEFAULT_DRIVER_UPLOAD_LIMITS = DriverUploadLimits()
 
 class DriverError(RuntimeError):
     """Raised when a driver-management operation cannot be completed."""
+
+
+def _metadata_path(drivers_dir: Path) -> Path:
+    return drivers_dir / METADATA_NAME
+
+
+def _read_metadata(drivers_dir: Path) -> dict[str, Any]:
+    path = _metadata_path(drivers_dir)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {"version": 1, "packages": {}}
+    except (OSError, json.JSONDecodeError) as exc:
+        raise DriverError(f"Failed to read driver metadata: {exc}") from exc
+    if not isinstance(payload, dict) or not isinstance(payload.get("packages"), dict):
+        raise DriverError("Driver metadata has an invalid format.")
+    return payload
+
+
+def _write_metadata(payload: dict[str, Any], drivers_dir: Path) -> None:
+    path = _metadata_path(drivers_dir)
+    temporary = path.with_name(f"{path.name}.tmp.{uuid4().hex}")
+    try:
+        temporary.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(temporary, path)
+    except OSError as exc:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise DriverError(f"Failed to save driver metadata: {exc}") from exc
+
+
+def _package_key(vendor: str, model: str) -> str:
+    return f"{vendor}\\{model}"
+
+
+def _pop_package_record(
+    records: dict[str, Any],
+    vendor: str,
+    model: str,
+) -> dict[str, Any] | None:
+    folded = _package_key(vendor, model).casefold()
+    key = next((item for item in records if item.casefold() == folded), None)
+    record = records.pop(key, None) if key is not None else None
+    return record if isinstance(record, dict) else None
 
 
 def _safe_directory_name(value: str, label: str) -> str:
@@ -202,6 +252,29 @@ def list_driver_packages(drivers_dir: Path = DRIVERS_DIR) -> dict[str, Any]:
                     }
                 )
                 packages.extend(vendor_packages)
+            metadata = _read_metadata(drivers_dir)
+            records = metadata["packages"]
+            remaining_records = dict(records)
+            normalized_records: dict[str, dict[str, bool]] = {}
+            for package in packages:
+                record = _pop_package_record(
+                    remaining_records,
+                    package["vendor"],
+                    package["model"],
+                )
+                enabled = (
+                    record["enabled"]
+                    if record is not None and type(record.get("enabled")) is bool
+                    else True
+                )
+                package["enabled"] = enabled
+                normalized_records[package["relativePath"]] = {"enabled": enabled}
+            normalized_metadata = {
+                "version": 1,
+                "packages": normalized_records,
+            }
+            if normalized_metadata != metadata:
+                _write_metadata(normalized_metadata, drivers_dir)
         except DriverError:
             raise
         except OSError as exc:
@@ -211,6 +284,39 @@ def list_driver_packages(drivers_dir: Path = DRIVERS_DIR) -> dict[str, Any]:
         "packages": packages,
         "directory": str(drivers_dir),
     }
+
+
+def set_driver_package_enabled(
+    vendor: str,
+    model: str,
+    enabled: bool,
+    drivers_dir: Path = DRIVERS_DIR,
+) -> dict[str, Any]:
+    safe_vendor = _safe_vendor_name(vendor)
+    safe_model = _safe_model_name(model)
+    if type(enabled) is not bool:
+        raise DriverError("enabled must be a boolean.")
+    with _driver_lock:
+        listing = list_driver_packages(drivers_dir)
+        package = next(
+            (
+                item
+                for item in listing["packages"]
+                if item["vendor"].casefold() == safe_vendor.casefold()
+                and item["model"].casefold() == safe_model.casefold()
+            ),
+            None,
+        )
+        if package is None:
+            raise DriverError("Driver package not found.")
+        metadata = _read_metadata(drivers_dir)
+        records = metadata["packages"]
+        _pop_package_record(records, package["vendor"], package["model"])
+        records[package["relativePath"]] = {"enabled": enabled}
+        metadata["version"] = 1
+        _write_metadata(metadata, drivers_dir)
+        package["enabled"] = enabled
+        return package
 
 
 def create_vendor(name: str, drivers_dir: Path = DRIVERS_DIR) -> dict[str, Any]:
@@ -240,7 +346,25 @@ def rename_vendor(
         conflict = _find_child_casefold(drivers_dir, safe_new_name)
         if conflict is not None and conflict != source:
             raise DriverError(f"A vendor named '{safe_new_name}' already exists.")
-        _rename_directory(source, drivers_dir / safe_new_name)
+        metadata = _read_metadata(drivers_dir)
+        records = metadata["packages"]
+        renamed_records: dict[str, Any] = {}
+        prefix = f"{source.name}\\"
+        for key in list(records):
+            if key.casefold().startswith(prefix.casefold()):
+                record = records.pop(key)
+                renamed_records[f"{safe_new_name}\\{key[len(prefix):]}"] = record
+        destination = drivers_dir / safe_new_name
+        _rename_directory(source, destination)
+        try:
+            records.update(renamed_records)
+            _write_metadata(metadata, drivers_dir)
+        except DriverError:
+            try:
+                _rename_directory(destination, source)
+            except DriverError:
+                pass
+            raise
     return {"renamed": True, "oldName": source.name, "name": safe_new_name}
 
 
@@ -274,7 +398,22 @@ def rename_driver_package(
             raise DriverError(
                 f"A package named '{safe_new_model}' already exists for this vendor."
             )
-        _rename_directory(source, vendor_path / safe_new_model)
+        metadata = _read_metadata(drivers_dir)
+        records = metadata["packages"]
+        record = _pop_package_record(records, vendor_path.name, source.name)
+        destination = vendor_path / safe_new_model
+        _rename_directory(source, destination)
+        try:
+            records[_package_key(vendor_path.name, safe_new_model)] = record or {
+                "enabled": True
+            }
+            _write_metadata(metadata, drivers_dir)
+        except DriverError:
+            try:
+                _rename_directory(destination, source)
+            except DriverError:
+                pass
+            raise
     return {
         "renamed": True,
         "vendor": vendor_path.name,
@@ -722,6 +861,7 @@ def finalize_driver_package_upload(
 
         _stop_active_upload(upload_id)
         package = _package_details(vendor_path.name, destination)
+        package["enabled"] = True
     return {"uploaded": True, "package": package}
 
 

@@ -340,6 +340,12 @@ class PostPowerShellScript(Base):
     size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
     modified_ns: Mapped[int] = mapped_column(BigInteger, nullable=False)
     sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default=text("1"),
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

@@ -695,6 +695,7 @@ def _migration_add_post_powershell(connection: Connection) -> None:
             size_bytes BIGINT NOT NULL,
             modified_ns BIGINT NOT NULL,
             sha256 VARCHAR(64) NOT NULL,
+            enabled BOOLEAN NOT NULL DEFAULT 1,
             created_at DATETIME NOT NULL,
             updated_at DATETIME NOT NULL
         )
@@ -841,6 +842,21 @@ def _migration_add_computer_name_formats(connection: Connection) -> None:
     )
 
 
+def _migration_add_post_powershell_enabled(connection: Connection) -> None:
+    columns = {
+        column["name"]
+        for column in inspect(connection).get_columns("post_powershell_scripts")
+    }
+    if "enabled" in columns:
+        return
+    connection.execute(
+        text(
+            "ALTER TABLE post_powershell_scripts "
+            "ADD COLUMN enabled BOOLEAN NOT NULL DEFAULT 1"
+        )
+    )
+
+
 MIGRATIONS = (
     Migration(1, "create current schema", _migration_create_schema),
     Migration(2, "add legacy columns", _migration_add_legacy_columns),
@@ -875,6 +891,11 @@ MIGRATIONS = (
         10,
         "add computer name formats",
         _migration_add_computer_name_formats,
+    ),
+    Migration(
+        11,
+        "add post-powershell availability",
+        _migration_add_post_powershell_enabled,
     ),
 )
 

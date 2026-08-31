@@ -211,3 +211,76 @@
 .danger-button:hover {
     background: rgba(229, 72, 77, 0.22);
 }
+
+.availability-card {
+    transition: border-color 160ms ease, opacity 160ms ease;
+}
+
+.availability-card.is-disabled {
+    border-color: rgba(148, 158, 173, .28);
+    opacity: .68;
+}
+
+.availability-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 40px;
+    color: #aeb7c5;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    user-select: none;
+}
+
+.availability-toggle input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.availability-track {
+    position: relative;
+    flex: 0 0 38px;
+    width: 38px;
+    height: 22px;
+    border: 1px solid #596273;
+    border-radius: 999px;
+    background: #353c48;
+    transition: border-color 160ms ease, background 160ms ease;
+}
+
+.availability-track::after {
+    content: "";
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #d7dce4;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, .3);
+    transition: transform 160ms ease;
+}
+
+.availability-toggle input:checked + .availability-track {
+    border-color: #4b8df8;
+    background: #2f6fcc;
+}
+
+.availability-toggle input:checked + .availability-track::after {
+    transform: translateX(16px);
+    background: #fff;
+}
+
+.availability-toggle input:focus-visible + .availability-track {
+    outline: 3px solid var(--focus);
+    outline-offset: 2px;
+}
+
+.availability-toggle input:disabled + .availability-track {
+    opacity: .55;
+    cursor: wait;
+}
