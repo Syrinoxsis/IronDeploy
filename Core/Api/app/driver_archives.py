@@ -241,6 +241,19 @@ def _reserved_remaining_bytes() -> int:
     return remaining
 
 
+def _assert_free_space(required_bytes: int) -> None:
+    try:
+        free_bytes = shutil.disk_usage(DRIVERS_DIR).free
+    except OSError as exc:
+        raise DriverArchiveError(
+            f"Failed to check free space for the driver TAR file: {exc}"
+        ) from exc
+    if free_bytes < required_bytes:
+        raise DriverArchiveError(
+            "Insufficient free space to prepare the driver TAR file."
+        )
+
+
 def _archive_relative_path(deployment_id: int) -> str:
     return f"{ARCHIVE_DIRECTORY_NAME}\\{deployment_id}\\{ARCHIVE_NAME}"
 
@@ -364,6 +377,7 @@ def _build_archive(
                     )
                 job.reservation_bytes = revised_estimate
                 maximum = settings.driver_archive_max_gib * 1024**3
+                _assert_free_space(_reserved_remaining_bytes())
                 if _archive_file_usage() + _reserved_remaining_bytes() > maximum:
                     raise DriverArchiveError(
                         "Changed driver package exceeds the driver archive "
@@ -445,11 +459,6 @@ def prepare_driver_archive(
             "Selected driver package is larger than the configured driver "
             "archive limit."
         )
-    if shutil.disk_usage(DRIVERS_DIR).free < estimate:
-        raise DriverArchiveError(
-            "Insufficient free space to prepare the driver TAR file."
-        )
-
     with _archive_lock:
         existing = _running.get(deployment_id)
         if existing is not None:
@@ -474,6 +483,9 @@ def prepare_driver_archive(
         cleanup_driver_archive(deployment_id)
         current_usage = _archive_file_usage()
         reserved = _reserved_remaining_bytes()
+        # Physical free space already excludes bytes written to partial/ready
+        # archives. Reserve only the bytes that active jobs still need to write.
+        _assert_free_space(reserved + estimate)
         if current_usage + reserved + estimate > maximum:
             raise DriverArchiveError(
                 "Driver archive storage limit is currently in use by other deployments."

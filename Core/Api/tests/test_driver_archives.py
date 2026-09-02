@@ -2,6 +2,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from threading import Event
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -136,6 +137,60 @@ class DriverArchiveTests(unittest.TestCase):
                         },
                         self.settings(maximum_gib=1),
                     )
+
+    def test_parallel_reservations_cannot_exceed_physical_free_space(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            drivers = Path(temporary) / "Drivers"
+            archive_root = drivers / ".irondeploy-archives"
+            packages = []
+            for model in ("ModelA", "ModelB"):
+                package = drivers / "Vendor" / model
+                package.mkdir(parents=True)
+                (package / "driver.inf").write_bytes(b"inf")
+                packages.append(
+                    {
+                        "relativePath": f"Vendor\\{model}",
+                        "size": 3,
+                        "fileCount": 1,
+                        "infCount": 1,
+                    }
+                )
+
+            archive_started = Event()
+            release_archive = Event()
+
+            def blocked_7za(_deployment_id, _source, partial, _timeout, _job):
+                archive_started.set()
+                if not release_archive.wait(timeout=5):
+                    raise AssertionError("Timed out waiting to release fake 7-Zip")
+                partial.write_bytes(b"tar")
+
+            gib = 1024**3
+            with (
+                patch("app.driver_archives.DRIVERS_DIR", drivers),
+                patch("app.driver_archives.ARCHIVE_ROOT", archive_root),
+                patch("app.driver_archives._run_7za", side_effect=blocked_7za),
+                patch(
+                    "app.driver_archives._estimate_archive_bytes",
+                    return_value=10 * gib,
+                ),
+                patch(
+                    "app.driver_archives.shutil.disk_usage",
+                    return_value=SimpleNamespace(free=15 * gib),
+                ),
+            ):
+                try:
+                    prepare_driver_archive(45, packages[0], self.settings())
+                    self.assertTrue(archive_started.wait(timeout=5))
+
+                    with self.assertRaisesRegex(
+                        DriverArchiveError, "Insufficient free space"
+                    ):
+                        prepare_driver_archive(46, packages[1], self.settings())
+                finally:
+                    release_archive.set()
+                    cleanup_driver_archive(45)
+                    cleanup_driver_archive(46)
 
 
 if __name__ == "__main__":
