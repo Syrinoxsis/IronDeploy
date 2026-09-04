@@ -17,7 +17,12 @@ from app.auth import (
     set_user_permissions,
 )
 from app.config import IRONDEPLOY_ROOT
-from app.deployments import Base, Deployment, DeploymentBeginRequest
+from app.deployments import (
+    Base,
+    ComputerNameFormat,
+    Deployment,
+    DeploymentBeginRequest,
+)
 from app.main import (
     deploy_begin,
     deploy_enter_postinstall,
@@ -32,6 +37,15 @@ class DeploymentAuthorizationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(self.engine)
+        with Session(self.engine) as session:
+            session.add(ComputerNameFormat(
+                prefix="pc",
+                number_width=5,
+                start_number=1,
+                domain_linked=True,
+                position=0,
+            ))
+            session.commit()
 
     def tearDown(self) -> None:
         self.engine.dispose()
@@ -101,6 +115,37 @@ class DeploymentAuthorizationTests(unittest.TestCase):
                 domain_join=False,
             )
 
+    def test_begin_rejects_a_name_outside_the_configured_formats(self) -> None:
+        with Session(self.engine) as session:
+            user = create_user(session, "winpe-user", "WinPEPassword123")
+            set_user_permissions(session, user, {"deploy"})
+            _, token = create_deployment_token(session, user)
+            payload = DeploymentBeginRequest(
+                computer_name="other01",
+                mac_address="AA:BB:CC:DD:EE:FF",
+                domain_join=False,
+            )
+            with self.assertRaises(HTTPException) as raised:
+                deploy_begin(payload, self.request(token.id), session)
+        self.assertEqual(raised.exception.status_code, 409)
+
+    def test_begin_rejects_domain_join_for_a_local_name_format(self) -> None:
+        with Session(self.engine) as session:
+            name_format = session.query(ComputerNameFormat).one()
+            name_format.domain_linked = False
+            session.commit()
+            user = create_user(session, "winpe-user", "WinPEPassword123")
+            set_user_permissions(session, user, {"deploy"})
+            _, token = create_deployment_token(session, user)
+            payload = DeploymentBeginRequest(
+                computer_name="pc00042",
+                mac_address="AA:BB:CC:DD:EE:FF",
+                domain_join=True,
+            )
+            with self.assertRaises(HTTPException) as raised:
+                deploy_begin(payload, self.request(token.id), session)
+        self.assertEqual(raised.exception.status_code, 409)
+
     def test_domain_join_is_refused_when_offline_domain_join_is_unconfigured(
         self,
     ) -> None:
@@ -131,6 +176,9 @@ class DeploymentAuthorizationTests(unittest.TestCase):
             with patch(
                 "app.main.get_settings",
                 return_value=SimpleNamespace(odj_enabled=True),
+            ), patch(
+                "app.main.evaluate_name_format",
+                return_value=SimpleNamespace(directory_available=True),
             ):
                 response = deploy_begin(payload, request, session)
             self.assertGreater(response.deployment_id, 0)

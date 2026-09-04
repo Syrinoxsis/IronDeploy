@@ -303,22 +303,11 @@
 
         <section class="view" id="unsorted">
           <div class="page-head">
-            <h2>Computers and Active Directory</h2>
-            <p>Define predictable computer names and optional Active Directory integration.</p>
+            <h2>Active Directory</h2>
+            <p>Configure optional directory lookup and Offline Domain Join.</p>
           </div>
           <div class="settings-flow single-column">
             <section class="settings-block numbered-block" data-step="1">
-              <div class="block-head"><div><h3>Computer naming</h3><p>Build predictable names and preview the next generated value.</p></div></div>
-              <div class="naming-layout">
-                <div class="form-grid three">
-                  <label><span class="field-title">Computer prefix</span><input data-api="IRONAPI_NAME_PREFIX" /></label>
-                  <label><span class="field-title">Number width</span><input data-api="IRONAPI_NAME_WIDTH" inputmode="numeric" /></label>
-                  <label><span class="field-title">Starting number</span><input data-api="IRONAPI_NAME_START" inputmode="numeric" /></label>
-                </div>
-                <div class="name-preview"><span>Next generated name</span><strong id="computerNamePreview">pc00001</strong><small>Existing LDAP names are skipped automatically.</small></div>
-              </div>
-            </section>
-            <section class="settings-block numbered-block" data-step="2">
               <div class="block-head"><div><h3>Directory and domain join</h3><p>Leave both groups empty to deploy without Active Directory.</p></div></div>
               <div class="integration-grid">
                 <div class="integration-group">
@@ -388,7 +377,7 @@
               </div>
             </section>
             <section class="settings-block numbered-block" data-step="4">
-              <div class="block-head"><div><h3>Driver upload limits</h3><p>Safety limits for temporary driver package uploads.</p></div></div>
+              <div class="block-head"><div><h3>Driver storage limits</h3><p>Safety limits for uploads and deployment-scoped TAR preparation.</p></div></div>
               <div class="form-grid three">
                 <label><span class="field-title">Maximum files per package</span><input data-api="IRONAPI_DRIVER_MAX_FILES" inputmode="numeric" /></label>
                 <label><span class="field-title">Maximum directory depth</span><input data-api="IRONAPI_DRIVER_MAX_DEPTH" inputmode="numeric" /></label>
@@ -396,6 +385,8 @@
                 <label><span class="field-title">Abandoned upload age</span><input data-api="IRONAPI_DRIVER_UPLOAD_TTL_HOURS" inputmode="numeric" /></label>
                 <label><span class="field-title">Maximum unfinished uploads</span><input data-api="IRONAPI_DRIVER_MAX_ACTIVE_UPLOADS" inputmode="numeric" /></label>
                 <label><span class="field-title">Minimum free disk space</span><input data-api="IRONAPI_DRIVER_MIN_FREE_SPACE_GIB" inputmode="numeric" /></label>
+                <label><span class="field-title">Driver TAR limit (GiB) <span class="help" title="Combined hard limit for ready and partial deployment TAR files. Range 1-10240. Default 25.">?</span></span><input data-api="IRONAPI_DRIVER_ARCHIVE_MAX_GIB" inputmode="numeric" /></label>
+                <label><span class="field-title">Driver TAR wait (minutes) <span class="help" title="Maximum time WinPE waits for TAR preparation after the image phase. Range 1-120. Default 15.">?</span></span><input data-api="IRONAPI_DRIVER_ARCHIVE_WAIT_TIMEOUT_MINUTES" inputmode="numeric" /></label>
               </div>
             </section>
             <section class="settings-block numbered-block" data-step="5">

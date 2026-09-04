@@ -91,6 +91,10 @@
                     </button>
                     <div class="settings-group-children">
                         <button class="settings-leaf" type="button"
+                                data-settings-view="computer-naming">
+                            Computer naming
+                        </button>
+                        <button class="settings-leaf" type="button"
                                 data-settings-view="technical-settings">
                             Technical settings
                         </button>
@@ -239,6 +243,21 @@
                             <span class="field-label">Windows time zone</span>
                             <select id="timeZone" name="timeZone"></select>
                         </label>
+                    </div>
+                </section>
+
+                <section class="settings-view-panel"
+                         data-settings-view-panel="computer-naming" hidden>
+                    <header class="inspector-heading">
+                        <h1>Computer naming</h1>
+                        <p>Define the formats WinPE accepts and where each next name is read from.</p>
+                    </header>
+                    <div class="name-format-list" id="computerNameFormatList"
+                         aria-live="polite"></div>
+                    <div class="name-format-footer">
+                        <button class="keyboard-add-button" id="addComputerNameFormat"
+                                type="button">Add format</button>
+                        <span class="field-hint">Up to 20 formats. Generated Windows names are limited to 15 characters.</span>
                     </div>
                 </section>
 

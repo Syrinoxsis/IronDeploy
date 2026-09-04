@@ -27,8 +27,6 @@ model, and size. IronAPI records that snapshot with the deployment.
 
 - Encrypt Offline Domain Join blobs at rest. They currently rely on NTFS
   permissions and a short lifetime.
-- Report whether Offline Domain Join is configured to the WinPE interface, so
-  it stops offering a domain join that IronAPI will refuse.
 
 ## Post-install automation
 

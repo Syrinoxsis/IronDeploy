@@ -17,6 +17,7 @@ from app.programs import (
     rename_program,
     save_uploaded_program,
     set_program_arguments,
+    set_program_enabled,
     validate_program_arguments,
 )
 
@@ -138,6 +139,7 @@ class ProgramManagementTests(unittest.TestCase):
         self.assertEqual((self.programs_dir / "7zip.exe").read_bytes(), b"MZpayload")
         metadata = json.loads(self.metadata_path.read_text(encoding="utf-8"))
         self.assertEqual(metadata["programs"]["7zip.exe"]["arguments"], "/S")
+        self.assertTrue(metadata["programs"]["7zip.exe"]["enabled"])
         self.assertEqual(metadata["programs"]["7zip.exe"]["sha256"], result["sha256"])
 
     def test_upload_rejects_files_larger_than_five_gib(self) -> None:
@@ -235,6 +237,7 @@ class ProgramManagementTests(unittest.TestCase):
         self.assertEqual(
             result["programs"][0]["sha256"], hashlib.sha256(b"msi").hexdigest()
         )
+        self.assertTrue(result["programs"][0]["enabled"])
         metadata = json.loads(self.metadata_path.read_text(encoding="utf-8"))
         self.assertNotIn("removed.exe", metadata["programs"])
         self.assertIn("manual.msi", metadata["programs"])
@@ -261,7 +264,7 @@ class ProgramManagementTests(unittest.TestCase):
 
         self.assertEqual(program["arguments"], "/qn  /norestart")
         metadata = json.loads(self.metadata_path.read_text(encoding="utf-8"))
-        self.assertEqual(metadata["version"], 2)
+        self.assertEqual(metadata["version"], 3)
         self.assertEqual(
             metadata["programs"]["tool.exe"]["arguments"], "/qn  /norestart"
         )
@@ -273,6 +276,38 @@ class ProgramManagementTests(unittest.TestCase):
         with self.assertRaisesRegex(ProgramError, "not found"):
             set_program_arguments(
                 "missing.exe", "/S", self.programs_dir, self.metadata_path
+            )
+
+    def test_enabled_state_is_persisted_and_preserved_by_rename(self) -> None:
+        asyncio.run(
+            save_uploaded_program(
+                "tool.exe",
+                _chunks(b"MZ"),
+                programs_dir=self.programs_dir,
+                metadata_path=self.metadata_path,
+            )
+        )
+
+        disabled = set_program_enabled(
+            "tool.exe", False, self.programs_dir, self.metadata_path
+        )
+        self.assertFalse(disabled["enabled"])
+        self.assertFalse(
+            list_programs(self.programs_dir, self.metadata_path)["programs"][0][
+                "enabled"
+            ]
+        )
+
+        rename_program(
+            "tool.exe", "Renamed Tool.exe", self.programs_dir, self.metadata_path
+        )
+        renamed = list_programs(self.programs_dir, self.metadata_path)["programs"][0]
+        self.assertEqual(renamed["name"], "Renamed Tool.exe")
+        self.assertFalse(renamed["enabled"])
+
+        with self.assertRaisesRegex(ProgramError, "boolean"):
+            set_program_enabled(
+                "Renamed Tool.exe", 1, self.programs_dir, self.metadata_path
             )
 
     def test_delete_removes_file_and_metadata(self) -> None:

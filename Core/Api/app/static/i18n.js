@@ -1,7 +1,28 @@
 (() => {
     const STORAGE_KEY = "irondeploy-language";
     const ru = {
+        "Enabled": "Включено",
+        "Disabled": "Выключено",
         "WinPE interface": "Интерфейс WinPE",
+        "Computer naming": "Имена компьютеров",
+        "Define the formats WinPE accepts and where each next name is read from.": "Задайте допустимые форматы WinPE и источник следующего имени для каждого из них.",
+        "Allowed format": "Допустимый формат",
+        "Prefix": "Префикс",
+        "Number width": "Количество цифр",
+        "Starting number": "Начальный номер",
+        "Linked to Active Directory": "Связь с Active Directory",
+        "Read the last matching name from the domain.": "Получать последнее подходящее имя из домена.",
+        "Test connection": "Проверить связь",
+        "Checking Active Directory...": "Проверка Active Directory...",
+        "Domain unavailable": "Домен недоступен",
+        "IronDeploy history maximum": "Максимум в истории IronDeploy",
+        "Connected": "Подключение выполнено",
+        "Last domain name": "Последнее имя в домене",
+        "Next name": "Следующее имя",
+        "no matching names": "подходящих имён нет",
+        "range exhausted": "диапазон исчерпан",
+        "Add format": "Добавить формат",
+        "Up to 20 formats. Generated Windows names are limited to 15 characters.": "До 20 форматов. Создаваемое имя Windows ограничено 15 символами.",
         "Technical settings": "Технические настройки",
         "Configure how WinPE downloads and applies Windows images.": "Настройте способ загрузки и применения образов Windows в WinPE.",
         "Configure how WinPE reads Windows images and driver packages.": "Настройте способ чтения образов Windows и пакетов драйверов в WinPE.",
@@ -116,6 +137,7 @@
         "Last activity": "Последняя активность",
         "Abandoned": "Заброшена",
         "Active upload": "Активна",
+        "Interrupted": "Прервана",
         "Invalid": "Повреждена",
         "Enough space": "Места достаточно",
         "Low disk space": "Мало места",
@@ -127,12 +149,18 @@
         "files": "файлов",
         "unfinished": "незавершённых",
         "active": "активных",
+        "interrupted": "прерванных",
         "abandoned": "заброшенных",
         "invalid": "повреждённых",
+        "slot": "слот",
+        "Stop and delete": "Остановить и удалить",
+        "Stop and delete this active upload? Its temporary files cannot be recovered.": "Остановить и удалить эту активную загрузку? Временные файлы нельзя будет восстановить.",
+        "Delete this interrupted upload? Its temporary files cannot be recovered.": "Удалить эту прерванную загрузку? Временные файлы нельзя будет восстановить.",
         "Delete this abandoned upload? Its temporary files cannot be recovered.": "Удалить эту заброшенную загрузку? Временные файлы нельзя будет восстановить.",
         "Delete this invalid upload? Its temporary files cannot be recovered.": "Удалить повреждённую загрузку? Временные файлы нельзя будет восстановить.",
         "Delete all abandoned uploads? Their temporary files cannot be recovered.": "Удалить все заброшенные загрузки? Временные файлы нельзя будет восстановить.",
         "Temporary upload deleted.": "Временная загрузка удалена.",
+        "Upload stopped. Temporary files are being removed.": "Загрузка остановлена. Временные файлы удаляются.",
         "Deleted abandoned uploads": "Удалено заброшенных загрузок",
         "WinPE deployment only": "Только установка из WinPE",
         "Refresh": "Обновить",
@@ -598,6 +626,12 @@
         if (match) return `${match[1]} заблокирован.`;
         match = value.match(/^(.+) enabled\.$/);
         if (match) return `${match[1]} включён.`;
+        match = value.match(/^(.+) (enabled|disabled) for WinPE\.$/);
+        if (match) {
+            return `${match[1]}: ${match[2] === "enabled" ? "доступно" : "скрыто"} в WinPE.`;
+        }
+        match = value.match(/^Offer (.+) in WinPE$/);
+        if (match) return `Показывать ${match[1]} в WinPE`;
         match = value.match(/^Allows the (.+) page and its backend API\.$/);
         if (match) return `Разрешает страницу «${t(match[1])}» и её API.`;
         return value;

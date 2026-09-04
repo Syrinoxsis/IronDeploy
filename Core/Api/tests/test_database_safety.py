@@ -8,9 +8,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 os.environ.setdefault("IRONAPI_DATABASE_URL", "sqlite:///:memory:")
-os.environ.setdefault("IRONAPI_NAME_PREFIX", "pc")
-os.environ.setdefault("IRONAPI_NAME_WIDTH", "5")
-os.environ.setdefault("IRONAPI_NAME_START", "1")
 os.environ.setdefault("IRONAPI_ALLOWED_CLIENT_NETWORKS", "192.0.2.0/24")
 os.environ.setdefault("IRONAPI_LDAP_SERVER", "dc01.example.test")
 os.environ.setdefault("IRONAPI_LDAP_BASE_DN", "DC=example,DC=test")
@@ -172,6 +169,11 @@ class DatabaseSafetyTests(unittest.TestCase):
         }
         self.assertIn("image_apply_mode", deployment_columns)
         self.assertIn("driver_apply_mode", deployment_columns)
+        post_powershell_columns = {
+            column["name"]
+            for column in inspect(self.engine).get_columns("post_powershell_scripts")
+        }
+        self.assertIn("enabled", post_powershell_columns)
         with self.engine.connect() as connection:
             network_stage_sql = connection.execute(
                 text(

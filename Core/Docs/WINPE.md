@@ -29,6 +29,8 @@ an additional guard, not permission to test the destructive script on a host.
 | `IronDeploy.Gui.ps1` | Collects operator input and renders progress. |
 | `deploy.config.ps1` | Holds non-secret runtime settings. |
 | `diskpart-uefi.txt` | Defines the x64 UEFI/GPT layout and contains the validated target-disk placeholder. |
+| `Tools\7-Zip\7za.exe` | Extracts deployment-scoped, uncompressed driver TAR files in staged mode. |
+| `Tools\7-Zip\7-Zip-LICENSE.txt` | Carries the required license information for the bundled 7-Zip binary. |
 
 The build pipeline copies those files into the ADK working tree and produces:
 
@@ -162,14 +164,19 @@ The deployment record and final report retain the resolved `imageApplyMode`.
 
 Driver packages follow the same direct/staged split. `direct` retains the
 single `driver_injection` stage while DISM reads the selected package from SMB.
-`staged` first reports `driver_download`, checks free space, copies the package
-to a deployment-specific `drivers.partial` directory with `robocopy /E /J`,
-and verifies total bytes, file count, and INF count before renaming it to
-`drivers`. It then reports `driver_injection` while DISM adds that local package
-to offline Windows. Only `driver_download` collects network bytes and
-throughput in staged mode; local injection time is separate. Staged driver
-artifacts are removed after success and on handled failures. The deployment
-record retains the resolved `driverApplyMode`.
+For `staged`, IronAPI starts a fresh, deployment-scoped, uncompressed TAR as
+soon as the final manifest is accepted. This work overlaps the staged image
+download and apply. During `driver_download`, WinPE polls the deployment-owned
+archive-status route with a bounded timeout, checks free space for both the TAR
+and its extracted contents, and copies the single `drivers.tar` file from SMB
+with `robocopy /J`. Completing or failing this stage removes the server copy.
+During the existing `driver_injection` stage, bundled x64 `7za.exe` extracts
+the TAR into `drivers.partial`; WinPE verifies total bytes, file count, and INF
+count before renaming it to `drivers` and invoking DISM. No additional stage is
+introduced. Only `driver_download` collects network bytes and throughput;
+extraction and local injection remain together. Local staged artifacts are
+removed after success and on handled failures. The deployment record retains
+the resolved `driverApplyMode`.
 
 ## What happens during deployment
 
@@ -203,8 +210,9 @@ Only then does the destructive phase begin:
 4. WinPE either applies the image directly from SMB, or downloads and verifies
    it locally first, according to the manifest strategy; DISM then applies the
    selected Windows image.
-5. WinPE either lets DISM read the selected driver package from SMB or copies
-   and validates it locally first; DISM then stages it in offline Windows.
+5. WinPE either lets DISM read the selected driver package from SMB or downloads
+   its deployment-scoped TAR, extracts and validates it locally, and then lets
+   DISM stage it in offline Windows.
 6. WinPE writes deployment state into `C:\IronDeploy`.
 7. WinPE downloads and applies the authorized unattend file.
 8. Optional ODJ data is provisioned by IronAPI and applied to offline Windows.

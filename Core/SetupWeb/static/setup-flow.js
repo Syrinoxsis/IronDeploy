@@ -145,24 +145,6 @@
     if (selected) select.value = selected;
   }
 
-  function renderComputerNamePreview() {
-    const prefix = document.querySelector("[data-api='IRONAPI_NAME_PREFIX']")?.value.trim() || "pc";
-    const parsedWidth = Number.parseInt(
-      document.querySelector("[data-api='IRONAPI_NAME_WIDTH']")?.value,
-      10
-    );
-    const width = Number.isInteger(parsedWidth) && parsedWidth > 0
-      ? Math.min(parsedWidth, 20)
-      : 5;
-    const parsedStart = Number.parseInt(
-      document.querySelector("[data-api='IRONAPI_NAME_START']")?.value,
-      10
-    );
-    const start = Number.isInteger(parsedStart) && parsedStart >= 0 ? parsedStart : 1;
-    document.querySelector("#computerNamePreview").textContent =
-      `${prefix}${String(start).padStart(width, "0")}`;
-  }
-
   function renderStoragePaths() {
     const drive = document.querySelector("[data-winpe='ShareDrive']")?.value.trim() || "Z:";
     document.querySelector("[data-winpe='ImagesPath']").value = `${drive}\\Images`;
@@ -636,7 +618,6 @@
     applyAccessMode();
     applyCertificateState();
     renderStoragePaths();
-    renderComputerNamePreview();
   }
 
   async function load() {
@@ -824,9 +805,6 @@
     setSmbActionStatus("");
   });
 
-  document.querySelectorAll(
-    "[data-api='IRONAPI_NAME_PREFIX'], [data-api='IRONAPI_NAME_WIDTH'], [data-api='IRONAPI_NAME_START']"
-  ).forEach((input) => input.addEventListener("input", renderComputerNamePreview));
   document.querySelector("[data-winpe='ShareDrive']").addEventListener("input", renderStoragePaths);
 
   document.querySelector("#saveOnlyButton").addEventListener("click", () => {

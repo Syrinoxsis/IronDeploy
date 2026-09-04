@@ -33,14 +33,13 @@ API_NAMES = (
     "IRONAPI_DRIVER_UPLOAD_TTL_HOURS",
     "IRONAPI_DRIVER_MAX_ACTIVE_UPLOADS",
     "IRONAPI_DRIVER_MIN_FREE_SPACE_GIB",
+    "IRONAPI_DRIVER_ARCHIVE_MAX_GIB",
+    "IRONAPI_DRIVER_ARCHIVE_WAIT_TIMEOUT_MINUTES",
     "IRONAPI_SMB_SHARE_PATH",
     "IRONAPI_SMB_USER",
     "IRONAPI_SMB_PASSWORD",
     "IRONAPI_ALLOWED_CLIENT_NETWORKS",
     "IRONAPI_DATABASE_URL",
-    "IRONAPI_NAME_PREFIX",
-    "IRONAPI_NAME_WIDTH",
-    "IRONAPI_NAME_START",
     "IRONAPI_LDAP_SERVER",
     "IRONAPI_LDAP_BASE_DN",
     "IRONAPI_LDAP_USE_SSL",
@@ -675,6 +674,8 @@ def normalize_api(values: dict[str, Any]) -> dict[str, str]:
         "IRONAPI_DRIVER_UPLOAD_TTL_HOURS": (1, 8760),
         "IRONAPI_DRIVER_MAX_ACTIVE_UPLOADS": (1, 100),
         "IRONAPI_DRIVER_MIN_FREE_SPACE_GIB": (1, 10240),
+        "IRONAPI_DRIVER_ARCHIVE_MAX_GIB": (1, 10240),
+        "IRONAPI_DRIVER_ARCHIVE_WAIT_TIMEOUT_MINUTES": (1, 120),
     }
     for name, (minimum, maximum) in driver_integer_ranges.items():
         value = parse_int(result[name], name)
@@ -689,16 +690,6 @@ def normalize_api(values: dict[str, Any]) -> dict[str, str]:
             ipaddress.ip_network(network, strict=False)
             cleaned.append(network)
     result["IRONAPI_ALLOWED_CLIENT_NETWORKS"] = ",".join(cleaned)
-
-    width = parse_int(result["IRONAPI_NAME_WIDTH"], "IRONAPI_NAME_WIDTH")
-    if width < 1 or width > 20:
-        raise ValueError("IRONAPI_NAME_WIDTH must be from 1 to 20.")
-    result["IRONAPI_NAME_WIDTH"] = str(width)
-
-    start = parse_int(result["IRONAPI_NAME_START"], "IRONAPI_NAME_START")
-    if start < 0:
-        raise ValueError("IRONAPI_NAME_START must be non-negative.")
-    result["IRONAPI_NAME_START"] = str(start)
 
     timeout = parse_int(result["IRONAPI_LDAP_CONNECT_TIMEOUT"], "IRONAPI_LDAP_CONNECT_TIMEOUT")
     if timeout < 1 or timeout > 60:
@@ -720,10 +711,6 @@ def normalize_api(values: dict[str, Any]) -> dict[str, str]:
         )
     result["IRONAPI_ODJ_BLOB_MAX_AGE_MINUTES"] = str(blob_max_age)
 
-    prefix = result["IRONAPI_NAME_PREFIX"]
-    if not re.match(r"^[a-zA-Z][a-zA-Z0-9-]{0,14}$", prefix):
-        raise ValueError("IRONAPI_NAME_PREFIX is invalid.")
-    result["IRONAPI_NAME_PREFIX"] = prefix.lower()
     return result
 
 

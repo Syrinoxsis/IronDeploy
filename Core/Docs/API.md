@@ -52,10 +52,10 @@ IronAPI reads `Core\Api\.env`. Its settings are grouped by responsibility:
 | Group | Examples |
 | --- | --- |
 | Listener | access mode, bind address, port, access log, allowed client networks |
-| Deployment | authorization and deployment timeouts, image- and driver-apply strategies |
+| Deployment | authorization and deployment timeouts, image- and driver-apply strategies, staged-driver TAR limit and wait timeout |
 | SMB | share path and configured account returned to authorized WinPE; the account must be read-only in SMB and NTFS |
 | Storage | SQLite database and temporary ODJ directory |
-| Naming and LDAP | name prefix/range, domain controller, base DN, LDAP TLS |
+| LDAP | domain controller, base DN, and LDAP TLS |
 | Offline Domain Join | domain, target OU, `djoin.exe`, timeout, blob lifetime |
 | Driver uploads | file, depth, path, concurrency, lifetime, and free-space limits |
 
@@ -70,9 +70,9 @@ IronAPI answers requests from several sources rather than one central catalog:
 
 | Information | Source |
 | --- | --- |
-| Accounts, permissions, deployments, stages, inventory | `Core\Data\irondeploy.db` |
+| Accounts, permissions, deployments, stages, inventory, and computer-name formats | `Core\Data\irondeploy.db` |
 | Images, indexes, and SHA-256 hashes | `Core\Share\Images` plus server-side image metadata |
-| Driver packages | `Core\Share\Drivers` |
+| Driver packages and temporary upload data | `Core\Share\Drivers`; unfinished uploads use numbered slots under `.upload-temp`, while staged TAR files live under `.irondeploy-archives` |
 | Programs, arguments, sizes, and hashes | `Core\Share\Programs` and its metadata file |
 | Post-PowerShell payloads and profile policy | Private `Core\Library\PostPowerShell` storage plus SQLite profile bindings |
 | SMB access and image/driver apply strategies | server-side `Core\Api\.env` |
@@ -111,9 +111,24 @@ runtime receiving a missing or unsupported value falls back to `direct`.
 
 `driverApplyMode` uses the same `direct` or `staged` values and the same
 manifest endpoint, with `staged` as the new-installation default. Direct mode
-keeps DISM on the selected SMB package. Staged mode copies the package locally
-and validates its byte, file, and INF counts before offline injection. A WinPE
-runtime receiving a missing or unsupported value falls back to `direct`.
+keeps DISM on the selected SMB package. For staged mode, accepting the final
+manifest immediately starts one fresh, uncompressed TAR for that deployment.
+The manifest returns a status URL and bounded wait time. The protected
+`GET /api/deploy/{id}/driver-archive` route accepts only the active deployment's
+WinPE token and reports `preparing`, `ready`, or `failed`; the payload remains on
+the existing read-only SMB data plane. WinPE downloads that single TAR, then
+extracts and validates its byte, file, and INF counts before offline injection.
+A WinPE runtime receiving a missing or unsupported apply mode falls back to
+`direct`.
+
+Server TAR storage is bounded by `IRONAPI_DRIVER_ARCHIVE_MAX_GIB` (25 GiB by
+default). The hard combined limit includes both `drivers.tar.partial` and ready
+`drivers.tar` files plus space reserved for active builds. Archives are not
+reused between deployments. They are removed after driver download completion
+or failure, any terminal deployment error or success, and stale-deployment
+expiry. If IronAPI restarts while a task is marked `preparing`, the task is
+discarded and built again. `IRONAPI_DRIVER_ARCHIVE_WAIT_TIMEOUT_MINUTES`
+controls how long WinPE waits for readiness; it defaults to 15 minutes.
 
 ## Browser interface
 
@@ -123,9 +138,10 @@ The IronAPI browser interface provides:
 - browser user and permission management;
 - WinPE authorization policy;
 - WIM/ESD image upload, WIM rename, index selection, and ESD-to-WIM conversion;
-- program upload, rename, arguments, hash metadata, and removal;
-- Post-PowerShell upload, arguments, phase, selection mode, timeout, and removal;
-- driver vendor/package upload and cleanup;
+- program upload, rename, arguments, availability, hash metadata, and removal;
+- Post-PowerShell upload, arguments, phase, selection mode, timeout, availability,
+  and removal;
+- driver vendor/package upload, availability, and cleanup;
 - WinPE and image configuration;
 - WIM or ISO rebuild controls.
 
@@ -168,6 +184,13 @@ drivers, programs, and image settings. Upload routes validate names and keep
 payloads inside their owning directories. Long-running ESD conversion and
 WinPE build operations expose their current state separately.
 
+Programs, Post-PowerShell scripts, and driver packages each have a server-side
+availability switch. Disabling an item preserves its payload and settings in
+the administration interface but removes it from `GET /api/deploy/catalog`.
+The manifest endpoint builds a fresh catalog, so a disabled item is also
+rejected if an older WinPE screen or a manually submitted request still names
+it. Existing items and newly discovered files default to enabled.
+
 ### WinPE authorization
 
 WinPE first reads the active policy, then uses one of three modes:
@@ -196,6 +219,20 @@ such as `To Be Filled By O.E.M.`, malformed values, and WMI read failures are
 reported as `null` and never block preflight or deployment. Name-history lookup
 and computer inventory fall back to the normalized MAC address. A later missing
 serial does not erase a valid serial already stored for that MAC address.
+
+Computer-name formats are configured under `/image-config` in the WinPE
+interface section. A format contains a prefix, fixed numeric width, starting
+number, order, and an Active Directory linkage flag. Non-domain formats use the
+maximum matching numeric suffix ever recorded in SQLite, regardless of which
+deployment was most recent. Domain-linked formats read the maximum exclusively
+from Active Directory. When that read fails, the response reports the domain
+as unavailable and may include the SQLite maximum only as operator context; it
+does not generate a fallback suggestion or permit domain join.
+
+`POST /api/deploy/begin` validates the submitted name against the current
+format table. A domain join additionally requires a domain-linked format,
+configured ODJ, and a successful read-only directory check. The image-settings
+page exposes the same read-only check for each domain-linked format.
 
 The bound bearer cannot be reused to begin a second deployment. The manifest
 response is generated when requested; it is not stored as a separate immutable

@@ -132,7 +132,7 @@ function renderVendor(vendor) {
 
 function renderPackage(driverPackage) {
     const card = document.createElement("article");
-    card.className = "package-card";
+    card.className = `package-card availability-card${driverPackage.enabled ? "" : " is-disabled"}`;
     const top = document.createElement("div");
     top.className = "package-card-top";
     const identity = document.createElement("div");
@@ -148,6 +148,52 @@ function renderPackage(driverPackage) {
 
     const actions = document.createElement("div");
     actions.className = "package-actions";
+    const availability = document.createElement("label");
+    availability.className = "availability-toggle";
+    const enabled = document.createElement("input");
+    enabled.type = "checkbox";
+    enabled.role = "switch";
+    enabled.checked = Boolean(driverPackage.enabled);
+    enabled.setAttribute(
+        "aria-label",
+        `Offer ${driverPackage.vendor} / ${driverPackage.model} in WinPE`
+    );
+    const track = document.createElement("span");
+    track.className = "availability-track";
+    track.setAttribute("aria-hidden", "true");
+    const state = document.createElement("span");
+    state.className = "availability-state";
+    function updateAvailability() {
+        state.textContent = translate(driverPackage.enabled ? "Enabled" : "Disabled");
+        card.classList.toggle("is-disabled", !driverPackage.enabled);
+    }
+    enabled.addEventListener("change", async () => {
+        const nextEnabled = enabled.checked;
+        enabled.disabled = true;
+        try {
+            const result = await apiFetch(
+                packageUrl(driverPackage.vendor, driverPackage.model, "/enabled"),
+                {
+                    method: "POST",
+                    body: JSON.stringify({ enabled: nextEnabled }),
+                }
+            );
+            driverPackage.enabled = Boolean(result.package.enabled);
+            enabled.checked = driverPackage.enabled;
+            updateAvailability();
+            showMessage(
+                `${driverPackage.vendor} / ${driverPackage.model} ` +
+                `${driverPackage.enabled ? "enabled" : "disabled"} for WinPE.`
+            );
+        } catch (error) {
+            enabled.checked = Boolean(driverPackage.enabled);
+            showMessage(error.message, "error");
+        } finally {
+            enabled.disabled = false;
+        }
+    });
+    availability.append(enabled, track, state);
+    updateAvailability();
     const rename = document.createElement("button");
     rename.className = "text-button";
     rename.type = "button";
@@ -156,7 +202,7 @@ function renderPackage(driverPackage) {
     remove.className = "text-button danger";
     remove.type = "button";
     remove.textContent = translate("Delete");
-    actions.append(rename, remove);
+    actions.append(availability, rename, remove);
     top.append(identity, actions);
     card.append(top);
 

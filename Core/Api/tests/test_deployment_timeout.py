@@ -1,9 +1,7 @@
+import json
 import os
 
 os.environ.setdefault("IRONAPI_DATABASE_URL", "sqlite:///:memory:")
-os.environ.setdefault("IRONAPI_NAME_PREFIX", "pc")
-os.environ.setdefault("IRONAPI_NAME_WIDTH", "5")
-os.environ.setdefault("IRONAPI_NAME_START", "1")
 os.environ.setdefault("IRONAPI_ALLOWED_CLIENT_NETWORKS", "192.0.2.0/24")
 os.environ.setdefault("IRONAPI_LDAP_SERVER", "dc01.example.test")
 os.environ.setdefault("IRONAPI_LDAP_BASE_DN", "DC=example,DC=test")
@@ -44,6 +42,7 @@ from app.deployments import (
     STAGE_FAILED,
     STAGE_RUNNING,
     Computer,
+    ComputerNameFormat,
     Deployment,
     DeploymentBeginRequest,
     DeploymentCompleteRequest,
@@ -62,6 +61,7 @@ from app.main import (
     deploy_error,
     deploy_image_selected,
     deploy_manifest,
+    deployment_driver_archive_status,
     deployment_list,
 )
 
@@ -73,6 +73,12 @@ class DeploymentTimeoutTests(unittest.TestCase):
     def setUp(self) -> None:
         self.engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(self.engine)
+        with Session(self.engine) as session:
+            session.add(ComputerNameFormat(
+                prefix="pc", number_width=5, start_number=1,
+                domain_linked=True, position=0,
+            ))
+            session.commit()
         self.temporary_directory = tempfile.TemporaryDirectory()
         self.odj_blob_dir = Path(self.temporary_directory.name) / "pending"
         self.odj_blob_dir.mkdir()
@@ -111,6 +117,55 @@ class DeploymentTimeoutTests(unittest.TestCase):
             catalog = _deployment_catalog()
 
         self.assertEqual(catalog["images"][0]["sha256"], image_sha256)
+
+    def test_deployment_catalog_hides_disabled_payloads(self) -> None:
+        programs = [
+            {
+                "name": name,
+                "size": 10,
+                "type": "MSI",
+                "arguments": "",
+                "sha256": "a" * 64,
+                "enabled": enabled,
+            }
+            for name, enabled in (("enabled.msi", True), ("disabled.msi", False))
+        ]
+        packages = [
+            {
+                "vendor": "Vendor",
+                "model": model,
+                "relativePath": f"Vendor\\{model}",
+                "size": 20,
+                "infCount": 1,
+                "fileCount": 1,
+                "enabled": enabled,
+            }
+            for model, enabled in (("Enabled", True), ("Disabled", False))
+        ]
+        scripts = [
+            {"name": "enabled.ps1", "enabled": True},
+            {"name": "disabled.ps1", "enabled": False},
+        ]
+        with patch(
+            "app.main.list_deployment_images", return_value={"images": []}
+        ), patch(
+            "app.main.list_programs", return_value={"programs": programs}
+        ), patch(
+            "app.main.list_driver_packages", return_value={"packages": packages}
+        ), patch(
+            "app.main.list_scripts", return_value={"scripts": scripts}
+        ):
+            catalog = _deployment_catalog(object())
+
+        self.assertEqual([item["name"] for item in catalog["programs"]], ["enabled.msi"])
+        self.assertEqual(
+            [item["relativePath"] for item in catalog["drivers"]],
+            ["Vendor\\Enabled"],
+        )
+        self.assertEqual(
+            [item["name"] for item in catalog["postPowerShell"]],
+            ["enabled.ps1"],
+        )
 
     def write_blob(self, computer_name: str = "pc00042") -> Path:
         blob_path = self.odj_blob_dir / f"{computer_name}.txt"
@@ -493,6 +548,9 @@ class DeploymentTimeoutTests(unittest.TestCase):
 
             with patch("app.main._deployment_catalog", return_value=catalog), patch(
                 "app.main.load_image_config", return_value=image_config
+            ), patch(
+                "app.main.prepare_driver_archive",
+                return_value={"status": "preparing"},
             ):
                 result = deploy_manifest(
                     deployment.id,
@@ -509,6 +567,11 @@ class DeploymentTimeoutTests(unittest.TestCase):
             self.assertEqual(result["image"]["sha256"], "b" * 64)
             self.assertEqual(result["imageApplyMode"], "staged")
             self.assertEqual(result["driverApplyMode"], "staged")
+            self.assertEqual(
+                result["driverArchive"]["statusUrl"],
+                f"/api/deploy/{deployment.id}/driver-archive",
+            )
+            self.assertEqual(result["driverArchive"]["waitTimeoutSeconds"], 900)
             self.assertEqual(result["programs"][0]["arguments"], "/qn /norestart")
             self.assertEqual(result["programs"][0]["sha256"], "a" * 64)
             self.assertEqual(
@@ -573,6 +636,62 @@ class DeploymentTimeoutTests(unittest.TestCase):
                 session.get(Deployment, deployment.id).driver_apply_mode,
                 "direct",
             )
+
+    def test_driver_archive_status_requires_owned_staged_deployment(self) -> None:
+        with Session(self.engine) as session:
+            deployment = self.deployment(datetime.now(timezone.utc))
+            deployment.driver_apply_mode = "staged"
+            session.add(deployment)
+            session.commit()
+            request = self.deployment_request(session, deployment.id)
+            archive = {
+                "status": "ready",
+                "archiveRelativePath": (
+                    f".irondeploy-archives\\{deployment.id}\\drivers.tar"
+                ),
+                "archiveSize": 4096,
+                "sourceSize": 2048,
+                "sourceFileCount": 2,
+                "sourceInfCount": 1,
+                "error": None,
+            }
+
+            with patch("app.main.expire_stale_deployments"), patch(
+                "app.main.get_driver_archive_status", return_value=archive
+            ) as get_status:
+                response = deployment_driver_archive_status(
+                    deployment.id,
+                    request,
+                    session,
+                )
+
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.headers["cache-control"], "no-store")
+            self.assertEqual(json.loads(response.body), archive)
+            get_status.assert_called_once()
+
+    def test_driver_archive_status_rejects_unowned_deployment(self) -> None:
+        with Session(self.engine) as session:
+            deployment = self.deployment(datetime.now(timezone.utc))
+            deployment.driver_apply_mode = "staged"
+            session.add(deployment)
+            other_deployment = self.deployment(datetime.now(timezone.utc))
+            other_deployment.computer_name = "pc00999"
+            other_deployment.serial_number = "OTHER123"
+            other_deployment.mac_address = "00:11:22:33:44:55"
+            session.add(other_deployment)
+            session.commit()
+            request = self.deployment_request(session, other_deployment.id)
+
+            with patch("app.main.expire_stale_deployments"):
+                with self.assertRaises(HTTPException) as raised:
+                    deployment_driver_archive_status(
+                        deployment.id,
+                        request,
+                        session,
+                    )
+
+            self.assertIn(raised.exception.status_code, {401, 403})
 
     def test_error_endpoint_records_deployment_and_stage_message(self) -> None:
         with Session(self.engine) as session:

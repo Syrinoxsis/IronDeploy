@@ -131,6 +131,8 @@ class AccessModeTests(unittest.TestCase):
                 "IRONAPI_DRIVER_UPLOAD_TTL_HOURS": "24",
                 "IRONAPI_DRIVER_MAX_ACTIVE_UPLOADS": "3",
                 "IRONAPI_DRIVER_MIN_FREE_SPACE_GIB": "25",
+                "IRONAPI_DRIVER_ARCHIVE_MAX_GIB": "25",
+                "IRONAPI_DRIVER_ARCHIVE_WAIT_TIMEOUT_MINUTES": "15",
             }
         )
         self.assertEqual(result["IRONAPI_DRIVER_MAX_FILES"], "25000")
@@ -139,11 +141,21 @@ class AccessModeTests(unittest.TestCase):
         self.assertEqual(result["IRONAPI_DRIVER_UPLOAD_TTL_HOURS"], "24")
         self.assertEqual(result["IRONAPI_DRIVER_MAX_ACTIVE_UPLOADS"], "3")
         self.assertEqual(result["IRONAPI_DRIVER_MIN_FREE_SPACE_GIB"], "25")
+        self.assertEqual(result["IRONAPI_DRIVER_ARCHIVE_MAX_GIB"], "25")
+        self.assertEqual(
+            result["IRONAPI_DRIVER_ARCHIVE_WAIT_TIMEOUT_MINUTES"], "15"
+        )
 
         with self.assertRaisesRegex(ValueError, "IRONAPI_DRIVER_MAX_FILES"):
             normalize_api({"IRONAPI_DRIVER_MAX_FILES": "0"})
         with self.assertRaisesRegex(ValueError, "IRONAPI_DRIVER_MAX_FULL_PATH"):
             normalize_api({"IRONAPI_DRIVER_MAX_FULL_PATH": "63"})
+        with self.assertRaisesRegex(ValueError, "IRONAPI_DRIVER_ARCHIVE_MAX_GIB"):
+            normalize_api({"IRONAPI_DRIVER_ARCHIVE_MAX_GIB": "0"})
+        with self.assertRaisesRegex(
+            ValueError, "IRONAPI_DRIVER_ARCHIVE_WAIT_TIMEOUT_MINUTES"
+        ):
+            normalize_api({"IRONAPI_DRIVER_ARCHIVE_WAIT_TIMEOUT_MINUTES": "121"})
 
     def test_https_proxy_forces_loopback_and_preserves_internal_port(self) -> None:
         result = normalize_api(

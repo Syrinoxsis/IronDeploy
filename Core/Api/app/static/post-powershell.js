@@ -71,7 +71,7 @@ function psSetting(labelText, control, className) {
 
 function psCreateCard(script) {
     const card = document.createElement("article");
-    card.className = "image-card powershell-card";
+    card.className = `image-card powershell-card availability-card${script.enabled ? "" : " is-disabled"}`;
 
     const head = document.createElement("div");
     head.className = "powershell-card-head";
@@ -127,6 +127,46 @@ function psCreateCard(script) {
 
     const actions = document.createElement("div");
     actions.className = "powershell-actions";
+    const availability = document.createElement("label");
+    availability.className = "availability-toggle powershell-availability";
+    const enabled = document.createElement("input");
+    enabled.type = "checkbox";
+    enabled.role = "switch";
+    enabled.checked = Boolean(script.enabled);
+    enabled.setAttribute("aria-label", `Offer ${script.name} in WinPE`);
+    const track = document.createElement("span");
+    track.className = "availability-track";
+    track.setAttribute("aria-hidden", "true");
+    const state = document.createElement("span");
+    state.className = "availability-state";
+    function updateAvailability() {
+        state.textContent = script.enabled ? "Enabled" : "Disabled";
+        card.classList.toggle("is-disabled", !script.enabled);
+    }
+    enabled.addEventListener("change", async () => {
+        const nextEnabled = enabled.checked;
+        enabled.disabled = true;
+        try {
+            const result = await psFetch(
+                `/api/post-powershell/${script.id}/enabled`,
+                {
+                    method: "POST",
+                    body: JSON.stringify({ enabled: nextEnabled }),
+                }
+            );
+            script.enabled = Boolean(result.script.enabled);
+            enabled.checked = script.enabled;
+            updateAvailability();
+            psShowMessage(`${script.name} ${script.enabled ? "enabled" : "disabled"} for WinPE.`);
+        } catch (error) {
+            enabled.checked = Boolean(script.enabled);
+            psShowMessage(error.message, true);
+        } finally {
+            enabled.disabled = false;
+        }
+    });
+    availability.append(enabled, track, state);
+    updateAvailability();
     const save = document.createElement("button");
     save.className = "primary-button";
     save.type = "button";
@@ -167,7 +207,7 @@ function psCreateCard(script) {
             remove.disabled = false;
         }
     });
-    actions.append(save, remove);
+    actions.append(availability, save, remove);
     card.append(head, settings, actions);
     return card;
 }

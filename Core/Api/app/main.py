@@ -16,6 +16,17 @@ from sqlalchemy import case, delete, func, select, update
 from sqlalchemy.orm import Session
 
 from app.config import IRONDEPLOY_ROOT, get_settings
+from app.computer_names import (
+    ComputerNameFormatError,
+    NameSuggestion,
+    build_name_suggestion,
+    check_unsaved_domain_format,
+    evaluate_name_format,
+    get_name_formats,
+    match_name_format,
+    serialize_name_format,
+    update_name_formats,
+)
 from app.database import SessionLocal, get_session, initialize_database
 from app.auth import (
     DEPLOYMENT_COMPLETION_RECEIPT_TTL,
@@ -106,8 +117,8 @@ from app.drivers import (
     begin_driver_package_upload,
     cancel_driver_package_upload,
     create_vendor,
-    delete_abandoned_driver_upload,
     delete_all_abandoned_driver_uploads,
+    delete_driver_upload,
     delete_driver_package,
     delete_vendor,
     finalize_driver_package_upload,
@@ -116,6 +127,14 @@ from app.drivers import (
     rename_driver_package,
     rename_vendor,
     save_uploaded_driver_file,
+    set_driver_package_enabled,
+)
+from app.driver_archives import (
+    DriverArchiveError,
+    cleanup_driver_archive,
+    get_driver_archive_status,
+    prepare_driver_archive,
+    shutdown_driver_archive_workers,
 )
 from app.image_config import (
     ImageConfigError,
@@ -124,9 +143,7 @@ from app.image_config import (
 )
 from app.ldap_names import (
     DirectoryLookupError,
-    NameSuggestion,
     computer_exists,
-    suggest_computer_name,
 )
 from app.deployment_images import (
     cancel_esd_conversion,
@@ -145,6 +162,7 @@ from app.programs import (
     rename_program,
     save_uploaded_program,
     set_program_arguments,
+    set_program_enabled,
 )
 from app.post_powershell import (
     MAX_OUTPUT_SIZE_BYTES,
@@ -154,6 +172,7 @@ from app.post_powershell import (
     resolve_profile_scripts,
     result_log_path,
     save_uploaded_script,
+    update_script_enabled,
     update_script_settings,
     verified_script_path,
 )
@@ -180,7 +199,10 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     initialize_database()
     with SessionLocal() as session:
         bootstrap_superadmin(session)
-    yield
+    try:
+        yield
+    finally:
+        shutdown_driver_archive_workers()
 
 
 app = FastAPI(title="IronAPI", version="0.0.1-alpha.1", lifespan=lifespan)
@@ -558,6 +580,10 @@ def require_image_config_write(request: Request) -> None:
 def get_image_config(session: Session = Depends(get_session)) -> dict:
     config = load_image_config()
     config.update(load_default_profile(session))
+    config["computerNameFormats"] = [
+        serialize_name_format(name_format)
+        for name_format in get_name_formats(session)
+    ]
     return config
 
 
@@ -570,13 +596,40 @@ async def post_image_config(
     try:
         payload = await request.json()
         profile = update_default_profile(session, payload)
+        if "computerNameFormats" in payload:
+            update_name_formats(session, payload["computerNameFormats"])
         result = save_image_config(payload)
         session.commit()
         result["config"].update(profile)
-    except (DeploymentProfileError, ImageConfigError) as exc:
+        result["config"]["computerNameFormats"] = [
+            serialize_name_format(name_format)
+            for name_format in get_name_formats(session)
+        ]
+    except (
+        ComputerNameFormatError,
+        DeploymentProfileError,
+        ImageConfigError,
+    ) as exc:
         session.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return JSONResponse(result)
+
+
+@app.post("/api/image-config/computer-name-formats/check")
+async def check_image_config_computer_name_format(
+    request: Request,
+    session: Session = Depends(get_session),
+) -> dict:
+    require_image_config_write(request)
+    try:
+        payload = await request.json()
+        return check_unsaved_domain_format(
+            session,
+            get_settings(),
+            payload,
+        ).__dict__
+    except ComputerNameFormatError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.get("/api/deployment-images")
@@ -657,6 +710,20 @@ async def rename_uploaded_program(name: str, request: Request) -> JSONResponse:
     return JSONResponse(result)
 
 
+@app.post("/api/programs/{name}/enabled")
+async def update_program_enabled(name: str, request: Request) -> JSONResponse:
+    require_image_config_write(request)
+    try:
+        payload = await request.json()
+        result = set_program_enabled(name, payload.get("enabled"))
+    except (AttributeError, TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="enabled must be a boolean.")
+    except ProgramError as exc:
+        status_code = 404 if "not found" in str(exc) else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+    return JSONResponse({"saved": True, "program": result})
+
+
 @app.delete("/api/programs/{name}")
 def remove_program(name: str, request: Request) -> JSONResponse:
     require_image_config_write(request)
@@ -729,6 +796,27 @@ async def set_post_powershell_settings(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@app.post("/api/post-powershell/{script_id}/enabled")
+async def set_post_powershell_enabled(
+    script_id: int,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> dict:
+    require_image_config_write(request)
+    try:
+        payload = await request.json()
+        result = update_script_enabled(session, script_id, payload.get("enabled"))
+        session.commit()
+        return {"saved": True, "script": result}
+    except (AttributeError, TypeError, ValueError):
+        session.rollback()
+        raise HTTPException(status_code=400, detail="enabled must be a boolean.")
+    except PostPowerShellError as exc:
+        session.rollback()
+        status_code = 404 if "not found" in str(exc) else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+
 @app.delete("/api/post-powershell/{script_id}")
 def remove_post_powershell(
     script_id: int,
@@ -784,15 +872,14 @@ def remove_all_abandoned_driver_uploads(request: Request) -> JSONResponse:
 
 
 @app.delete("/api/info/driver-uploads/{upload_id}")
-def remove_abandoned_driver_upload(
+def remove_driver_upload(
     upload_id: str,
     request: Request,
 ) -> JSONResponse:
     require_image_config_write(request)
     try:
-        result = delete_abandoned_driver_upload(
+        result = delete_driver_upload(
             upload_id,
-            _driver_upload_limits(),
         )
     except DriverError as exc:
         status_code = 404 if "not found" in str(exc).lower() else 400
@@ -933,6 +1020,28 @@ def remove_driver_package(
         status_code = 404 if "not found" in str(exc) else 400
         raise HTTPException(status_code=status_code, detail=str(exc)) from exc
     return JSONResponse(result)
+
+
+@app.post("/api/drivers/packages/{vendor}/{model}/enabled")
+async def update_driver_package_enabled(
+    vendor: str,
+    model: str,
+    request: Request,
+) -> JSONResponse:
+    require_image_config_write(request)
+    try:
+        payload = await request.json()
+        package = set_driver_package_enabled(
+            vendor,
+            model,
+            payload.get("enabled"),
+        )
+    except (AttributeError, TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="enabled must be a boolean.")
+    except DriverError as exc:
+        status_code = 404 if "not found" in str(exc) else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+    return JSONResponse({"saved": True, "package": package})
 
 
 @app.post("/api/deployment-images/{name}/default-index")
@@ -1280,19 +1389,11 @@ def deploy_suggest_name(
         normalized_serial,
         normalized_mac,
     )
-    try:
-        suggestion = suggest_computer_name(settings)
-    except DirectoryLookupError as exc:
-        suggestion = NameSuggestion(
-            last_domain_name=None,
-            suggested_name="",
-            max_existing_number=None,
-            source="manual",
-            ldap_enabled=settings.ldap_enabled,
-            ldap_error=str(exc),
-        )
-    suggestion.known_computer_names = known_computer_names
-    return suggestion
+    return build_name_suggestion(
+        session,
+        settings,
+        known_computer_names,
+    )
 
 
 def _deployment_catalog(session: Session | None = None) -> dict:
@@ -1324,8 +1425,13 @@ def _deployment_catalog(session: Session | None = None) -> dict:
                 "sha256": program["sha256"],
             }
             for program in program_listing["programs"]
+            if program["enabled"]
         ],
-        "postPowerShell": post_powershell_listing["scripts"],
+        "postPowerShell": [
+            script
+            for script in post_powershell_listing["scripts"]
+            if script["enabled"]
+        ],
         "drivers": [
             {
                 "vendor": package["vendor"],
@@ -1336,7 +1442,7 @@ def _deployment_catalog(session: Session | None = None) -> dict:
                 "fileCount": package["fileCount"],
             }
             for package in driver_listing["packages"]
-            if package["infCount"] > 0
+            if package["enabled"] and package["infCount"] > 0
         ],
     }
 
@@ -1504,6 +1610,20 @@ def deploy_manifest(
         )
     update_computer_inventory(session, deployment)
     session.commit()
+    driver_archive = None
+    if selected_driver is not None and driver_apply_mode == "staged":
+        settings = get_settings()
+        try:
+            prepare_driver_archive(deployment.id, selected_driver, settings)
+        except DriverArchiveError as exc:
+            cleanup_driver_archive(deployment.id)
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        driver_archive = {
+            "statusUrl": f"/api/deploy/{deployment.id}/driver-archive",
+            "waitTimeoutSeconds": settings.driver_archive_wait_timeout_minutes * 60,
+        }
+    else:
+        cleanup_driver_archive(deployment.id)
     return {
         "deploymentId": deployment.id,
         "imageApplyMode": image_apply_mode,
@@ -1512,6 +1632,7 @@ def deploy_manifest(
         "programs": selected_programs,
         "postPowerShell": post_powershell_plan,
         "driverPackage": selected_driver,
+        "driverArchive": driver_archive,
         "postinstall": {
             "localAdminName": deployment_profile["localAdminName"],
             "enableBuiltInAdministrator": deployment_profile[
@@ -1520,6 +1641,46 @@ def deploy_manifest(
             "enableSetupLocalAdmin": deployment_profile["enableSetupLocalAdmin"],
         },
     }
+
+
+@app.get("/api/deploy/{deployment_id}/driver-archive")
+def deployment_driver_archive_status(
+    deployment_id: int,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> JSONResponse:
+    expire_stale_deployments(session)
+    deployment, _ = require_owned_deployment(
+        deployment_id, request, session, "winpe"
+    )
+    if deployment.status != DEPLOYMENT_BEGIN:
+        raise HTTPException(status_code=409, detail="Deployment is not active")
+    if deployment.driver_apply_mode != "staged":
+        raise HTTPException(
+            status_code=409,
+            detail="Driver archive transport is not active for this deployment.",
+        )
+    try:
+        archive = get_driver_archive_status(deployment_id, get_settings())
+    except DriverArchiveError as exc:
+        return JSONResponse(
+            {"status": "failed", "error": str(exc)},
+            headers={"Cache-Control": "no-store"},
+        )
+    response_status = 202 if archive.get("status") == "preparing" else 200
+    return JSONResponse(
+        {
+            "status": archive.get("status"),
+            "archiveRelativePath": archive.get("archiveRelativePath"),
+            "archiveSize": archive.get("archiveSize"),
+            "sourceSize": archive.get("sourceSize"),
+            "sourceFileCount": archive.get("sourceFileCount"),
+            "sourceInfCount": archive.get("sourceInfCount"),
+            "error": archive.get("error"),
+        },
+        status_code=response_status,
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.get("/api/deployments", response_model=DeploymentListResponse)
@@ -1684,9 +1845,28 @@ def deploy_begin(
             detail="This WinPE login has already been used for a deployment.",
         )
 
+    settings = get_settings()
+    name_format = match_name_format(
+        get_name_formats(session),
+        payload.computer_name,
+    )
+    if name_format is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Computer name does not match an allowed naming format.",
+        )
+    if payload.domain_join and not name_format.domain_linked:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Domain join is not allowed for the selected computer-name "
+                "format."
+            ),
+        )
+
     # Reject an impossible domain join before WinPE erases the selected disk,
     # rather than once the deployment has already destroyed the target.
-    if payload.domain_join and not get_settings().odj_enabled:
+    if payload.domain_join and not settings.odj_enabled:
         raise HTTPException(
             status_code=409,
             detail=(
@@ -1694,6 +1874,16 @@ def deploy_begin(
                 "configured on IronAPI."
             ),
         )
+    if payload.domain_join:
+        format_status = evaluate_name_format(session, settings, name_format)
+        if not format_status.directory_available:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Domain join was requested, but Active Directory is "
+                    f"unavailable: {format_status.error}"
+                ),
+            )
 
     deployment = Deployment(
         computer_name=payload.computer_name,
@@ -2129,6 +2319,7 @@ def deploy_error(
         discard_domain_join_blob(deployment.computer_name)
 
     session.commit()
+    cleanup_driver_archive(deployment_id)
     session.refresh(deployment)
     revoke_deployment_token(session, token)
     return to_deployment_response(deployment)
@@ -2347,6 +2538,8 @@ def deploy_stage_event(
         stage_record.completed_at = now
 
     session.commit()
+    if stage == "driver_download" and event in {"complete", "fail", "skip"}:
+        cleanup_driver_archive(deployment_id)
     session.refresh(stage_record)
     return to_deployment_stage_response(stage_record)
 
@@ -2558,6 +2751,7 @@ def deploy_complete(
     if deployment.domain_join:
         discard_domain_join_blob(deployment.computer_name)
 
+    cleanup_driver_archive(deployment_id)
     session.commit()
 
     session.refresh(deployment)

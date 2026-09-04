@@ -2,6 +2,7 @@ from collections.abc import Callable, Generator
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from os import getenv
 from pathlib import Path
 import re
 import sqlite3
@@ -694,6 +695,7 @@ def _migration_add_post_powershell(connection: Connection) -> None:
             size_bytes BIGINT NOT NULL,
             modified_ns BIGINT NOT NULL,
             sha256 VARCHAR(64) NOT NULL,
+            enabled BOOLEAN NOT NULL DEFAULT 1,
             created_at DATETIME NOT NULL,
             updated_at DATETIME NOT NULL
         )
@@ -773,6 +775,88 @@ def _migration_add_post_powershell(connection: Connection) -> None:
     )
 
 
+def _migration_add_computer_name_formats(connection: Connection) -> None:
+    connection.exec_driver_sql(
+        """
+        CREATE TABLE IF NOT EXISTS computer_name_formats (
+            id INTEGER NOT NULL PRIMARY KEY,
+            prefix VARCHAR(14) NOT NULL,
+            number_width INTEGER NOT NULL,
+            start_number INTEGER NOT NULL,
+            domain_linked BOOLEAN NOT NULL,
+            position INTEGER NOT NULL,
+            CONSTRAINT ck_computer_name_formats_number_width
+                CHECK (number_width BETWEEN 1 AND 14),
+            CONSTRAINT ck_computer_name_formats_start_number
+                CHECK (start_number >= 0),
+            CONSTRAINT ck_computer_name_formats_position
+                CHECK (position >= 0),
+            CONSTRAINT uq_computer_name_formats_pattern
+                UNIQUE (prefix, number_width),
+            CONSTRAINT uq_computer_name_formats_position UNIQUE (position)
+        )
+        """
+    )
+    existing = connection.execute(
+        text("SELECT id FROM computer_name_formats LIMIT 1")
+    ).first()
+    if existing is not None:
+        return
+
+    # TODO 1.0.0: выпилить эту legacy-миграцию IRONAPI_NAME_* перед релизом.
+    prefix = str(getenv("IRONAPI_NAME_PREFIX") or "pc").strip().lower()
+    try:
+        width = int(str(getenv("IRONAPI_NAME_WIDTH") or "5").strip())
+        start = int(str(getenv("IRONAPI_NAME_START") or "1").strip())
+    except ValueError:
+        prefix, width, start = "pc", 5, 1
+    if (
+        re.fullmatch(r"[a-z][a-z0-9-]{0,13}", prefix) is None
+        or width < 1
+        or len(prefix) + width > 15
+        or start < 0
+        or start >= 10**width
+    ):
+        prefix, width, start = "pc", 5, 1
+
+    domain_linked = bool(
+        str(getenv("IRONAPI_LDAP_SERVER") or "").strip()
+        and str(getenv("IRONAPI_LDAP_BASE_DN") or "").strip()
+    )
+    connection.execute(
+        text(
+            """
+            INSERT INTO computer_name_formats (
+                prefix, number_width, start_number, domain_linked, position
+            ) VALUES (
+                :prefix, :number_width, :start_number, :domain_linked, 0
+            )
+            """
+        ),
+        {
+            "prefix": prefix,
+            "number_width": width,
+            "start_number": start,
+            "domain_linked": domain_linked,
+        },
+    )
+
+
+def _migration_add_post_powershell_enabled(connection: Connection) -> None:
+    columns = {
+        column["name"]
+        for column in inspect(connection).get_columns("post_powershell_scripts")
+    }
+    if "enabled" in columns:
+        return
+    connection.execute(
+        text(
+            "ALTER TABLE post_powershell_scripts "
+            "ADD COLUMN enabled BOOLEAN NOT NULL DEFAULT 1"
+        )
+    )
+
+
 MIGRATIONS = (
     Migration(1, "create current schema", _migration_create_schema),
     Migration(2, "add legacy columns", _migration_add_legacy_columns),
@@ -802,6 +886,16 @@ MIGRATIONS = (
         9,
         "add driver apply strategy",
         _migration_add_driver_apply_strategy,
+    ),
+    Migration(
+        10,
+        "add computer name formats",
+        _migration_add_computer_name_formats,
+    ),
+    Migration(
+        11,
+        "add post-powershell availability",
+        _migration_add_post_powershell_enabled,
     ),
 )
 

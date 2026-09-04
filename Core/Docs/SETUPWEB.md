@@ -53,13 +53,15 @@ The UI owns the first-time settings needed by both IronAPI and WinPE:
 - SMB share path and configured account details; SetupWeb can publish the fixed
   local `Core\Share` folder and grant read access, but the Windows account must
   already exist;
-- computer naming, LDAP, and Offline Domain Join settings. Active Directory is
-  optional: leaving the LDAP server and base DN empty disables name checks, and
+- LDAP and Offline Domain Join connection settings. Active Directory is
+  optional: leaving the LDAP server and base DN empty disables directory checks, and
   leaving the Offline Domain Join domain and OU empty disables domain joins.
   SetupWeb keeps these fields empty rather than substituting the example values.
   The ODJ security action can restrict `Core\ODJ` to SYSTEM, Administrators, and
   an existing Windows account that runs IronAPI;
 - deployment and authorization timeouts;
+- staged-driver TAR storage limit (25 GiB by default) and WinPE archive-ready
+  wait timeout (15 minutes by default);
 - driver-upload safety limits;
 - WinPE API address and certificate trust;
 - WinPE image, driver, program, and drive-letter paths;
@@ -71,8 +73,10 @@ empty writes `IRONAPI_ALLOWED_CLIENT_NETWORKS=` and allows clients from every
 network; the `(?)` help beside the field repeats this behavior. Loopback is
 always allowed even when CIDRs are configured.
 
-The later IronAPI `/image-config` page owns the operational image- and
-driver-apply choices. It stores `direct` or `staged` as
+The later IronAPI `/image-config` page owns computer-name formats and the
+operational image- and driver-apply choices. Name formats are ordered SQLite
+records with a prefix, numeric width, starting number, and optional Active
+Directory linkage. Apply choices are stored as `direct` or `staged` in
 `IRONAPI_IMAGE_APPLY_MODE` and `IRONAPI_DRIVER_APPLY_MODE` in `Core\Api\.env`.
 SetupWeb preserves those server-side settings when it rewrites the initial
 configuration and never copies them into `deploy.config.ps1`.
@@ -85,7 +89,7 @@ that behavior.
 
 | File | Content |
 | --- | --- |
-| `Core\Api\.env` | IronAPI listener, SMB, image- and driver-apply strategies, LDAP, ODJ, storage, and timeout settings. |
+| `Core\Api\.env` | IronAPI listener, SMB, image- and driver-apply strategies, LDAP, ODJ, storage, and timeout settings. Computer-name formats are not stored here. |
 | `Core\WinPE\Runtime\deploy.config.ps1` | Credential-free WinPE runtime settings. |
 | `Core\ServerTemplates\Unattend\unattend-win11-template.xml` | Server-side Windows answer-file settings. |
 | `Core\Data\auth-bootstrap.json` | Initial superadmin name and PBKDF2-SHA256 password hash. |

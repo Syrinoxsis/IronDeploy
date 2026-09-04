@@ -75,7 +75,7 @@ def _read_metadata(path: Path = METADATA_PATH) -> dict[str, Any]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
-        return {"version": 2, "programs": {}}
+        return {"version": 3, "programs": {}}
     except (OSError, json.JSONDecodeError) as exc:
         raise ProgramError(f"Failed to read program metadata: {exc}") from exc
     if not isinstance(payload, dict) or not isinstance(payload.get("programs"), dict):
@@ -128,8 +128,14 @@ def _list_programs(
     for path in files:
         stat = path.stat()
         record = records.get(path.name)
-        if record is None or not isinstance(record.get("arguments"), str):
-            record = {"arguments": ""}
+        if not isinstance(record, dict):
+            record = {}
+            changed = True
+        if not isinstance(record.get("arguments"), str):
+            record["arguments"] = ""
+            changed = True
+        if type(record.get("enabled")) is not bool:
+            record["enabled"] = True
             changed = True
         signature_changed = (
             record.get("size") != stat.st_size
@@ -160,12 +166,13 @@ def _list_programs(
                     stat.st_mtime, timezone.utc
                 ).isoformat(),
                 "arguments": record["arguments"],
+                "enabled": record["enabled"],
                 "sha256": record["sha256"],
             }
         )
 
     if changed:
-        metadata["version"] = 2
+        metadata["version"] = 3
         _write_metadata(metadata, metadata_path)
     return {"programs": result, "directory": str(programs_dir)}
 
@@ -198,6 +205,31 @@ def set_program_arguments(
         metadata["programs"][safe_name]["arguments"] = normalized
         _write_metadata(metadata, metadata_path)
         program["arguments"] = normalized
+        return program
+
+
+def set_program_enabled(
+    name: str,
+    enabled: bool,
+    programs_dir: Path = PROGRAMS_DIR,
+    metadata_path: Path = METADATA_PATH,
+) -> dict[str, Any]:
+    safe_name = _safe_program_name(name)
+    if type(enabled) is not bool:
+        raise ProgramError("enabled must be a boolean.")
+
+    with _metadata_lock:
+        listing = _list_programs(programs_dir, metadata_path)
+        program = next(
+            (item for item in listing["programs"] if item["name"] == safe_name), None
+        )
+        if program is None:
+            raise ProgramError("Program not found.")
+        metadata = _read_metadata(metadata_path)
+        metadata["programs"][safe_name]["enabled"] = enabled
+        metadata["version"] = 3
+        _write_metadata(metadata, metadata_path)
+        program["enabled"] = enabled
         return program
 
 
@@ -290,6 +322,7 @@ def rename_program(
         "oldName": safe_name,
         "name": safe_new_name,
         "arguments": str(record.get("arguments", "")),
+        "enabled": bool(record.get("enabled", True)),
     }
 
 
@@ -332,6 +365,7 @@ async def save_uploaded_program(
             metadata = _read_metadata(metadata_path)
             metadata["programs"][safe_name] = {
                 "arguments": normalized_arguments,
+                "enabled": True,
                 "size": stat.st_size,
                 "modifiedNs": stat.st_mtime_ns,
                 "sha256": digest.hexdigest(),
@@ -364,5 +398,6 @@ async def save_uploaded_program(
         "name": safe_name,
         "size": size,
         "arguments": normalized_arguments,
+        "enabled": True,
         "sha256": digest.hexdigest(),
     }

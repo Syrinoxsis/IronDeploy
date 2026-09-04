@@ -51,7 +51,10 @@ SMB. Profile-approved post-PowerShell scripts use authenticated IronAPI
 HTTP(S) routes and are verified twice with the manifest SHA-256.
 The manifest also carries the server-owned image- and driver-apply strategies:
 WinPE either lets DISM read each payload directly from SMB or stages and
-validates a local copy before invoking DISM.
+validates a local copy before invoking DISM. In staged driver mode, IronAPI
+builds a fresh deployment-scoped uncompressed TAR while WinPE handles the
+image; WinPE later transfers that single file over SMB and extracts it with the
+bundled x64 7-Zip runtime.
 
 Immediately after a deployment ID is created, WinPE reports the API/SMB route
 adapters, local addresses, and negotiated link speeds. This happens before the
@@ -66,7 +69,7 @@ SQLite summary with completed measurements and its final adapter values.
 | `Core\WinPE\Runtime\deploy.config.ps1` | WinPE | API address, payload paths, certificate trust, and WinPE UI behavior. |
 | `Core\Data\irondeploy.db` | IronAPI | Accounts, permissions, deployment profiles, deployments, stages, and inventory. |
 | `Core\ODJ\pending` | IronAPI | Short-lived Offline Domain Join blobs. |
-| `Core\Share` | IronAPI / SMB data plane | Windows images, driver packages, and installers managed by IronAPI and read by WinPE through SMB. |
+| `Core\Share` | IronAPI / SMB data plane | Windows images, driver packages, bounded temporary driver TAR files, and installers managed by IronAPI and read by WinPE through SMB. |
 | `Core\Library\PostPowerShell` | IronAPI | Private managed `.ps1` library delivered only through authenticated HTTP(S). |
 | `Core\Logs\PostPowerShell` | IronAPI | Bounded raw stdout/stderr captured for deployment details. |
 | `Core\ServerTemplates` | IronAPI | Authorized unattend and post-install templates. |

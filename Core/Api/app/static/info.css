@@ -62,6 +62,11 @@
     background: #e8f0ff;
 }
 
+.upload-status.interrupted {
+    color: #9a6700;
+    background: #fff4ce;
+}
+
 .storage-value {
     margin-top: 24px;
     font-size: 38px;

@@ -89,6 +89,8 @@ Write-Host "Root: $IronDeployRoot"
     @("WinPE\Runtime\IronDeploy.Gui.ps1", "Leaf"),
     @("WinPE\Runtime\deploy.config.ps1", "Leaf"),
     @("WinPE\Runtime\diskpart-uefi.txt", "Leaf"),
+    @("WinPE\Runtime\Tools\7-Zip\7za.exe", "Leaf"),
+    @("WinPE\Runtime\Tools\7-Zip\7-Zip-LICENSE.txt", "Leaf"),
     @("WinPE\Runtime\startnet.cmd", "Leaf"),
     @("Share\Images", "Container"),
     @("Share\Drivers", "Container"),

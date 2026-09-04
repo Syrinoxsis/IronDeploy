@@ -1,9 +1,6 @@
 import os
 
 os.environ.setdefault("IRONAPI_DATABASE_URL", "sqlite:///:memory:")
-os.environ.setdefault("IRONAPI_NAME_PREFIX", "pc")
-os.environ.setdefault("IRONAPI_NAME_WIDTH", "5")
-os.environ.setdefault("IRONAPI_NAME_START", "1")
 os.environ.setdefault("IRONAPI_ALLOWED_CLIENT_NETWORKS", "192.0.2.0/24")
 os.environ.setdefault("IRONAPI_LDAP_SERVER", "dc01.example.test")
 os.environ.setdefault("IRONAPI_LDAP_BASE_DN", "DC=example,DC=test")
@@ -31,6 +28,7 @@ from app.database import initialize_database
 from app.deployments import (
     Base,
     Computer,
+    ComputerNameFormat,
     Deployment,
     DeploymentBeginRequest,
     update_computer_inventory,
@@ -129,6 +127,12 @@ class HardwareModelStorageTests(unittest.TestCase):
     def setUp(self) -> None:
         self.engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(self.engine)
+        with Session(self.engine) as session:
+            session.add(ComputerNameFormat(
+                prefix="pc", number_width=5, start_number=1,
+                domain_linked=True, position=0,
+            ))
+            session.commit()
 
     def tearDown(self) -> None:
         self.engine.dispose()

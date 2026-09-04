@@ -20,6 +20,7 @@ from app.post_powershell import (
     list_scripts,
     resolve_profile_scripts,
     save_uploaded_script,
+    update_script_enabled,
     update_script_settings,
 )
 
@@ -84,6 +85,7 @@ class PostPowerShellTests(unittest.TestCase):
         self.assertEqual(script["runPhase"], "before_software")
         self.assertEqual(script["timeoutSeconds"], 45)
         self.assertTrue(script["available"])
+        self.assertTrue(script["enabled"])
 
     def test_profile_resolver_merges_automatic_and_operator_selection(self) -> None:
         first = self.upload("automatic.ps1")
@@ -117,6 +119,30 @@ class PostPowerShellTests(unittest.TestCase):
                             "arguments": "",
                         },
                     )
+
+    def test_disabled_script_is_retained_but_not_resolved(self) -> None:
+        script = self.upload()
+        update_script_settings(
+            self.session,
+            script["id"],
+            {
+                "selectionMode": "automatic",
+                "runPhase": "before_software",
+                "timeoutSeconds": 45,
+                "arguments": "-Mode Silent",
+            },
+        )
+        disabled = update_script_enabled(self.session, script["id"], False)
+        self.session.commit()
+
+        self.assertFalse(disabled["enabled"])
+        self.assertFalse(list_scripts(self.session)["scripts"][0]["enabled"])
+        self.assertEqual(resolve_profile_scripts(self.session, []), [])
+        with self.assertRaisesRegex(PostPowerShellError, "unavailable"):
+            resolve_profile_scripts(self.session, [script["name"]])
+
+        with self.assertRaisesRegex(PostPowerShellError, "boolean"):
+            update_script_enabled(self.session, script["id"], 1)
 
     def test_missing_selected_file_is_retained_for_nonfatal_reporting(self) -> None:
         script = self.upload()

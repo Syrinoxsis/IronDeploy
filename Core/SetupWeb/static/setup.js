@@ -48,8 +48,8 @@ const ruTranslations = {
   "Image apply mode": "Режим применения образа",
   "Direct from SMB": "Напрямую из SMB",
   "Stage locally first": "Сначала скопировать локально",
-  "Define predictable computer names and optional Active Directory integration.": "Задайте понятные имена компьютеров и необязательную интеграцию с Active Directory.",
-  "Build predictable names and preview the next generated value.": "Настройте предсказуемые имена и проверьте следующее значение.",
+  "Active Directory": "Active Directory",
+  "Configure optional directory lookup and Offline Domain Join.": "Настройте необязательный поиск в каталоге и Offline Domain Join.",
   "Leave both groups empty to deploy without Active Directory.": "Оставьте обе группы пустыми для развёртывания без Active Directory.",
   "Directory advanced settings": "Расширенные настройки каталога",
   "Set deployment deadlines, Windows first-boot behavior, and service options.": "Задайте сроки развёртывания, поведение первого запуска Windows и параметры сервиса.",
@@ -105,12 +105,8 @@ const ruTranslations = {
   "HTTP direct": "HTTP напрямую",
   "HTTPS through reverse proxy": "HTTPS через reverse proxy",
   "Direct HTTP exposes IronAPI on the selected network address. HTTPS reverse proxy keeps IronAPI on 127.0.0.1:8000 and expects an external proxy.": "Прямой HTTP публикует IronAPI на выбранном сетевом адресе. Режим HTTPS оставляет IronAPI на 127.0.0.1:8000 и предполагает внешний reverse proxy.",
-  "Computer naming": "Имена компьютеров",
   "Configuration status": "Состояние конфигурации",
   "Source files and protected values.": "Исходные файлы и защищённые значения.",
-  "Build predictable names while keeping the generated result visible.": "Настройте понятную схему имён и сразу увидите результат.",
-  "Next generated name": "Следующее имя",
-  "Existing LDAP names are skipped automatically.": "Существующие имена LDAP пропускаются автоматически.",
   "Directory and domain join": "Каталог и ввод в домен",
   "LDAP lookup and Offline Domain Join settings are kept together.": "Параметры поиска LDAP и Offline Domain Join собраны в одном месте.",
   "Active Directory is optional. Leave these fields empty to deploy without domain join; IronAPI then rejects any deployment that requests one.": "Active Directory необязателен. Оставьте эти поля пустыми, чтобы разворачивать без ввода в домен; тогда IronAPI отклонит любое развёртывание, которое его запросит.",
@@ -126,12 +122,6 @@ const ruTranslations = {
   "IP address for IronAPI. Example: 127.0.0.1, 198.51.100.10, or 0.0.0.0.": "IP-адрес IronAPI. Пример: 127.0.0.1, 198.51.100.10 или 0.0.0.0.",
   "TCP port": "TCP-порт",
   "Integer from 1 to 65535. Example: 8000.": "Целое число от 1 до 65535. Пример: 8000.",
-  "Computer prefix": "Префикс компьютера",
-  "1-15 letters/digits/hyphens, starts with a letter. Example: pc.": "От 1 до 15 букв, цифр или дефисов; начинается с буквы. Пример: pc.",
-  "Number width": "Разрядность номера",
-  "Digits after prefix. Example: 5 makes pc00001.": "Количество цифр после префикса. Например, 5 даёт pc00001.",
-  "Starting number": "Начальный номер",
-  "First number when no matching LDAP names exist. Example: 1.": "Первый номер, если в LDAP нет подходящих имён. Пример: 1.",
   "LDAP server": "Сервер LDAP",
   "Domain controller host or IP, no ldap:// prefix. Empty disables LDAP with empty Base DN.": "Имя или IP контроллера домена без префикса ldap://. Пустое значение вместе с пустым Base DN отключает LDAP.",
   "LDAP base DN": "Базовый DN LDAP",
@@ -202,7 +192,9 @@ const ruTranslations = {
   "Service timeouts": "Тайм-ауты сервисов",
   "Limits for external LDAP and Offline Domain Join operations.": "Ограничения времени для внешних операций LDAP и Offline Domain Join.",
   "Driver upload limits": "Ограничения загрузки драйверов",
+  "Driver storage limits": "Ограничения хранилища драйверов",
   "Safety limits for temporary driver package uploads. Changes take effect after restarting IronAPI.": "Ограничения для временных загрузок пакетов драйверов. Изменения применяются после перезапуска IronAPI.",
+  "Safety limits for uploads and deployment-scoped TAR preparation.": "Ограничения для загрузок и подготовки TAR для отдельных развёртываний.",
   "Maximum files per package": "Максимум файлов в пакете",
   "Maximum number of files in one package, 1-1000000. Recommended: 25000.": "Максимальное число файлов в одном пакете: 1–1000000. Рекомендуется: 25000.",
   "Maximum directory depth": "Максимальная глубина каталогов",
@@ -215,6 +207,10 @@ const ruTranslations = {
   "Maximum unfinished driver uploads on the server, 1-100. Recommended: 3.": "Максимальное число незавершённых загрузок драйверов на сервере: 1–100. Рекомендуется: 3.",
   "Minimum free disk space": "Минимум свободного места",
   "Free space required on the Share\\Drivers volume before starting an upload, 1-10240 GiB. Recommended: 25.": "Свободное место на томе Share\\Drivers, необходимое для начала загрузки: 1–10240 ГиБ. Рекомендуется: 25.",
+  "Driver TAR limit (GiB)": "Лимит TAR драйверов (ГиБ)",
+  "Combined hard limit for ready and partial deployment TAR files. Range 1-10240. Default 25.": "Общий жёсткий лимит готовых и частично созданных TAR развёртываний. Диапазон 1–10240, по умолчанию 25.",
+  "Driver TAR wait (minutes)": "Ожидание TAR драйверов (минуты)",
+  "Maximum time WinPE waits for TAR preparation after the image phase. Range 1-120. Default 15.": "Максимальное время ожидания подготовки TAR в WinPE после этапа образа. Диапазон 1–120, по умолчанию 15.",
   "WinPE drive mapping": "Подключение диска WinPE",
   "The mapped drive is configurable. Content paths are derived automatically and shown for verification.": "Букву подключаемого диска можно изменить. Пути к содержимому вычисляются автоматически и показаны для проверки.",
   "WinPE drive": "Диск WinPE",
@@ -457,23 +453,6 @@ function collectFields(selector, datasetName) {
   return values;
 }
 
-function renderComputerNamePreview() {
-  const prefixInput = document.querySelector("[data-api='IRONAPI_NAME_PREFIX']");
-  const widthInput = document.querySelector("[data-api='IRONAPI_NAME_WIDTH']");
-  const startInput = document.querySelector("[data-api='IRONAPI_NAME_START']");
-  const preview = document.querySelector("#computerNamePreview");
-  if (!prefixInput || !widthInput || !startInput || !preview) return;
-
-  const prefix = prefixInput.value.trim() || "pc";
-  const parsedWidth = Number.parseInt(widthInput.value, 10);
-  const width = Number.isInteger(parsedWidth) && parsedWidth > 0
-    ? Math.min(parsedWidth, 20)
-    : 5;
-  const parsedStart = Number.parseInt(startInput.value, 10);
-  const start = Number.isInteger(parsedStart) && parsedStart >= 0 ? parsedStart : 1;
-  preview.textContent = `${prefix}${String(start).padStart(width, "0")}`;
-}
-
 function applyAccessMode() {
   const mode = document.querySelector("[data-api='IRONAPI_ACCESS_MODE']");
   const bindHost = document.querySelector("[data-api='IRONAPI_BIND_HOST']");
@@ -567,7 +546,6 @@ function renderConfig(config) {
   setField("[data-auth]", config.auth);
   applyAccessMode();
   applyApiCertificateValidation();
-  renderComputerNamePreview();
 }
 
 async function load() {
@@ -645,10 +623,6 @@ document.querySelectorAll(".nav-item").forEach((button) => {
 document.querySelectorAll("[data-language]").forEach((button) => {
   button.addEventListener("click", () => setLanguage(button.dataset.language));
 });
-
-document.querySelectorAll(
-  "[data-api='IRONAPI_NAME_PREFIX'], [data-api='IRONAPI_NAME_WIDTH'], [data-api='IRONAPI_NAME_START']"
-).forEach((input) => input.addEventListener("input", renderComputerNamePreview));
 
 document.querySelector("[data-api='IRONAPI_ACCESS_MODE']")
   .addEventListener("change", applyAccessMode);

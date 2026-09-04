@@ -168,6 +168,7 @@ $WindowsDrive = "C:"
 $EfiDrive = "S:"
 $DiskPartScript = "X:\IronDeploy\diskpart-uefi.txt"
 $UnattendTarget = "C:\Windows\Panther\Unattend.xml"
+$SevenZipPath = Join-Path $PSScriptRoot "Tools\7-Zip\7za.exe"
 
 $script:DeploymentId = 0L
 $script:CurrentDeploymentStage = $null
@@ -1947,29 +1948,97 @@ function Remove-IronStagedDriverArtifacts {
     }
 }
 
-function Copy-IronDriverPackageToLocalStaging {
+function Wait-IronDriverArchive {
     param(
-        [Parameter(Mandatory = $true)][string]$SourcePath,
-        [Parameter(Mandatory = $true)][long]$ExpectedLength,
-        [Parameter(Mandatory = $true)][int]$ExpectedFileCount,
-        [Parameter(Mandatory = $true)][int]$ExpectedInfCount,
+        [Parameter(Mandatory = $true)][string]$StatusUrl,
+        [Parameter(Mandatory = $true)][int]$TimeoutSeconds,
         [Parameter(Mandatory = $true)][long]$DeploymentId
     )
 
-    if (
-        $ExpectedLength -lt 0 -or
-        $ExpectedFileCount -le 0 -or
-        $ExpectedInfCount -le 0
-    ) {
-        throw "The driver manifest contains invalid package metadata"
+    $ExpectedStatusUrl = "/api/deploy/{0}/driver-archive" -f $DeploymentId
+    if ($StatusUrl -ine $ExpectedStatusUrl -or $TimeoutSeconds -le 0) {
+        throw "The driver archive manifest contains invalid metadata"
+    }
+
+    $Uri = "{0}/{1}" -f $ApiBaseUrl.TrimEnd('/'), $StatusUrl.TrimStart('/')
+    $ExpectedRelativePath = (
+        ".irondeploy-archives\{0}\drivers.tar" -f $DeploymentId
+    )
+    $Deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    $LastRequestError = $null
+    while ([DateTime]::UtcNow -lt $Deadline) {
+        try {
+            $Response = Invoke-IronApiRestMethod `
+                -Uri $Uri `
+                -Method Get `
+                -TimeoutSec 15
+            $LastRequestError = $null
+            $Status = ([string]$Response.status).Trim().ToLowerInvariant()
+            if ($Status -eq "ready") {
+                if (
+                    [string]$Response.archiveRelativePath -ine $ExpectedRelativePath -or
+                    [long]$Response.archiveSize -le 0 -or
+                    [long]$Response.sourceSize -lt 0 -or
+                    [int]$Response.sourceFileCount -le 0 -or
+                    [int]$Response.sourceInfCount -le 0
+                ) {
+                    throw "IronAPI returned invalid driver archive metadata"
+                }
+                return $Response
+            }
+            if ($Status -eq "failed") {
+                $Reason = ([string]$Response.error).Trim()
+                if ([string]::IsNullOrWhiteSpace($Reason)) {
+                    $Reason = "the server did not provide an error message"
+                }
+                throw "Driver TAR preparation failed: $Reason"
+            }
+            if ($Status -ne "preparing") {
+                throw "IronAPI returned unknown driver archive status '$Status'"
+            }
+        } catch {
+            $LastRequestError = $_.Exception.Message
+            if (
+                $LastRequestError -like "Driver TAR preparation failed:*" -or
+                $LastRequestError -like "IronAPI returned invalid driver archive metadata*" -or
+                $LastRequestError -like "IronAPI returned unknown driver archive status*"
+            ) {
+                throw
+            }
+            Write-IronLog (
+                "[WARN] Driver archive status request failed; retrying: {0}" -f
+                $LastRequestError
+            ) -Level warn
+        }
+        Start-Sleep -Seconds 2
+    }
+    $Suffix = if ([string]::IsNullOrWhiteSpace($LastRequestError)) {
+        ""
+    } else {
+        "; last request error: $LastRequestError"
+    }
+    throw "Timed out waiting for the driver TAR after $TimeoutSeconds seconds$Suffix"
+}
+
+function Copy-IronDriverArchiveToLocalStaging {
+    param(
+        [Parameter(Mandatory = $true)][string]$SourcePath,
+        [Parameter(Mandatory = $true)][long]$ExpectedArchiveLength,
+        [Parameter(Mandatory = $true)][long]$ExpectedExtractedLength,
+        [Parameter(Mandatory = $true)][long]$DeploymentId
+    )
+
+    if ($ExpectedArchiveLength -le 0 -or $ExpectedExtractedLength -lt 0) {
+        throw "The driver archive contains invalid size metadata"
     }
 
     $LocalDrive = Get-PSDrive -Name $WindowsDrive.TrimEnd(":")
-    if ($null -eq $LocalDrive.Free -or [long]$LocalDrive.Free -lt $ExpectedLength) {
+    $RequiredBytes = $ExpectedArchiveLength + $ExpectedExtractedLength
+    if ($null -eq $LocalDrive.Free -or [long]$LocalDrive.Free -lt $RequiredBytes) {
         $FreeBytes = if ($null -eq $LocalDrive.Free) { 0L } else { [long]$LocalDrive.Free }
         throw (
             "Insufficient free space for staged drivers: need {0} bytes, have {1} bytes" -f
-            $ExpectedLength,
+            $RequiredBytes,
             $FreeBytes
         )
     }
@@ -1977,36 +2046,37 @@ function Copy-IronDriverPackageToLocalStaging {
     $StagingDirectory = Join-Path `
         "$($WindowsDrive.TrimEnd('\'))\IronDeploy.Staging" `
         ([string]$DeploymentId)
-    $PartialPath = Join-Path $StagingDirectory "drivers.partial"
-    $FinalPath = Join-Path $StagingDirectory "drivers"
+    $TransferDirectory = Join-Path $StagingDirectory "archive.partial"
+    $ArchivePath = Join-Path $StagingDirectory "drivers.tar"
     New-Item -ItemType Directory -Path $StagingDirectory -Force | Out-Null
-    if (Test-Path -LiteralPath $PartialPath) {
-        Remove-Item -LiteralPath $PartialPath -Recurse -Force
+    if (Test-Path -LiteralPath $TransferDirectory) {
+        Remove-Item -LiteralPath $TransferDirectory -Recurse -Force
     }
-    if (Test-Path -LiteralPath $FinalPath) {
-        Remove-Item -LiteralPath $FinalPath -Recurse -Force
+    if (Test-Path -LiteralPath $ArchivePath) {
+        Remove-Item -LiteralPath $ArchivePath -Force
     }
+    New-Item -ItemType Directory -Path $TransferDirectory -Force | Out-Null
 
     $Stopwatch = [Diagnostics.Stopwatch]::StartNew()
     try {
         Write-IronLog (
-            "[STEP] Download driver package with robocopy /J: {0} -> {1}" -f
+            "[STEP] Download driver TAR with robocopy /J: {0} -> {1}" -f
             $SourcePath,
-            $PartialPath
+            $TransferDirectory
         ) -Level step
+        $SourceDirectory = Split-Path -Parent $SourcePath
+        $SourceName = Split-Path -Leaf $SourcePath
         $PreviousErrorActionPreference = $ErrorActionPreference
         try {
             $ErrorActionPreference = "Continue"
             & robocopy.exe `
-                $SourcePath `
-                $PartialPath `
-                /E `
+                $SourceDirectory `
+                $TransferDirectory `
+                $SourceName `
                 /J `
                 /R:2 `
                 /W:2 `
                 /COPY:DAT `
-                /DCOPY:DAT `
-                /XJ `
                 /NP `
                 /NFL `
                 /NDL
@@ -2017,57 +2087,36 @@ function Copy-IronDriverPackageToLocalStaging {
         if (-not (Test-IronRobocopyExitCode -ExitCode $RobocopyExitCode)) {
             throw "robocopy failed with exit code $RobocopyExitCode"
         }
-        if (-not (Test-Path -LiteralPath $PartialPath -PathType Container)) {
-            throw "robocopy did not create the local driver package"
+        $TransferredPath = Join-Path $TransferDirectory $SourceName
+        if (-not (Test-Path -LiteralPath $TransferredPath -PathType Leaf)) {
+            throw "robocopy did not create the local driver TAR"
         }
-
-        $Files = @(
-            Get-ChildItem -LiteralPath $PartialPath -File -Recurse
-        )
-        $ActualLength = [long](
-            $Files | Measure-Object -Property Length -Sum
-        ).Sum
-        $ActualFileCount = $Files.Count
-        $ActualInfCount = @(
-            $Files | Where-Object { $_.Extension -ieq ".inf" }
-        ).Count
-        if (
-            $ActualLength -ne $ExpectedLength -or
-            $ActualFileCount -ne $ExpectedFileCount -or
-            $ActualInfCount -ne $ExpectedInfCount
-        ) {
+        $ActualLength = [long](Get-Item -LiteralPath $TransferredPath).Length
+        if ($ActualLength -ne $ExpectedArchiveLength) {
             throw (
-                "Downloaded driver package metadata mismatch: " +
-                "expected bytes/files/INF {0}/{1}/{2}, received {3}/{4}/{5}" -f
-                $ExpectedLength,
-                $ExpectedFileCount,
-                $ExpectedInfCount,
-                $ActualLength,
-                $ActualFileCount,
-                $ActualInfCount
+                "Downloaded driver TAR size mismatch: expected {0}, received {1}" -f
+                $ExpectedArchiveLength,
+                $ActualLength
             )
         }
 
-        Move-Item -LiteralPath $PartialPath -Destination $FinalPath
+        Move-Item -LiteralPath $TransferredPath -Destination $ArchivePath
+        Remove-Item -LiteralPath $TransferDirectory -Recurse -Force
         $Stopwatch.Stop()
         $Seconds = [Math]::Max(0.001, $Stopwatch.Elapsed.TotalSeconds)
         $AverageMegabytesPerSecond = ($ActualLength / 1MB) / $Seconds
         Write-IronLog (
-            "[OK] Driver download completed: status=success; bytes={0}; " +
-            "files={1}; INF={2}; duration={3:N3}s; average={4:N3} MB/s; path={5}" -f
+            "[OK] Driver TAR download completed: status=success; bytes={0}; " +
+            "duration={1:N3}s; average={2:N3} MB/s; path={3}" -f
             $ActualLength,
-            $ActualFileCount,
-            $ActualInfCount,
             $Seconds,
             $AverageMegabytesPerSecond,
-            $FinalPath
+            $ArchivePath
         ) -Level ok
         return [pscustomobject]@{
-            Path = $FinalPath
+            ArchivePath = $ArchivePath
             StagingDirectory = $StagingDirectory
             BytesTransferred = [long]$ActualLength
-            FileCount = [int]$ActualFileCount
-            InfCount = [int]$ActualInfCount
             DurationSeconds = [double]$Seconds
             AverageMegabytesPerSecond = [double]$AverageMegabytesPerSecond
             RobocopyExitCode = [int]$RobocopyExitCode
@@ -2076,14 +2125,92 @@ function Copy-IronDriverPackageToLocalStaging {
         $Stopwatch.Stop()
         Write-IronLog (
             "[ERROR] Driver download failed: status=failed; duration={0:N3}s; " +
-            "partialPath={1}; finalPath={2}; reason={3}" -f
+            "sourcePath={1}; localPath={2}; reason={3}" -f
             $Stopwatch.Elapsed.TotalSeconds,
-            $PartialPath,
-            $FinalPath,
+            $SourcePath,
+            $ArchivePath,
             $_.Exception.Message
         ) -Level error
         throw
     }
+}
+
+function Expand-IronDriverArchive {
+    param(
+        [Parameter(Mandatory = $true)][string]$ArchivePath,
+        [Parameter(Mandatory = $true)][string]$StagingDirectory,
+        [Parameter(Mandatory = $true)][long]$ExpectedLength,
+        [Parameter(Mandatory = $true)][int]$ExpectedFileCount,
+        [Parameter(Mandatory = $true)][int]$ExpectedInfCount
+    )
+
+    if (-not (Test-Path -LiteralPath $SevenZipPath -PathType Leaf)) {
+        throw "The bundled x64 7za.exe is missing: $SevenZipPath"
+    }
+    $PartialPath = Join-Path $StagingDirectory "drivers.partial"
+    $FinalPath = Join-Path $StagingDirectory "drivers"
+    foreach ($Path in @($PartialPath, $FinalPath)) {
+        if (Test-Path -LiteralPath $Path) {
+            Remove-Item -LiteralPath $Path -Recurse -Force
+        }
+    }
+    New-Item -ItemType Directory -Path $PartialPath -Force | Out-Null
+    Write-IronLog "[STEP] Extract driver TAR with bundled x64 7-Zip" -Level step
+    $PreviousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        & $SevenZipPath `
+            x `
+            -ttar `
+            -y `
+            -bso0 `
+            -bsp0 `
+            $ArchivePath `
+            "-o$PartialPath" `
+            2>&1 |
+            ForEach-Object {
+                Write-IronLog ("[7-Zip] {0}" -f ([string]$_)) -Level info
+            }
+        $SevenZipExitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $PreviousErrorActionPreference
+    }
+    if ($SevenZipExitCode -ne 0) {
+        throw "7-Zip extraction failed with exit code $SevenZipExitCode"
+    }
+
+    $Files = @(Get-ChildItem -LiteralPath $PartialPath -File -Recurse)
+    $ActualLength = [long]($Files | Measure-Object -Property Length -Sum).Sum
+    $ActualFileCount = $Files.Count
+    $ActualInfCount = @(
+        $Files | Where-Object { $_.Extension -ieq ".inf" }
+    ).Count
+    if (
+        $ActualLength -ne $ExpectedLength -or
+        $ActualFileCount -ne $ExpectedFileCount -or
+        $ActualInfCount -ne $ExpectedInfCount
+    ) {
+        throw (
+            "Extracted driver package metadata mismatch: " +
+            "expected bytes/files/INF {0}/{1}/{2}, received {3}/{4}/{5}" -f
+            $ExpectedLength,
+            $ExpectedFileCount,
+            $ExpectedInfCount,
+            $ActualLength,
+            $ActualFileCount,
+            $ActualInfCount
+        )
+    }
+    Move-Item -LiteralPath $PartialPath -Destination $FinalPath
+    Remove-Item -LiteralPath $ArchivePath -Force
+    Write-IronLog (
+        "[OK] Driver TAR extracted: bytes={0}; files={1}; INF={2}; path={3}" -f
+        $ActualLength,
+        $ActualFileCount,
+        $ActualInfCount,
+        $FinalPath
+    ) -Level ok
+    return $FinalPath
 }
 
 function Invoke-IronApplyWindowsImage {
@@ -2686,8 +2813,7 @@ function Get-IronDeployNameSuggestion {
         [string]$MacAddress
     )
 
-    $LastDomainName = $null
-    $SuggestedName = $null
+    $NameFormats = @()
     $KnownComputerNames = @()
 
     try {
@@ -2708,24 +2834,25 @@ function Get-IronDeployNameSuggestion {
             -TimeoutSec 10 `
             -UseBasicParsing
 
-        $LastDomainName = [string]$NameResponse.last_domain_name
-        $SuggestedName = [string]$NameResponse.suggested_name
+        $NameFormats = @($NameResponse.formats) |
+            Where-Object { $null -ne $_ }
         $KnownComputerNames = @($NameResponse.known_computer_names) |
             Where-Object { $null -ne $_ }
     } catch {
         Write-IronLog "[WARN] IronAPI unavailable: $($_.Exception.Message)" -Level warn
+        $NameFormats = @()
         $KnownComputerNames = @()
     }
 
     return [pscustomobject]@{
-        LastDomainName = $LastDomainName
-        SuggestedName = $SuggestedName
+        NameFormats = @($NameFormats)
         KnownComputerNames = @($KnownComputerNames)
     }
 }
 
 # Validates a computer name. Returns the normalised (lower-case) name or throws
-# a plain error when the format is wrong. Format: pc + 5 digits.
+# a plain error when it is not a valid Windows computer name. IronAPI owns and
+# authoritatively validates the configured naming formats.
 function Test-IronDeployComputerName {
     param(
         [Parameter(Mandatory = $true)]
@@ -2734,8 +2861,11 @@ function Test-IronDeployComputerName {
     )
 
     $Trimmed = ([string]$ComputerName).Trim()
-    if ($Trimmed -notmatch "^(?i:pc)\d{5}$") {
-        throw "Invalid name. Expected format: pc00001"
+    if (
+        $Trimmed.Length -gt 15 -or
+        $Trimmed -notmatch "^(?i:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)$"
+    ) {
+        throw "Invalid Windows computer name"
     }
     return $Trimmed.ToLowerInvariant()
 }
@@ -3206,6 +3336,9 @@ function Invoke-IronDeployment {
         $DeploymentPlan.postPowerShell | ForEach-Object { $_ }
     )
     $DriverPackagePlan = $DeploymentPlan.driverPackage
+    $DriverArchivePlan = $DeploymentPlan.driverArchive
+    $DriverArchiveStatusUrl = ""
+    $DriverArchiveWaitTimeoutSeconds = 0
     $DriverPackagePath = $null
     $DriverPackageRelativePath = ""
     $DriverPackageSize = 0L
@@ -3243,52 +3376,77 @@ function Invoke-IronDeployment {
         ) {
             Fail "IronAPI returned an invalid driver package path."
         }
-        $DriverPackagePath = (
-            "{0}\{1}" -f `
-                $DriversPath.TrimEnd("\"),
-                $DriverPackageRelativePath
-        )
-        if (!(Test-Path -LiteralPath $DriverPackagePath -PathType Container)) {
-            Fail "Selected driver package not found: $DriverPackagePath"
-        }
-        try {
-            $DriverFiles = @(
-                Get-ChildItem `
-                    -LiteralPath $DriverPackagePath `
-                    -File `
-                    -Recurse
-            )
-            $AvailableDrivers = @(
-                $DriverFiles | Where-Object {
-                    $_.Extension -ieq ".inf"
-                }
-            )
-        } catch {
-            Fail (
-                "Failed to list drivers in ${DriverPackagePath}: " +
-                "$($_.Exception.Message)"
-            )
-        }
-        $DriverPackageSize = [long](
-            $DriverFiles |
-                Measure-Object -Property Length -Sum
-        ).Sum
-        $DriverPackageFileCount = $DriverFiles.Count
-        $DriverPackageInfCount = $AvailableDrivers.Count
-        $ExpectedDriverFileCount = [int]$DriverPackagePlan.fileCount
-        if ($ExpectedDriverFileCount -le 0) {
-            # Backward compatibility with manifests issued before fileCount.
-            $ExpectedDriverFileCount = $DriverPackageFileCount
-        }
+        $DriverPackageSize = [long]$DriverPackagePlan.size
+        $DriverPackageFileCount = [int]$DriverPackagePlan.fileCount
+        $DriverPackageInfCount = [int]$DriverPackagePlan.infCount
         if (
-            $DriverPackageSize -ne [long]$DriverPackagePlan.size -or
-            $DriverPackageFileCount -ne $ExpectedDriverFileCount -or
-            $DriverPackageInfCount -ne [int]$DriverPackagePlan.infCount
-        ) {
-            Fail (
-                "Selected driver package does not match the API manifest: " +
-                $DriverPackageRelativePath
+            $DriverPackageSize -lt 0 -or
+            $DriverPackageInfCount -le 0 -or
+            (
+                $script:DriverApplyMode -eq "staged" -and
+                $DriverPackageFileCount -le 0
             )
+        ) {
+            Fail "IronAPI returned invalid driver package metadata."
+        }
+        if ($script:DriverApplyMode -eq "staged") {
+            $DriverArchiveStatusUrl = [string]$DriverArchivePlan.statusUrl
+            $DriverArchiveWaitTimeoutSeconds = `
+                [int]$DriverArchivePlan.waitTimeoutSeconds
+            if (
+                $null -eq $DriverArchivePlan -or
+                [string]::IsNullOrWhiteSpace($DriverArchiveStatusUrl) -or
+                $DriverArchiveWaitTimeoutSeconds -le 0
+            ) {
+                Fail "IronAPI did not provide a valid staged driver archive plan."
+            }
+        } else {
+            $DriverPackagePath = (
+                "{0}\{1}" -f `
+                    $DriversPath.TrimEnd("\"),
+                    $DriverPackageRelativePath
+            )
+            if (!(Test-Path -LiteralPath $DriverPackagePath -PathType Container)) {
+                Fail "Selected driver package not found: $DriverPackagePath"
+            }
+            try {
+                $DriverFiles = @(
+                    Get-ChildItem `
+                        -LiteralPath $DriverPackagePath `
+                        -File `
+                        -Recurse
+                )
+                $AvailableDrivers = @(
+                    $DriverFiles | Where-Object {
+                        $_.Extension -ieq ".inf"
+                    }
+                )
+            } catch {
+                Fail (
+                    "Failed to list drivers in ${DriverPackagePath}: " +
+                    "$($_.Exception.Message)"
+                )
+            }
+            $ActualDriverPackageSize = [long](
+                $DriverFiles |
+                    Measure-Object -Property Length -Sum
+            ).Sum
+            $ExpectedDriverFileCount = $DriverPackageFileCount
+            if ($ExpectedDriverFileCount -le 0) {
+                # Backward compatibility with manifests issued before fileCount.
+                $ExpectedDriverFileCount = $DriverFiles.Count
+            }
+            if (
+                $ActualDriverPackageSize -ne $DriverPackageSize -or
+                $DriverFiles.Count -ne $ExpectedDriverFileCount -or
+                $AvailableDrivers.Count -ne $DriverPackageInfCount
+            ) {
+                Fail (
+                    "Selected driver package does not match the API manifest: " +
+                    $DriverPackageRelativePath
+                )
+            }
+            $DriverPackageFileCount = $ExpectedDriverFileCount
         }
         if ($DriverPackageInfCount -eq 0) {
             Fail (
@@ -3311,7 +3469,7 @@ function Invoke-IronDeployment {
         Write-IronLog (
             "[OK] Selected driver package: {0} ({1} INF files)" -f `
                 $DriverPackageRelativePath,
-                $AvailableDrivers.Count
+                $DriverPackageInfCount
         ) -Level ok
     } else {
         Write-IronLog "[INFO] No driver package selected" -Level info
@@ -3490,18 +3648,31 @@ function Invoke-IronDeployment {
     if ($null -ne $DriverPackagePlan) {
         $DriverPackagePathToInject = $DriverPackagePath
         $StagedDriverDirectory = $null
+        $StagedDriverArchivePath = $null
         if ($script:DriverApplyMode -eq "staged") {
             Set-IronProgress 60 "Downloading driver package"
             Start-DeploymentStage "driver_download"
             try {
-                $DriverDownloadResult = Copy-IronDriverPackageToLocalStaging `
-                    -SourcePath $DriverPackagePath `
-                    -ExpectedLength $DriverPackageSize `
-                    -ExpectedFileCount $DriverPackageFileCount `
-                    -ExpectedInfCount $DriverPackageInfCount `
+                Write-IronLog "[STEP] Wait for server-side driver TAR" -Level step
+                $DriverArchive = Wait-IronDriverArchive `
+                    -StatusUrl $DriverArchiveStatusUrl `
+                    -TimeoutSeconds $DriverArchiveWaitTimeoutSeconds `
                     -DeploymentId $script:DeploymentId
-                $DriverPackagePathToInject = $DriverDownloadResult.Path
+                $DriverPackageSize = [long]$DriverArchive.sourceSize
+                $DriverPackageFileCount = [int]$DriverArchive.sourceFileCount
+                $DriverPackageInfCount = [int]$DriverArchive.sourceInfCount
+                $DriverArchiveSourcePath = (
+                    "{0}\{1}" -f `
+                        $DriversPath.TrimEnd("\"),
+                        ([string]$DriverArchive.archiveRelativePath)
+                )
+                $DriverDownloadResult = Copy-IronDriverArchiveToLocalStaging `
+                    -SourcePath $DriverArchiveSourcePath `
+                    -ExpectedArchiveLength ([long]$DriverArchive.archiveSize) `
+                    -ExpectedExtractedLength $DriverPackageSize `
+                    -DeploymentId $script:DeploymentId
                 $StagedDriverDirectory = $DriverDownloadResult.StagingDirectory
+                $StagedDriverArchivePath = $DriverDownloadResult.ArchivePath
                 Complete-DeploymentStage "driver_download"
             } catch {
                 $DriverDownloadFailure = $_.Exception.Message
@@ -3517,13 +3688,26 @@ function Invoke-IronDeployment {
             }
         }
 
-        Set-IronProgress 66 "Injecting driver package"
+        if ($script:DriverApplyMode -eq "staged") {
+            Set-IronProgress 63 "Extracting driver package"
+        } else {
+            Set-IronProgress 66 "Injecting driver package"
+        }
         Write-IronLog (
             "[STEP] Stage the selected driver package in offline Windows; " +
             "PnP selects compatible packages on first boot"
         ) -Level step
         Start-DeploymentStage "driver_injection"
         try {
+            if ($script:DriverApplyMode -eq "staged") {
+                $DriverPackagePathToInject = Expand-IronDriverArchive `
+                    -ArchivePath $StagedDriverArchivePath `
+                    -StagingDirectory $StagedDriverDirectory `
+                    -ExpectedLength $DriverPackageSize `
+                    -ExpectedFileCount $DriverPackageFileCount `
+                    -ExpectedInfCount $DriverPackageInfCount
+                Set-IronProgress 66 "Injecting driver package"
+            }
             dism.exe /Image:C:\ /Add-Driver /Driver:$DriverPackagePathToInject /Recurse
             if ($LASTEXITCODE -notin @(0, 3010)) {
                 throw "DISM Add-Driver failed with exit code $LASTEXITCODE"

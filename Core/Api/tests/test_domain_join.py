@@ -30,9 +30,6 @@ class DomainJoinTests(unittest.TestCase):
         self.djoin_path.touch()
         self.settings = Settings(
             database_url="sqlite:///test.db",
-            name_prefix="pc",
-            name_width=5,
-            name_start=1,
             allowed_client_networks=(IPv4Network("192.0.2.0/24"),),
             ldap_server=None,
             ldap_base_dn=None,

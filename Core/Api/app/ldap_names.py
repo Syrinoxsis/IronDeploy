@@ -6,7 +6,6 @@ from typing import Iterator
 import pythoncom
 import win32com.client
 
-from app.deployments import KnownComputerName
 from app.config import Settings
 
 
@@ -19,14 +18,10 @@ ADS_USE_SSL = 0x2
 
 
 @dataclass
-class NameSuggestion:
+class DirectoryNameSuggestion:
     last_domain_name: str | None
     suggested_name: str
     max_existing_number: int | None
-    source: str
-    ldap_enabled: bool
-    ldap_error: str | None = None
-    known_computer_names: list[KnownComputerName] | None = None
 
 
 def _compile_name_pattern(prefix: str, width: int) -> re.Pattern[str]:
@@ -45,8 +40,13 @@ def _next_name(prefix: str, width: int, number: int) -> str:
     return f"{prefix}{number:0{width}d}"
 
 
-def suggest_computer_name(settings: Settings) -> NameSuggestion:
-    pattern = _compile_name_pattern(settings.name_prefix, settings.name_width)
+def suggest_computer_name(
+    settings: Settings,
+    prefix: str,
+    width: int,
+    start: int,
+) -> DirectoryNameSuggestion:
+    pattern = _compile_name_pattern(prefix, width)
 
     if not settings.ldap_enabled:
         raise DirectoryLookupError(
@@ -54,21 +54,24 @@ def suggest_computer_name(settings: Settings) -> NameSuggestion:
         )
 
     try:
-        max_number = _find_max_number_in_ldap(settings, pattern)
+        max_number = _find_max_number_in_ldap(settings, pattern, prefix)
     except Exception as exc:
         raise DirectoryLookupError(f"LDAP lookup failed: {exc}") from exc
 
-    next_number = settings.name_start if max_number is None else max_number + 1
-    return NameSuggestion(
+    next_number = start if max_number is None else max_number + 1
+    suggested_name = "" if next_number >= 10**width else _next_name(
+        prefix,
+        width,
+        next_number,
+    )
+    return DirectoryNameSuggestion(
         last_domain_name=(
             None
             if max_number is None
-            else _next_name(settings.name_prefix, settings.name_width, max_number)
+            else _next_name(prefix, width, max_number)
         ),
-        suggested_name=_next_name(settings.name_prefix, settings.name_width, next_number),
+        suggested_name=suggested_name,
         max_existing_number=max_number,
-        source="ldap",
-        ldap_enabled=True,
     )
 
 
@@ -211,8 +214,9 @@ def _computer_exists_in_ldap(
 def _find_max_number_in_ldap(
     settings: Settings,
     pattern: re.Pattern[str],
+    prefix: str,
 ) -> int | None:
-    ldap_prefix = _escape_filter_value(settings.name_prefix)
+    ldap_prefix = _escape_filter_value(prefix)
     rows = _run_adsi_search(
         settings,
         (
