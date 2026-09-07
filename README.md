@@ -2,6 +2,11 @@
 
 **Deploy Windows 10 and Windows 11 to bare-metal PCs through a simple WinPE interface.**
 
+> [!CAUTION]
+> **IronDeploy is Alpha software.** Test it on a virtual machine or disposable
+> computer before using it on production hardware. The physical disk selected
+> by the operator is permanently erased during deployment.
+
 IronDeploy automates the repetitive work involved in preparing a new or erased
 computer. Boot the target PC into IronDeploy WinPE, choose the Windows image,
 target disk, drivers, software, computer name, and optional domain join, then
@@ -13,11 +18,6 @@ the final results searchable in a web dashboard. WinPE stays lightweight and
 performs the actual deployment on the target computer.
 
 ![How IronDeploy WinPE and IronAPI work together](Core/Docs/screenshots/irondeploy-overview.webp)
-
-> [!CAUTION]
-> **IronDeploy is Alpha software.** Test it on a virtual machine or disposable
-> computer before using it on production hardware. The physical disk selected
-> by the operator is permanently erased during deployment.
 
 ## How it works
 
@@ -112,11 +112,9 @@ Install these Microsoft components on the deployment server:
 You also need:
 
 - Windows PowerShell 5.1;
-- Python 3.11.7;
+- Python 3.14.7 (current primary tested version); Python 3.11.7 is also
+  supported;
 - a way to boot the generated x64 WinPE image, such as WDS/PXE, ISO, or USB.
-
-Python 3.14.7 has passed the current test suite and setup-flow checks, but remains
-provisionally supported pending broader production validation.
 
 IronDeploy does not redistribute Windows ADK, WinPE, Windows installation images,
 or Windows licences.
@@ -153,9 +151,6 @@ Starts the local SetupWeb configuration page. Configure IronAPI, the SMB share,
 Active Directory connection settings, WinPE access, and the first administrator
 account.
 
-After IronAPI is available, configure the allowed computer-name formats under
-`/image-config` in **WinPE interface → Computer naming**.
-
 ### 4. Test IronAPI in the foreground
 
 ```powershell
@@ -185,6 +180,20 @@ rejected.
 This removes only the service registration. Configuration, the database,
 deployment content, logs, and repository files are preserved.
 
+## After installation
+
+After IronAPI is running:
+
+1. Sign in to the IronAPI web interface.
+2. Configure the allowed computer-name formats under `/image-config`.
+3. Add the Windows images, driver packages, and post-install software you need.
+4. Build the WinPE WIM or ISO from the Image configuration page.
+5. Publish the WIM through WDS/PXE, or boot the generated ISO or USB media.
+
+You can also build WinPE manually with `Core\Tools\Build-IronDeployWinPE.ps1`.
+See [WinPE build and deployment runtime](Core/Docs/WINPE.md) for the available
+build targets and detailed instructions.
+
 ## Before the first deployment
 
 - Publish only `Core\Share` as the SMB share. Do not share the repository root.
@@ -200,11 +209,13 @@ deployment content, logs, and repository files are preserved.
 
 ## Deployment content delivery
 
-New installations use the `staged` strategy for Windows images and drivers. The
-content is copied to the target disk and verified locally before DISM uses it.
-The `direct` strategy remains available when DISM should read the content from
-SMB instead. These choices are managed by IronAPI and do not require rebuilding
-the WinPE image.
+New installations use the `staged` strategy for Windows images and drivers.
+Both are copied to the target disk and validated locally before DISM uses them.
+Windows images are verified against their manifest SHA-256; staged driver
+packages are validated against their expected total size, file count, and INF
+count. The `direct` strategy remains available when DISM should read the content
+from SMB instead. These choices are managed by IronAPI and do not require
+rebuilding the WinPE image.
 
 ## Security essentials
 
@@ -240,7 +251,7 @@ security guidance.
 - ESD images can be deployed directly, but WIM is recommended for regular use;
 - hardware, firmware, networks, drivers, and Windows images vary, so the complete
   workflow must be validated in your own environment;
-- during Alpha, only the latest version of the repository is supported.
+- during Alpha, only the latest version on the default branch is supported.
 
 ## Documentation
 
