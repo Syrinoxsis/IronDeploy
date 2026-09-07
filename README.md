@@ -1,74 +1,106 @@
 # IronDeploy
 
-> **Alpha software.** Test IronDeploy on a virtual machine or disposable computer
-> before using it on production hardware. The WinPE workflow permanently erases
-> the physical disk explicitly selected by the operator.
+**Deploy Windows 10 and Windows 11 to bare-metal PCs through a simple WinPE interface.**
 
-IronDeploy is an independent Windows deployment tool for installing Windows 10
-and Windows 11 from WinPE.
+IronDeploy automates the repetitive work involved in preparing a new or erased
+computer. Boot the target PC into IronDeploy WinPE, choose the Windows image,
+target disk, drivers, software, computer name, and optional domain join, then
+start the deployment.
 
-It covers the bare-metal deployment part of what the Microsoft Deployment
-Toolkit does, without the surrounding toolchain: one operator-facing WinPE
-interface, one API, and a plain SMB share for payloads.
+IronAPI acts as the control centre: it manages the available deployment content,
+builds the deployment plan, receives progress throughout the process, and keeps
+the final results searchable in a web dashboard. WinPE stays lightweight and
+performs the actual deployment on the target computer.
 
-It performs a complete deployment from a Windows installation image. You can
-use WIM or ESD directly, but WIM is recommended for regular deployment;
-IronDeploy can convert an imported ESD image to WIM. It does **not** capture or
-clone an already configured reference computer.
+![How IronDeploy WinPE and IronAPI work together](Core/Docs/screenshots/irondeploy-overview.webp)
 
-## What IronDeploy does
+> [!CAUTION]
+> **IronDeploy is Alpha software.** Test it on a virtual machine or disposable
+> computer before using it on production hardware. The physical disk selected
+> by the operator is permanently erased during deployment.
 
-From its graphical WinPE interface, an operator can:
+## How it works
 
-- choose a Windows image and edition;
-- choose the target physical disk after reviewing its number, model, and size;
-- choose optional post-install programs;
-- select one driver package for the detected hardware, or skip drivers;
-- let IronAPI suggest the next available computer name from the configured
-  sequence, for example `PC00001`, `PC00002`, and show names previously used
-  by the same hardware;
-- optionally join the installed computer to Active Directory through Offline
-  Domain Join;
-- follow deployment progress and review the final result in the IronAPI
-  dashboard.
+1. **Prepare the deployment server**
+   Configure IronAPI and add Windows images, driver packages, post-install
+   software, and deployment settings.
+
+2. **Boot the target computer**
+   Start the generated IronDeploy WinPE image through WDS/PXE, USB, or ISO.
+
+3. **Choose the deployment**
+   Select the Windows image, target disk, drivers, optional software, computer
+   name, and whether the computer should join Active Directory.
+
+4. **Deploy Windows**
+   IronDeploy prepares the disk, applies the Windows image, injects drivers,
+   writes the Windows answer file, applies Offline Domain Join when selected,
+   and prepares the system for its first boot.
+
+5. **Complete and review**
+   Windows installs the selected post-install software after the first boot.
+   Progress, timings, warnings, and final results are reported to IronAPI.
+
+## Key features
+
+- Windows 10 and Windows 11 deployment from WinPE;
+- WIM and ESD image support, including ESD-to-WIM conversion;
+- offline driver injection using centrally managed driver packages;
+- unattended post-install software;
+- configurable computer-name formats and automatic name suggestions;
+- Offline Domain Join for Active Directory environments;
+- searchable deployment history, stage timings, warnings, and software results;
+- network link-speed and deployment-path diagnostics;
+- per-user access control and dedicated WinPE authorization;
+- fully on-premises operation.
+
+## Project scope
+
+IronDeploy focuses on deploying Windows to physical computers. It covers the
+bare-metal deployment part of tools such as Microsoft Deployment Toolkit without
+requiring the surrounding MDT toolchain.
+
+It does **not** capture or clone an already configured reference computer, and it
+is not intended to replace every MDT component. IronDeploy uses standard Windows
+installation images and applies the selected configuration during deployment.
+
+## Interface overview
+
+### WinPE deployment interface
+
+The operator can review the detected hardware, choose the target physical disk,
+select the available deployment options, and follow the current stage.
 
 ![IronDeploy WinPE computer name, Windows image, and target disk selection](<Core/Docs/screenshots/WINPE_choiseName and disk.png>)
 
-During deployment IronDeploy partitions the selected disk, applies the selected
-Windows image, injects offline drivers, writes the Windows answer file,
-optionally applies Offline Domain Join, stages selected programs, and boots
-into the newly installed operating system. Post-install tasks then install the
-selected software and report their results to IronAPI.
-
-The server-owned deployment configuration selects how WinPE obtains Windows
-images and driver packages. New installations default both strategies to
-`staged`. A staged image is copied to the selected local disk, verified by
-SHA-256, and then passed to DISM; staged drivers are copied and checked locally
-before injection. `direct` remains available when DISM should read the content
-from SMB. IronAPI sends both choices in the existing per-deployment manifest;
-they are not embedded in the WinPE image.
-
 ### Deployment dashboard
 
-The dashboard summarizes deployment outcomes and keeps recent runs searchable
-by computer, hardware, image, status, stage, and start time.
+The dashboard keeps recent runs searchable by computer, hardware, image, status,
+stage, and start time. Each deployment includes stage timings, warnings, network
+diagnostics, and post-install software results.
 
 ![IronDeploy dashboard showing deployment status and recent runs](Core/Docs/screenshots/dashboard.PNG)
 
-Selecting a run opens its deployment overview, stage timings, and final
-post-install software results.
+<details>
+<summary>More interface screenshots</summary>
+
+#### Deployment details
 
 ![IronDeploy deployment details showing hardware, image, disk, and completed stages](Core/Docs/screenshots/DeplomentDetails.png)
 
+#### Post-install software results
+
 ![IronDeploy post-install software results with durations and exit codes](Core/Docs/screenshots/post-installProgramResult.png)
 
-Once a deployment ID is registered, WinPE reports the negotiated API and SMB
-adapter link speeds before disk partitioning. Deployment details can therefore
-show whether the path negotiated at 100 Mbps or 1 Gbps even before the final
-network-diagnostics report is available. The WPF deployment log always shows
-the detected speed and highlights links below 1 Gbps as warnings.
+#### Network diagnostics
 
 ![IronDeploy network diagnostics showing adapter traffic, latency, API requests, and SMB connectivity](Core/Docs/screenshots/G_NETWORKDETAILS.png)
+
+#### Access control
+
+![IronDeploy user permissions for dashboard, images, software, drivers, settings, and WinPE deployment](Core/Docs/screenshots/user_permishion.PNG)
+
+</details>
 
 ## Prerequisites
 
@@ -80,19 +112,19 @@ Install these Microsoft components on the deployment server:
 You also need:
 
 - Windows PowerShell 5.1;
-- Python 3.11.7 (supported); Python 3.14.7 has passed the current test suite
-  and setup-flow checks and is considered provisionally compatible pending
-  broader production validation;
+- Python 3.11.7;
 - a way to boot the generated x64 WinPE image, such as WDS/PXE, ISO, or USB.
 
-IronDeploy does not redistribute Windows ADK, WinPE, Windows installation
-images, or Windows licences.
+Python 3.14.7 has passed the current test suite and setup-flow checks, but remains
+provisionally supported pending broader production validation.
+
+IronDeploy does not redistribute Windows ADK, WinPE, Windows installation images,
+or Windows licences.
 
 ## Installation
 
-Download or clone the repository, open an elevated Windows PowerShell session
-in its root, and run scripts 1 through 5 in order. Script 6 is an optional
-maintenance utility and is not part of installation.
+Download or clone the repository, open an elevated Windows PowerShell session in
+its root, and run scripts 1 through 5 in order.
 
 ### 1. Prepare the WinPE working tree
 
@@ -118,14 +150,11 @@ dependencies.
 ```
 
 Starts the local SetupWeb configuration page. Configure IronAPI, the SMB share,
-Active Directory connection settings, WinPE access, and the first
-administrator account.
+Active Directory connection settings, WinPE access, and the first administrator
+account.
 
 After IronAPI is available, configure the allowed computer-name formats under
 `/image-config` in **WinPE interface → Computer naming**.
-
-After saving, finish setup in the browser so SetupWeb closes automatically.
-Alternatively, you may stop it with `Ctrl+C`.
 
 ### 4. Test IronAPI in the foreground
 
@@ -133,8 +162,7 @@ Alternatively, you may stop it with `Ctrl+C`.
 & ".\4. Start-IronAPI.ps1"
 ```
 
-Starts IronAPI in the current console. Verify that it starts correctly, then
-stop it with `Ctrl+C`.
+Verify that IronAPI starts correctly, then stop it with `Ctrl+C`.
 
 ### 5. Install the IronAPI Windows service
 
@@ -143,118 +171,78 @@ stop it with `Ctrl+C`.
 ```
 
 Installs IronAPI as an automatically started Windows service under a dedicated
-account that you provide. Choose a domain account when Active Directory
-integration or Offline Domain Join is used, or an existing local account for
-deployments without Active Directory. The account must already exist.
-Built-in identities such as `LocalSystem`, and administrator accounts, are
+account that already exists. Use a domain account when Active Directory or
+Offline Domain Join is enabled, or a dedicated local account for deployments
+without Active Directory. Built-in identities and administrator accounts are
 rejected.
 
-### Optional maintenance: remove the Windows service
-
-Script 6 is not part of installation. Use it only when the IronAPI service must
-be stopped and unregistered, for example before moving IronDeploy to another
-host or changing the service identity from scratch:
+### Optional: remove the Windows service
 
 ```powershell
 & ".\6. Delete-IronAPIService.ps1"
 ```
 
-It removes only the service registration. Configuration, the database, images,
-drivers, programs, Offline Domain Join blobs, logs, and repository files are
-preserved, so step 5 can register the service again at any time.
+This removes only the service registration. Configuration, the database,
+deployment content, logs, and repository files are preserved.
 
-### Required accounts and file access
+## Before the first deployment
 
-Before the first deployment:
+- Publish only `Core\Share` as the SMB share. Do not share the repository root.
+- Give WinPE a separate read-only SMB account. Do not grant it write, change,
+  administrator, or interactive logon rights.
+- Run IronAPI under a dedicated identity. Do not reuse the WinPE SMB account.
+- When Active Directory is enabled, delegate only the read and computer-account
+  permissions required in the intended OU. Domain Admin membership is not
+  required.
+- Protect the local IronDeploy repository with NTFS permissions so only
+  administrators, the IronAPI service identity, and authorized maintainers can
+  access it.
 
-- publish only `Core\Share` as an SMB share; do not share the repository root;
-- create a separate local or domain SMB account for WinPE. Grant it read-only
-  access in both the SMB share permissions and the NTFS permissions. Do not
-  grant write, change, full-control, local administrator, or interactive logon
-  rights, and do not reuse the IronAPI service identity;
-- protect the entire local IronDeploy repository directory with NTFS
-  permissions. Allow access only to administrators, the IronAPI service
-  identity, and operators who maintain the deployment system;
-- run IronAPI under a dedicated identity created only for it, never a built-in
-  or administrator account. With Active Directory integration enabled this must
-  be a domain account: grant it read/search access to computer objects for name
-  checks and only the delegated rights required to create or provision computer
-  accounts for Offline Domain Join in the intended OU. It does not need Domain
-  Admin membership. Without Active Directory, a dedicated local account is
-  enough; leave the directory settings empty in SetupWeb, which disables LDAP
-  name checks and Offline Domain Join.
+## Deployment content delivery
 
-### Access control
+New installations use the `staged` strategy for Windows images and drivers. The
+content is copied to the target disk and verified locally before DISM uses it.
+The `direct` strategy remains available when DISM should read the content from
+SMB instead. These choices are managed by IronAPI and do not require rebuilding
+the WinPE image.
 
-Administrators can grant each account access only to the IronAPI pages it needs,
-or create an account limited to authorizing a single WinPE deployment.
-
-![IronDeploy user permissions for dashboard, images, software, drivers, settings, and WinPE deployment](Core/Docs/screenshots/user_permishion.PNG)
-
-WinPE authorization can require a dedicated username and password or a shared
-PIN. Disabling operator authorization is available for isolated test setups but
-is not recommended.
-
-![IronDeploy WinPE shared PIN authorization screen](Core/Docs/screenshots/WINPE_pincode_auth.png)
-
-![IronDeploy WinPE authorization mode choices](Core/Docs/screenshots/access_control_winpe_auth_choise.PNG)
-
-After installation, use the IronAPI web interface to manage Windows images,
-driver packages, programs, and deployment settings, and to build the current
-WinPE WIM or ISO.
-
-### Managing Windows images
-
-The Windows images page accepts WIM and ESD files, lets administrators choose a
-default deployment edition, and can convert imported ESD images to WIM.
-
-![IronDeploy Windows image management page](Core/Docs/screenshots/Windows_images.PNG)
-
-### Managing post-install programs
-
-The post-install software page lets administrators upload installers, configure
-their unattended launch arguments, and maintain the programs offered to WinPE
-operators during deployment.
-
-![IronDeploy post-install software management page](Core/Docs/screenshots/post-installProgram.png)
-
-## Security must-haves
+## Security essentials
 
 IronDeploy handles deployment tokens, SMB credentials, Active Directory
 operations, and destructive disk actions. Before using it outside a test
 environment:
 
-- use SMB 3.x and require **SMB signing** so files cannot be silently modified
-  in transit. Run the following command in an elevated PowerShell session on
-  the SMB server; it requires signing for all shares hosted by that server:
-
-  ```powershell
-  Set-SmbServerConfiguration -RequireSecuritySignature $true -Force
-  ```
-
-- prefer HTTPS for IronAPI and enable certificate validation, because the API
-  carries deployment tokens and the configured SMB account details;
-- never commit `.env`, databases, ODJ blobs, WIM/ESD images, generated
-  WIM/ISO files, driver packages, or program installers;
+- use SMB 3.x and require **SMB signing**;
+- prefer HTTPS for IronAPI and enable certificate validation;
+- use separate least-privilege identities for IronAPI and WinPE file access;
+- never commit `.env`, databases, ODJ blobs, Windows images, generated WIM/ISO
+  files, driver packages, or program installers;
 - verify the target machine and the selected disk's number, model, and size
   before confirming the permanent erase.
+
+Require SMB signing on the SMB server from an elevated PowerShell session:
+
+```powershell
+Set-SmbServerConfiguration -RequireSecuritySignature $true -Force
+```
 
 SMB encryption is optional. It hides file contents in transit but may reduce
 deployment speed; SMB signing is the minimum recommended integrity protection.
 
+See [SECURITY.md](SECURITY.md) for vulnerability reporting and additional
+security guidance.
+
 ## Current Alpha limitations
 
 - the deployment runtime targets x64 UEFI/GPT systems;
-- the selected disk is fully erased and repartitioned; existing partitions are
-  not yet previewed in WinPE;
+- the selected disk is fully erased and repartitioned;
+- existing partitions are not yet previewed in WinPE;
 - ESD images can be deployed directly, but WIM is recommended for regular use;
-- hardware, firmware, network, drivers, and Windows images vary, so validate the
-  complete workflow in your own environment;
-- only the latest release is supported.
+- hardware, firmware, networks, drivers, and Windows images vary, so the complete
+  workflow must be validated in your own environment;
+- during Alpha, only the latest version of the repository is supported.
 
 ## Documentation
-
-Detailed implementation and operator notes live outside this README:
 
 - [Architecture](Core/Docs/ARCHITECTURE.md)
 - [WinPE build and deployment runtime](Core/Docs/WINPE.md)
