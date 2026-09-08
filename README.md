@@ -1,6 +1,6 @@
 # IronDeploy
 
-**Deploy Windows 10 and Windows 11 to bare-metal PCs through a simple WinPE interface.**
+**Deploy Windows 10 and Windows 11 to bare-metal PCs through a graphical WinPE interface.**
 
 > [!CAUTION]
 > **IronDeploy is Alpha software.** Test it on a virtual machine or disposable
@@ -23,10 +23,11 @@ performs the actual deployment on the target computer.
 
 1. **Prepare the deployment server**
    Configure IronAPI and add Windows images, driver packages, post-install
-   software, and deployment settings.
+   software, custom PowerShell scripts, and deployment settings.
 
 2. **Boot the target computer**
-   Start the generated IronDeploy WinPE image through WDS/PXE, USB, or ISO.
+   Start IronDeploy WinPE through WDS/PXE or from USB media. For a virtual
+   machine, use the generated ISO.
 
 3. **Choose the deployment**
    Select the Windows image, target disk, drivers, optional software, computer
@@ -38,8 +39,9 @@ performs the actual deployment on the target computer.
    and prepares the system for its first boot.
 
 5. **Complete and review**
-   Windows installs the selected post-install software after the first boot.
-   Progress, timings, warnings, and final results are reported to IronAPI.
+   After the first boot, Windows installs the selected software and runs the
+   configured PowerShell scripts. Progress, timings, warnings, and final
+   results are reported to IronAPI.
 
 ## Key features
 
@@ -47,6 +49,8 @@ performs the actual deployment on the target computer.
 - WIM and ESD image support, including ESD-to-WIM conversion;
 - offline driver injection using centrally managed driver packages;
 - unattended post-install software;
+- custom PowerShell scripts that run before or after software installation;
+- software and PowerShell execution results reported to IronAPI;
 - configurable computer-name formats and automatic name suggestions;
 - Offline Domain Join for Active Directory environments;
 - searchable deployment history, stage timings, warnings, and software results;
@@ -77,7 +81,7 @@ select the available deployment options, and follow the current stage.
 
 The dashboard keeps recent runs searchable by computer, hardware, image, status,
 stage, and start time. Each deployment includes stage timings, warnings, network
-diagnostics, and post-install software results.
+diagnostics, and post-install software and PowerShell results.
 
 ![IronDeploy dashboard showing deployment status and recent runs](Core/Docs/screenshots/dashboard.PNG)
 
@@ -112,8 +116,7 @@ Install these Microsoft components on the deployment server:
 You also need:
 
 - Windows PowerShell 5.1;
-- Python 3.14.7 (current primary tested version); Python 3.11.7 is also
-  supported;
+- Python 3.14 (primary tested version: 3.14.7); Python 3.11 is also supported;
 - a way to boot the generated x64 WinPE image, such as WDS/PXE, ISO, or USB.
 
 IronDeploy does not redistribute Windows ADK, WinPE, Windows installation images,
@@ -121,8 +124,12 @@ or Windows licences.
 
 ## Installation
 
-Download or clone the repository, open an elevated Windows PowerShell session in
-its root, and run scripts 1 through 5 in order.
+Download or clone the repository and open an elevated Windows PowerShell session
+in its root.
+
+Run steps 1 through 3 first. Step 4 provides a complete foreground setup and
+test path without installing a Windows service. Continue to step 5 only after a
+deployment works correctly in your environment.
 
 ### 1. Prepare the WinPE working tree
 
@@ -147,17 +154,49 @@ dependencies.
 & ".\3. Start-IronDeploySetupWeb.ps1"
 ```
 
-Starts the local SetupWeb configuration page. Configure IronAPI, the SMB share,
-Active Directory connection settings, WinPE access, and the first administrator
-account.
+Starts the local SetupWeb configuration page. Configure IronAPI, Active Directory
+integration, WinPE access, and the first administrator account for the IronAPI
+web interface.
 
-### 4. Test IronAPI in the foreground
+SetupWeb can also publish the prepared deployment-content folder through SMB and
+configure its access with a dedicated action.
+
+### 4. Start, configure, and test IronAPI
 
 ```powershell
 & ".\4. Start-IronAPI.ps1"
 ```
 
-Verify that IronAPI starts correctly, then stop it with `Ctrl+C`.
+Step 4 starts IronAPI in the current PowerShell window without installing a
+Windows service. This lets you configure and test the complete deployment flow,
+and remove IronDeploy later without leaving a registered service behind.
+
+Keep IronAPI running and sign in to its web interface. Then:
+
+1. Configure the allowed computer-name formats.
+2. Add the Windows images you need.
+3. Add driver packages and post-install software.
+4. Add any custom PowerShell scripts.
+5. Review the remaining deployment settings.
+6. Build the WinPE WIM or ISO from the Image configuration page.
+7. Boot the generated WinPE on a virtual machine or test computer and verify the
+   complete deployment flow.
+
+The generated artifacts are stored in `Core\dist`:
+
+- `Core\dist\IronDeploy_PE.wim`;
+- `Core\dist\IronDeploy_PE.iso`.
+
+Building WinPE requires local administrator rights on the deployment server.
+Windows DISM needs these rights to mount and service the WIM, so PowerShell and
+the IronAPI process started from it must be elevated.
+
+Local administrator rights do not replace Active Directory permissions. When
+testing computer-name availability or Offline Domain Join, the Windows account
+running step 4 must also have the required delegated permissions in the target
+domain and OU. Domain Admin membership is not required.
+
+After testing, stop IronAPI with `Ctrl+C`.
 
 ### 5. Install the IronAPI Windows service
 
@@ -165,11 +204,30 @@ Verify that IronAPI starts correctly, then stop it with `Ctrl+C`.
 & ".\5. Install-IronAPIService.ps1"
 ```
 
-Installs IronAPI as an automatically started Windows service under a dedicated
-account that already exists. Use a domain account when Active Directory or
-Offline Domain Join is enabled, or a dedicated local account for deployments
-without Active Directory. Built-in identities and administrator accounts are
-rejected.
+After a successful test deployment, installs IronAPI as an automatically started
+Windows service under an existing dedicated account.
+
+- Use a domain account when Active Directory name checks or Offline Domain Join
+  are enabled.
+- Use a dedicated local account when Active Directory integration is disabled.
+
+Built-in service identities and the built-in Administrator account are rejected.
+Use an account created specifically for IronAPI.
+
+Add the IronAPI service account to the local Administrators group on the
+deployment server. Local administrator rights are required for DISM and for
+building WinPE through the web interface.
+
+When Active Directory is enabled, separately delegate the permissions needed to
+read and check computer names and to create or reuse computer objects in the
+intended OU. Domain Admin membership is not required.
+
+The IronAPI service account therefore needs:
+
+- local administrator rights on the IronDeploy server for WinPE builds;
+- limited delegated Active Directory permissions for computer-name checks and
+  Offline Domain Join;
+- no Domain Admin membership.
 
 ### Optional: remove the Windows service
 
@@ -182,22 +240,32 @@ deployment content, logs, and repository files are preserved.
 
 ## After installation
 
-After IronAPI is running:
+The IronAPI service runs in the background and provides the same web interface
+for managing:
 
-1. Sign in to the IronAPI web interface.
-2. Configure the allowed computer-name formats under `/image-config`.
-3. Add the Windows images, driver packages, and post-install software you need.
-4. Build the WinPE WIM or ISO from the Image configuration page.
-5. Publish the WIM through WDS/PXE, or boot the generated ISO or USB media.
+- Windows images;
+- driver packages;
+- software;
+- custom PowerShell scripts;
+- WinPE settings;
+- users and permissions;
+- active and completed deployments.
 
-You can also build WinPE manually with `Core\Tools\Build-IronDeployWinPE.ps1`.
-See [WinPE build and deployment runtime](Core/Docs/WINPE.md) for the available
-build targets and detailed instructions.
+New WIM and ISO artifacts can be built through the web interface at any time.
+The service does not need to be stopped and step 4 does not need to be started
+again.
+
+Normal IronDeploy installation and maintenance use the numbered scripts 1
+through 6 and the web interface. Users do not need to run internal PowerShell
+scripts from `Core\Tools`.
+
+See [WinPE build and deployment runtime](Core/Docs/WINPE.md) for details about
+WinPE and the deployment process.
 
 ## Before the first deployment
 
-- Publish only `Core\Share` as the SMB share. Do not share the repository root.
-- Give WinPE a separate read-only SMB account. Do not grant it write, change,
+- The SMB account configured in SetupWeb for WinPE deployment-content access
+  must be a separate read-only account. Do not grant it write, change, local
   administrator, or interactive logon rights.
 - Run IronAPI under a dedicated identity. Do not reuse the WinPE SMB account.
 - When Active Directory is enabled, delegate only the read and computer-account
@@ -207,16 +275,6 @@ build targets and detailed instructions.
   administrators, the IronAPI service identity, and authorized maintainers can
   access it.
 
-## Deployment content delivery
-
-New installations use the `staged` strategy for Windows images and drivers.
-Both are copied to the target disk and validated locally before DISM uses them.
-Windows images are verified against their manifest SHA-256; staged driver
-packages are validated against their expected total size, file count, and INF
-count. The `direct` strategy remains available when DISM should read the content
-from SMB instead. These choices are managed by IronAPI and do not require
-rebuilding the WinPE image.
-
 ## Security essentials
 
 IronDeploy handles deployment tokens, SMB credentials, Active Directory
@@ -225,7 +283,11 @@ environment:
 
 - use SMB 3.x and require **SMB signing**;
 - prefer HTTPS for IronAPI and enable certificate validation;
-- use separate least-privilege identities for IronAPI and WinPE file access;
+- use separate identities for IronAPI and WinPE file access;
+- grant the IronAPI service account local administrator rights only on the
+  deployment server;
+- do not add the IronAPI service account to Domain Admins; delegate only the
+  required permissions in the target OU;
 - never commit `.env`, databases, ODJ blobs, Windows images, generated WIM/ISO
   files, driver packages, or program installers;
 - verify the target machine and the selected disk's number, model, and size
