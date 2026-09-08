@@ -24,6 +24,7 @@ an additional guard, not permission to test the destructive script on a host.
 | File | Purpose |
 | --- | --- |
 | `startnet.cmd` | Initializes WinPE and starts PowerShell in STA mode. |
+| `Load-WinPEDrivers.ps1` | Temporary, isolated loader for boot-time drivers uploaded through IronAPI. |
 | `deploy.ps1` | Loads the engine and GUI and handles the final reboot. |
 | `IronDeploy.Engine.ps1` | Performs the deployment and reports progress through callbacks. |
 | `IronDeploy.Gui.ps1` | Collects operator input and renders progress. |
@@ -31,6 +32,12 @@ an additional guard, not permission to test the destructive script on a host.
 | `diskpart-uefi.txt` | Defines the x64 UEFI/GPT layout and contains the validated target-disk placeholder. |
 | `Tools\7-Zip\7za.exe` | Extracts deployment-scoped, uncompressed driver TAR files in staged mode. |
 | `Tools\7-Zip\7-Zip-LICENSE.txt` | Carries the required license information for the bundled 7-Zip binary. |
+
+`Runtime\WinPEDrivers` is a temporary, ignored host-data directory populated
+from **WinPE Settigns -> Load winpe-drivers**. A rebuild copies its directory
+tree into the image, and `Load-WinPEDrivers.ps1` loads every INF before the
+deployment UI starts. All related code uses the `TEMPORARY WINPE DRIVER UPLOAD`
+marker so this stop-gap can be removed independently.
 
 The build pipeline copies those files into the ADK working tree and produces:
 
@@ -96,6 +103,7 @@ After boot, `startnet.cmd` runs:
 
 ```text
 wpeinit
+  -> Load-WinPEDrivers.ps1 (temporary; loads uploaded boot drivers)
   -> powershell.exe -STA
      -> X:\IronDeploy\deploy.ps1
         -> IronDeploy.Engine.ps1

@@ -182,6 +182,9 @@ class ImageConfigPageTests(unittest.TestCase):
         cls.html = (STATIC_ROOT / "image-config.html").read_text(encoding="utf-8")
         cls.css = (STATIC_ROOT / "image-config.css").read_text(encoding="utf-8")
         cls.javascript = (STATIC_ROOT / "image-config.js").read_text(encoding="utf-8")
+        cls.winpe_drivers_javascript = (
+            STATIC_ROOT / "winpe-drivers.js"
+        ).read_text(encoding="utf-8")
         cls.i18n = (STATIC_ROOT / "i18n.js").read_text(encoding="utf-8")
 
     def test_uses_nested_settings_workspace(self) -> None:
@@ -194,6 +197,7 @@ class ImageConfigPageTests(unittest.TestCase):
             "locale-time",
             "computer-naming",
             "technical-settings",
+            "load-winpe-drivers",
         ):
             self.assertIn(f'data-settings-view="{view}"', self.html)
             self.assertIn(f'data-settings-view-panel="{view}"', self.html)
@@ -236,6 +240,19 @@ class ImageConfigPageTests(unittest.TestCase):
             self.javascript,
         )
         self.assertIn("name-format-card", self.css)
+
+    def test_temporary_winpe_driver_upload_is_isolated(self) -> None:
+        self.assertIn("WinPE Settigns", self.html)
+        self.assertIn('id="winpe-driver-folder"', self.html)
+        self.assertIn("webkitdirectory directory multiple", self.html)
+        self.assertIn(
+            "/api/image-config/winpe-driver-uploads",
+            self.winpe_drivers_javascript,
+        )
+        self.assertIn(
+            "TEMPORARY WINPE DRIVER UPLOAD",
+            self.winpe_drivers_javascript,
+        )
 
     def test_redesigned_workspace_has_russian_localization(self) -> None:
         for text in (

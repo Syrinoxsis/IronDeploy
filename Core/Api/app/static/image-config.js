@@ -569,6 +569,8 @@ function requestBuild(target) {
 }
 
 function markFormDirty(event) {
+    // TEMPORARY WINPE DRIVER UPLOAD: its folder picker is saved independently.
+    if (event.target.closest("[data-independent-setting]")) return;
     if (event.target !== elements.keyboardLayoutChoice) setDirty(true);
 }
 

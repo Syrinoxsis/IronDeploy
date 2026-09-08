@@ -122,7 +122,7 @@ Active Directory connection settings, WinPE access, and the first
 administrator account.
 
 After IronAPI is available, configure the allowed computer-name formats under
-`/image-config` in **WinPE interface → Computer naming**.
+`/image-config` in **WinPE Settigns → Computer naming**.
 
 After saving, finish setup in the browser so SetupWeb closes automatically.
 Alternatively, you may stop it with `Ctrl+C`.

@@ -11,6 +11,10 @@ show_cmd_5sec.cmd
 /Core/Api/data/
 /Core/SetupWeb/.venv/
 /Core/WinPE/Runtime/deploy.config.ps1
+# TEMPORARY WINPE DRIVER UPLOAD: host-provided binaries and upload staging.
+/Core/WinPE/Runtime/WinPEDrivers/
+/Core/WinPE/Runtime/.winpe-driver-uploads/
+/Core/WinPE/Runtime/.WinPEDrivers-backup-*/
 /Core/Share/Images/*.wim
 /Core/Share/Images/*.esd
 /Core/Share/Images/.irondeploy-images.json

@@ -169,6 +169,10 @@ class ClientAccessTests(unittest.TestCase):
         self.assertEqual(_browser_permission("/dashboard/42"), "dashboard")
         self.assertEqual(_browser_permission("/api/deployments/42"), "dashboard")
         self.assertEqual(_browser_permission("/api/deployment-images"), "images")
+        self.assertEqual(
+            _browser_permission("/api/image-config/winpe-drivers"),
+            "image_config",
+        )
         self.assertEqual(_browser_permission("/drivers"), "drivers")
         self.assertEqual(_browser_permission("/api/drivers"), "drivers")
         self.assertEqual(

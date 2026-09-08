@@ -19,6 +19,9 @@ $FinalIso = Join-Path $DistRoot "IronDeploy_PE.iso"
 $StagedIso = Join-Path $DistRoot "IronDeploy_PE.next.iso"
 $BackupIso = Join-Path $DistRoot "IronDeploy_PE.previous.iso"
 $PublishedWim = Join-Path $DistRoot "IronDeploy_PE.wim"
+# TEMPORARY WINPE DRIVER UPLOAD: optional directory copied by the block below.
+$WinPEDriversSource = Join-Path $RuntimeRoot "WinPEDrivers"
+$WinPEDriversDestination = Join-Path $MountDir "IronDeploy\WinPEDrivers"
 
 $OscdimgDir = "C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Deployment Tools\amd64\Oscdimg"
 $OscdimgExe = Join-Path $OscdimgDir "oscdimg.exe"
@@ -56,6 +59,10 @@ $FilesToCopy = @(
     @{
         Source = Join-Path $RuntimeRoot "startnet.cmd"
         Destination = Join-Path $MountDir "Windows\System32\startnet.cmd"
+    },
+    @{
+        Source = Join-Path $RuntimeRoot "Load-WinPEDrivers.ps1"
+        Destination = Join-Path $MountDir "IronDeploy\Load-WinPEDrivers.ps1"
     }
 )
 
@@ -333,6 +340,29 @@ function Copy-AndVerifyWinPEFiles {
         }
 
         Write-Host "Verified: $($file.Source)" -ForegroundColor Green
+    }
+
+    # TEMPORARY WINPE DRIVER UPLOAD: replace this isolated embedded directory.
+    if (Test-Path -LiteralPath $WinPEDriversDestination -PathType Container) {
+        Remove-Item -LiteralPath $WinPEDriversDestination -Recurse -Force
+    }
+    if (Test-Path -LiteralPath $WinPEDriversSource -PathType Container) {
+        foreach ($sourceFile in Get-ChildItem -LiteralPath $WinPEDriversSource -File -Recurse) {
+            $relativePath = $sourceFile.FullName.Substring(
+                $WinPEDriversSource.Length
+            ).TrimStart([IO.Path]::DirectorySeparatorChar)
+            $destination = Join-Path $WinPEDriversDestination $relativePath
+            New-Item -ItemType Directory -Path (Split-Path $destination -Parent) -Force |
+                Out-Null
+            Copy-Item -LiteralPath $sourceFile.FullName -Destination $destination -Force
+            if (
+                (Get-FileHash -Algorithm SHA256 -LiteralPath $sourceFile.FullName).Hash -ne
+                (Get-FileHash -Algorithm SHA256 -LiteralPath $destination).Hash
+            ) {
+                throw "SHA-256 mismatch after copying WinPE driver '$relativePath'."
+            }
+        }
+        Write-Host "Verified uploaded WinPE drivers." -ForegroundColor Green
     }
 
     foreach ($path in $ObsoleteFilesToRemove) {

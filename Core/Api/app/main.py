@@ -181,6 +181,16 @@ from app.winpe_build import (
     get_winpe_build_state,
     start_winpe_build,
 )
+# TEMPORARY WINPE DRIVER UPLOAD: isolated imports for the removable stop-gap.
+from app.winpe_driver_upload import (
+    WinPEDriverUploadError,
+    begin_winpe_driver_upload,
+    cancel_winpe_driver_upload,
+    delete_winpe_drivers,
+    finalize_winpe_driver_upload,
+    get_winpe_drivers,
+    save_winpe_driver_file,
+)
 from app.winpe_auth import (
     WINPE_AUTH_ACCOUNT,
     WINPE_SYSTEM_USERNAME,
@@ -851,6 +861,80 @@ def _driver_upload_limits() -> DriverUploadLimits:
         max_active_uploads=settings.driver_max_active_uploads,
         min_free_space_gib=settings.driver_min_free_space_gib,
     )
+
+
+# TEMPORARY WINPE DRIVER UPLOAD: remove this route block with the stop-gap.
+@app.get("/api/image-config/winpe-drivers")
+def get_uploaded_winpe_drivers() -> dict:
+    try:
+        return get_winpe_drivers()
+    except WinPEDriverUploadError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.delete("/api/image-config/winpe-drivers")
+def remove_uploaded_winpe_drivers(request: Request) -> JSONResponse:
+    require_image_config_write(request)
+    try:
+        return JSONResponse(delete_winpe_drivers())
+    except WinPEDriverUploadError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/image-config/winpe-driver-uploads")
+def begin_uploaded_winpe_drivers(request: Request) -> JSONResponse:
+    require_image_config_write(request)
+    try:
+        return JSONResponse(
+            begin_winpe_driver_upload(_driver_upload_limits()),
+            status_code=201,
+        )
+    except WinPEDriverUploadError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.put("/api/image-config/winpe-driver-uploads/{upload_id}/files")
+async def upload_winpe_driver_file(
+    upload_id: str,
+    request: Request,
+) -> JSONResponse:
+    require_image_config_write(request)
+    try:
+        result = await save_winpe_driver_file(
+            upload_id,
+            unquote(request.headers.get("x-irondeploy-relative-path", "")),
+            request.stream(),
+            _driver_upload_limits(),
+        )
+        return JSONResponse(result, status_code=201)
+    except WinPEDriverUploadError as exc:
+        status_code = 404 if "not found" in str(exc).lower() else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+
+@app.post("/api/image-config/winpe-driver-uploads/{upload_id}/finalize")
+def finalize_uploaded_winpe_drivers(
+    upload_id: str,
+    request: Request,
+) -> JSONResponse:
+    require_image_config_write(request)
+    try:
+        return JSONResponse(finalize_winpe_driver_upload(upload_id), status_code=201)
+    except WinPEDriverUploadError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.delete("/api/image-config/winpe-driver-uploads/{upload_id}")
+def cancel_uploaded_winpe_drivers(
+    upload_id: str,
+    request: Request,
+) -> JSONResponse:
+    require_image_config_write(request)
+    try:
+        return JSONResponse(cancel_winpe_driver_upload(upload_id))
+    except WinPEDriverUploadError as exc:
+        status_code = 404 if "not found" in str(exc).lower() else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
 
 @app.get("/api/info/driver-uploads")
