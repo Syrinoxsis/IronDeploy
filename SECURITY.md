@@ -13,7 +13,8 @@ author, so please allow reasonable time before disclosing publicly.
 
 ## Supported versions
 
-Only the latest release is supported. Fixes are not backported.
+During Alpha, only the latest version on the default branch is supported. Fixes
+are not backported.
 
 ## Scope
 
@@ -49,6 +50,6 @@ about them are especially valuable:
 ## Operator guidance
 
 Before operating IronDeploy, complete the
-[required accounts and file access](README.md#required-accounts-and-file-access)
-setup and the [security must-haves](README.md#security-must-haves)
+[account and file-access requirements](README.md#before-the-first-deployment)
+and the [security essentials](README.md#security-essentials)
 described in the README.

@@ -46,10 +46,15 @@ Core\.work\WinPE_amd64\media\sources\boot.wim
 
 `Core\.work` and `Core\dist` are replaceable output, not source.
 
-## Building WinPE manually
+## Internal build wrapper
 
-Use the public wrapper from the repository root. On a fresh working copy,
-initialize the ADK tree and build both artifacts:
+Normal operators build WinPE from the IronAPI Image configuration page. The
+wrapper below is the internal build entry point used by IronAPI and is documented
+for development, recovery, and troubleshooting rather than the normal operator
+workflow.
+
+On a fresh working copy, the wrapper can initialize the ADK tree and build both
+artifacts:
 
 ```powershell
 .\Core\Tools\Build-IronDeployWinPE.ps1 -Initialize -Target Both
@@ -77,9 +82,11 @@ The IronAPI Image configuration page can start a WIM or ISO rebuild. IronAPI
 runs the same `Core\Tools\Build-IronDeployWinPE.ps1` wrapper in a background process
 and records its output under `Core\Logs\WinPEBuilds`.
 
-IronAPI must itself be running as Administrator for this feature. Only one
-WinPE build may run at a time. The web action does not provide the manual
-`Both`, recovery, or PXE update options.
+The Windows account running IronAPI must be a local administrator on the
+deployment server for this feature. When IronAPI runs as a Windows service, its
+dedicated service account must therefore belong to the server's local
+Administrators group. Only one WinPE build may run at a time. The web action does
+not provide the internal `Both`, recovery, or PXE update options.
 
 ## Delivery and boot
 
