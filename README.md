@@ -75,7 +75,7 @@ installation images and applies the selected configuration during deployment.
 The operator can review the detected hardware, choose the target physical disk,
 select the available deployment options, and follow the current stage.
 
-![IronDeploy WinPE computer name, Windows image, and target disk selection](<Core/Docs/screenshots/WINPE_choiseName and disk.png>)
+![IronDeploy WinPE computer name, Windows image, and target disk selection](<Core/Docs/screenshots/New_mainMenu.png>)
 
 ### Deployment dashboard
 
@@ -104,6 +104,8 @@ diagnostics, and post-install software and PowerShell results.
 
 ![IronDeploy user permissions for dashboard, images, software, drivers, settings, and WinPE deployment](Core/Docs/screenshots/user_permishion.PNG)
 
+#### Auth WinPE (pin-code version)
+![IronDeploy user permissions for dashboard, images, software, drivers, settings, and WinPE deployment](Core/Docs/screenshots/auth.png)
 </details>
 
 ## Prerequisites
