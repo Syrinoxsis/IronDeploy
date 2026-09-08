@@ -86,7 +86,7 @@ diagnostics, and post-install software and PowerShell results.
 ![IronDeploy dashboard showing deployment status and recent runs](Core/Docs/screenshots/dashboard.PNG)
 
 <details>
-<summary>More interface screenshots</summary>
+<summary><strong><h3> -----------📸 More interface screenshots -----------</h3></strong></summary>
 
 #### Deployment details
 
