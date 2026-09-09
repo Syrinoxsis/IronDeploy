@@ -3288,7 +3288,15 @@ function Invoke-IronDeployment {
         } else {
             $SelectedDriverPackage
         }
-    } | ConvertTo-Json
+    }
+    if ($SelectedDriverPackage -in @("AUTO_LOCAL", "AUTO_LOCAL_WSUS")) {
+        . (Join-Path $PSScriptRoot "IronDeploy.DriverInventory.ps1")
+        $ManifestPayload.driver_package = $null
+        $ManifestPayload.driver_mode = $SelectedDriverPackage
+        $ManifestPayload.hardware_inventory = Get-IronDriverInventory
+        Write-IronLog ("[INFO] AUTO inventory: {0} devices" -f $ManifestPayload.hardware_inventory.devices.Count)
+    }
+    $ManifestPayload = $ManifestPayload | ConvertTo-Json -Depth 12
     try {
         $DeploymentPlan = Invoke-IronApiRestMethod `
             -Uri "$($ApiBaseUrl.TrimEnd('/'))/api/deploy/$script:DeploymentId/manifest" `
@@ -3336,6 +3344,15 @@ function Invoke-IronDeployment {
         $DeploymentPlan.postPowerShell | ForEach-Object { $_ }
     )
     $DriverPackagePlan = $DeploymentPlan.driverPackage
+    foreach ($driverWarning in @($DeploymentPlan.driverResolution.warnings)) {
+        if ($driverWarning) { Write-IronLog ("[WARN] {0}" -f $driverWarning) -Level warn }
+    }
+    if ($null -ne $DeploymentPlan.driverResolution) {
+        Write-IronLog ("[INFO] AUTO drivers: matched {0}/{1}; candidate packages: {2}" -f `
+            $DeploymentPlan.driverResolution.matched_devices, `
+            $DeploymentPlan.driverResolution.devices_detected, `
+            @($DeploymentPlan.driverResolution.candidate_packages).Count)
+    }
     $DriverArchivePlan = $DeploymentPlan.driverArchive
     $DriverArchiveStatusUrl = ""
     $DriverArchiveWaitTimeoutSeconds = 0

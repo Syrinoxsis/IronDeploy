@@ -66,6 +66,15 @@ The variable must be present in `Core\Api\.env`; an empty value written as
 
 ## Data sources
 
+Dynamic hardware-aware driver resolution is described in
+[DYNAMIC_DRIVERS.md](DYNAMIC_DRIVERS.md), including its module map and lifecycle.
+The rebuildable index lives in `Core\Data\drivers_index.sqlite`; imported driver
+files remain the source of truth. `GET /api/drivers/index` reports indexing status;
+`POST /api/drivers/index/rebuild` queues a rescan with existing write authorization.
+The deployment manifest accepts optional `driver_mode` and structured
+`hardware_inventory`. AUTO modes always return staged driver transport and
+`driverResolution`; missing mode preserves legacy manual/no-driver semantics.
+
 IronAPI answers requests from several sources rather than one central catalog:
 
 | Information | Source |

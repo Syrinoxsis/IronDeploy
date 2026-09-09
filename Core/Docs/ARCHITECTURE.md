@@ -1,5 +1,8 @@
 # IronDeploy architecture
 
+For hardware-aware AUTO driver selection, import-time indexing, provider contracts,
+and the WinPE/TAR flow, start with [DYNAMIC_DRIVERS.md](DYNAMIC_DRIVERS.md).
+
 IronDeploy has four main components. Each one owns a distinct part of the
 deployment process:
 

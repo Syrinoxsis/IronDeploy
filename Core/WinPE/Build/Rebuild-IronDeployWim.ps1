@@ -46,6 +46,10 @@ $FilesToCopy = @(
         Destination = Join-Path $MountDir "IronDeploy\deploy.ps1"
     },
     @{
+        Source = Join-Path $RuntimeRoot "IronDeploy.DriverInventory.ps1"
+        Destination = Join-Path $MountDir "IronDeploy\IronDeploy.DriverInventory.ps1"
+    },
+    @{
         Source = Join-Path $RuntimeRoot "IronDeploy.Engine.ps1"
         Destination = Join-Path $MountDir "IronDeploy\IronDeploy.Engine.ps1"
     },

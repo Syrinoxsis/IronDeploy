@@ -3,6 +3,7 @@ r"""Manage vendor/model driver packages stored in ``Share\Drivers``."""
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import shutil
@@ -54,6 +55,21 @@ DEFAULT_DRIVER_UPLOAD_LIMITS = DriverUploadLimits()
 
 class DriverError(RuntimeError):
     """Raised when a driver-management operation cannot be completed."""
+
+
+def _notify_driver_index(drivers_dir: Path, package: str | None = None) -> None:
+    # Test/custom repositories need an explicitly supplied indexer, not host state.
+    if drivers_dir != DRIVERS_DIR:
+        return
+    try:
+        from app.driver_index.service import get_indexer
+        indexer = get_indexer()
+        if package:
+            indexer.submit(package)
+        else:
+            indexer.scan()
+    except Exception:
+        logging.getLogger(__name__).exception("Driver index scheduling failed")
 
 
 def _metadata_path(drivers_dir: Path) -> Path:
@@ -365,6 +381,7 @@ def rename_vendor(
             except DriverError:
                 pass
             raise
+    _notify_driver_index(drivers_dir)
     return {"renamed": True, "oldName": source.name, "name": safe_new_name}
 
 
@@ -376,6 +393,7 @@ def delete_vendor(name: str, drivers_dir: Path = DRIVERS_DIR) -> dict[str, Any]:
             shutil.rmtree(target)
         except OSError as exc:
             raise DriverError(f"Failed to delete the vendor: {exc}") from exc
+    _notify_driver_index(drivers_dir)
     return {"deleted": True, "name": target.name}
 
 
@@ -414,6 +432,7 @@ def rename_driver_package(
             except DriverError:
                 pass
             raise
+    _notify_driver_index(drivers_dir)
     return {
         "renamed": True,
         "vendor": vendor_path.name,
@@ -436,6 +455,7 @@ def delete_driver_package(
             shutil.rmtree(target)
         except OSError as exc:
             raise DriverError(f"Failed to delete the driver package: {exc}") from exc
+    _notify_driver_index(drivers_dir)
     return {
         "deleted": True,
         "vendor": vendor_path.name,
@@ -862,6 +882,7 @@ def finalize_driver_package_upload(
         _stop_active_upload(upload_id)
         package = _package_details(vendor_path.name, destination)
         package["enabled"] = True
+    _notify_driver_index(drivers_dir, package["relativePath"])
     return {"uploaded": True, "package": package}
 
 

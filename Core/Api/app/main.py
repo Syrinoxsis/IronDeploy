@@ -204,15 +204,24 @@ from app.winpe_auth import (
 )
 
 
+from app.driver_index.service import get_indexer, shutdown_indexer
+from app.driver_manifest import resolve_manifest
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     initialize_database()
     with SessionLocal() as session:
         bootstrap_superadmin(session)
     try:
+        get_indexer().scan()
+    except Exception:
+        logging.getLogger(__name__).exception("Driver initial indexing unavailable")
+    try:
         yield
     finally:
         shutdown_driver_archive_workers()
+        shutdown_indexer()
 
 
 app = FastAPI(title="IronAPI", version="0.0.1-alpha.1", lifespan=lifespan)
@@ -851,6 +860,24 @@ def get_drivers() -> dict:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+@app.get("/api/drivers/index")
+def driver_index_status() -> dict:
+    try:
+        return {"imports": get_indexer().db.imports()}
+    except Exception as exc:
+        return {"imports": [], "error": str(exc)}
+
+
+@app.post("/api/drivers/index/rebuild")
+def rebuild_driver_index(request: Request) -> dict:
+    require_image_config_write(request)
+    try:
+        jobs = get_indexer().scan(rebuild=True)
+        return {"queued": len(jobs)}
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
 def _driver_upload_limits() -> DriverUploadLimits:
     settings = get_settings()
     return DriverUploadLimits(
@@ -1480,13 +1507,13 @@ def deploy_suggest_name(
     )
 
 
-def _deployment_catalog(session: Session | None = None) -> dict:
+def _deployment_catalog(session: Session | None = None, include_drivers: bool = True) -> dict:
     image_listing = list_deployment_images()
     program_listing = list_programs()
     post_powershell_listing = (
         list_scripts(session) if session is not None else {"scripts": []}
     )
-    driver_listing = list_driver_packages()
+    driver_listing = list_driver_packages() if include_drivers else {"packages": []}
     return {
         "images": [
             {
@@ -1566,7 +1593,8 @@ def deploy_manifest(
         raise HTTPException(status_code=409, detail="Deployment is not active")
 
     try:
-        catalog = _deployment_catalog(session)
+        catalog = _deployment_catalog(session, include_drivers=False) if payload.driver_mode in (
+            "AUTO_LOCAL", "AUTO_LOCAL_WSUS") else _deployment_catalog(session)
         image_config = load_image_config()
         deployment_profile = load_default_profile(session)
     except (
@@ -1612,7 +1640,7 @@ def deploy_manifest(
     except PostPowerShellError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    selected_driver = None
+    driver_mode, driver_resolution, selected_driver = resolve_manifest(payload, image, deployment.id)
     if payload.driver_package is not None:
         selected_driver = next(
             (
@@ -1645,7 +1673,11 @@ def deploy_manifest(
     driver_apply_mode = image_config.get("driverApplyMode", "direct")
     if driver_apply_mode not in {"direct", "staged"}:
         driver_apply_mode = "direct"
+    if driver_mode in ("AUTO_LOCAL", "AUTO_LOCAL_WSUS"):
+        driver_apply_mode = "staged"
     deployment.driver_apply_mode = driver_apply_mode
+    deployment.driver_mode = driver_mode
+    deployment.driver_resolution = driver_resolution
     session.execute(
         delete(DeploymentPowerShellResult).where(
             DeploymentPowerShellResult.deployment_id == deployment.id
@@ -1701,11 +1733,17 @@ def deploy_manifest(
             prepare_driver_archive(deployment.id, selected_driver, settings)
         except DriverArchiveError as exc:
             cleanup_driver_archive(deployment.id)
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
-        driver_archive = {
-            "statusUrl": f"/api/deploy/{deployment.id}/driver-archive",
-            "waitTimeoutSeconds": settings.driver_archive_wait_timeout_minutes * 60,
-        }
+            if driver_resolution is None:
+                raise HTTPException(status_code=503, detail=str(exc)) from exc
+            driver_resolution["warnings"].append(f"AUTO archive unavailable: {exc}")
+            selected_driver = None
+            deployment.driver_resolution = dict(driver_resolution)
+            session.commit()
+        if selected_driver is not None:
+            driver_archive = {
+                "statusUrl": f"/api/deploy/{deployment.id}/driver-archive",
+                "waitTimeoutSeconds": settings.driver_archive_wait_timeout_minutes * 60,
+            }
     else:
         cleanup_driver_archive(deployment.id)
     return {
@@ -1716,6 +1754,8 @@ def deploy_manifest(
         "programs": selected_programs,
         "postPowerShell": post_powershell_plan,
         "driverPackage": selected_driver,
+        "driverMode": driver_mode,
+        "driverResolution": driver_resolution,
         "driverArchive": driver_archive,
         "postinstall": {
             "localAdminName": deployment_profile["localAdminName"],

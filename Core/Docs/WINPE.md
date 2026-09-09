@@ -127,6 +127,13 @@ including wizard actions and overlays, without adding main-window scrollbars.
 
 ## Runtime configuration
 
+Dynamic driver modes and the code map are documented in
+[DYNAMIC_DRIVERS.md](DYNAMIC_DRIVERS.md). `AUTO_LOCAL` and `AUTO_LOCAL_WSUS`
+collect structured PnP inventory through `IronDeploy.DriverInventory.ps1` and
+use staged TAR delivery only. The WSUS provider is currently a non-networking
+stub. Existing manual-folder and no-driver branches retain their behavior.
+The inventory helper is copied by both build scripts on the next requested build.
+
 `Core\WinPE\Runtime\deploy.config.ps1` defines:
 
 - the IronAPI base URL and certificate-validation policy;

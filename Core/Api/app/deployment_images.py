@@ -35,6 +35,7 @@ _FIELD_PATTERNS = {
     "architecture": re.compile(
         r"^\s*Architecture\s*:\s*(.*?)\s*$", re.MULTILINE
     ),
+    "version": re.compile(r"^\s*Version\s*:\s*(.*?)\s*$", re.MULTILINE),
 }
 _conversion_lock = Lock()
 _metadata_lock = RLock()
@@ -134,11 +135,13 @@ def _inspect_image(path: Path) -> list[dict[str, Any]]:
         "[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); "
         "$items = @(Get-WindowsImage "
         "-ImagePath $env:IRONDEPLOY_IMAGE_PATH -ErrorAction Stop | "
-        "ForEach-Object { [pscustomobject]@{ "
+        "ForEach-Object { $detail = Get-WindowsImage -ImagePath $env:IRONDEPLOY_IMAGE_PATH -Index $_.ImageIndex -ErrorAction Stop; [pscustomobject]@{ "
         "index = [int]$_.ImageIndex; "
         "name = [string]$_.ImageName; "
         "description = [string]$_.ImageDescription; "
-        "architecture = [string]$_.Architecture } }); "
+        "architecture = [string]$detail.Architecture; "
+        "version = [string]$detail.Version; "
+        "productType = $(if ([string]$detail.InstallationType -match 'Server') { 3 } else { 1 }) } }); "
         "ConvertTo-Json -InputObject $items -Compress"
     )
     environment = os.environ.copy()
@@ -169,6 +172,8 @@ def _inspect_image(path: Path) -> list[dict[str, Any]]:
                     "name": str(item.get("name", "")),
                     "description": str(item.get("description", "")),
                     "architecture": str(item.get("architecture", "")),
+                    **({"version": str(item["version"])} if item.get("version") else {}),
+                    **({"productType": int(item["productType"])} if item.get("productType") else {}),
                 }
                 for item in payload
             ]
@@ -251,6 +256,7 @@ def _list_deployment_images(
         if (
             signature_changed
             or metadata_needs_upgrade
+            or record.get("driverMetadataVersion") != 1
             or not isinstance(record.get("indexes"), list)
             or bool(record.get("inspectionError"))
         ):
@@ -288,6 +294,7 @@ def _list_deployment_images(
                 else old_default
             )
             record = {
+                "driverMetadataVersion": 1,
                 "defaultIndex": default_index,
                 "size": stat.st_size,
                 "modifiedNs": stat.st_mtime_ns,
