@@ -803,7 +803,298 @@ function Invoke-IronPostPowerShellPhase {
     }
 }
 
+function Invoke-IronDeploymentApi {
+    param(
+        [Parameter(Mandatory = $true)][object]$DeploymentState,
+        [Parameter(Mandatory = $true)][string]$RelativePath,
+        [ValidateSet("Get", "Post")][string]$Method = "Get",
+        [AllowNull()][object]$Body = $null
+    )
+    $Parameters = @{
+        Uri = "{0}{1}" -f `
+            ([string]$DeploymentState.api_base_url).TrimEnd("/"), $RelativePath
+        Method = $Method
+        Headers = @{
+            Authorization = "Bearer $([string]$DeploymentState.api_deployment_token)"
+        }
+        TimeoutSec = 60
+        UseBasicParsing = $true
+    }
+    if ($null -ne $Body) {
+        $Parameters.Body = $Body | ConvertTo-Json -Depth 10
+        $Parameters.ContentType = "application/json; charset=utf-8"
+    }
+    return Invoke-RestMethod @Parameters
+}
+
+function Get-IronInstalledDriverInventory {
+    $ComputerSystem = Get-CimInstance Win32_ComputerSystem
+    $OperatingSystem = Get-CimInstance Win32_OperatingSystem
+    $ComputerProduct = Get-CimInstance Win32_ComputerSystemProduct
+    $SignedByDevice = @{}
+    foreach ($Driver in @(Get-CimInstance Win32_PnPSignedDriver)) {
+        $DeviceId = [string]$Driver.DeviceID
+        if (![string]::IsNullOrWhiteSpace($DeviceId) -and !$SignedByDevice.ContainsKey($DeviceId)) {
+            $SignedByDevice[$DeviceId] = $Driver
+        }
+    }
+    $Devices = @()
+    foreach ($Device in @(Get-CimInstance Win32_PnPEntity)) {
+        $InstanceId = [string]$Device.PNPDeviceID
+        if ([string]::IsNullOrWhiteSpace($InstanceId)) { continue }
+        $Signed = $SignedByDevice[$InstanceId]
+        $Devices += [pscustomobject]@{
+            instance_id = $InstanceId
+            hardware_ids = @($Device.HardwareID | Where-Object { $_ })
+            compatible_ids = @($Device.CompatibleID | Where-Object { $_ })
+            device_class = [string]$Device.PNPClass
+            status = [string]$Device.Status
+            problem_code = [int]$Device.ConfigManagerErrorCode
+            device_name = [string]$Device.Name
+            driver_inf_name = if ($null -ne $Signed) { [string]$Signed.InfName } else { $null }
+            driver_provider = if ($null -ne $Signed) { [string]$Signed.DriverProviderName } else { $null }
+            driver_version = if ($null -ne $Signed) { [string]$Signed.DriverVersion } else { $null }
+        }
+    }
+    $Architecture = if ([Environment]::Is64BitOperatingSystem) { "amd64" } else { "x86" }
+    return [pscustomobject]@{
+        inventory = [pscustomobject]@{
+            manufacturer = [string]$ComputerSystem.Manufacturer
+            model = [string]$ComputerSystem.Model
+            family = [string]$ComputerSystem.SystemFamily
+            sku = [string]$ComputerProduct.Name
+            architecture = $Architecture
+            devices = @($Devices)
+            warnings = @()
+        }
+        os_version = [string]$OperatingSystem.Version
+        product_type = [int]$OperatingSystem.ProductType
+    }
+}
+
+function Suspend-IronWindowsUpdateDrivers {
+    $Path = "HKLM:\Software\Policies\Microsoft\Windows\WindowsUpdate"
+    $Name = "ExcludeWUDriversInQualityUpdate"
+    $Existing = Get-ItemProperty -LiteralPath $Path -Name $Name -ErrorAction SilentlyContinue
+    $State = [pscustomobject]@{
+        Path = $Path
+        Name = $Name
+        Existed = $null -ne $Existing
+        Value = if ($null -ne $Existing) { $Existing.$Name } else { $null }
+    }
+    New-Item -Path $Path -Force | Out-Null
+    New-ItemProperty -LiteralPath $Path -Name $Name -PropertyType DWord -Value 1 -Force |
+        Out-Null
+    Write-Host "Windows Update driver offers held during local reconciliation."
+    return $State
+}
+
+function Resume-IronWindowsUpdateDrivers {
+    param([Parameter(Mandatory = $true)][object]$State)
+    if ([bool]$State.Existed) {
+        New-ItemProperty -LiteralPath ([string]$State.Path) `
+            -Name ([string]$State.Name) -PropertyType DWord `
+            -Value ([int]$State.Value) -Force | Out-Null
+    } else {
+        Remove-ItemProperty -LiteralPath ([string]$State.Path) `
+            -Name ([string]$State.Name) -ErrorAction SilentlyContinue
+    }
+    Write-Host "Previous Windows Update driver policy restored."
+}
+
+function Receive-IronDriverArchive {
+    param(
+        [Parameter(Mandatory = $true)][object]$DeploymentState,
+        [Parameter(Mandatory = $true)][int]$PassNumber
+    )
+    $DeploymentId = [long]$DeploymentState.deployment_id
+    $Status = $null
+    for ($Attempt = 1; $Attempt -le 120; $Attempt++) {
+        $Status = Invoke-IronDeploymentApi -DeploymentState $DeploymentState `
+            -RelativePath "/api/deploy/$DeploymentId/driver-archive"
+        if ([string]$Status.status -eq "ready") { break }
+        if ([string]$Status.status -eq "failed") {
+            throw "Driver archive failed: $([string]$Status.error)"
+        }
+        Start-Sleep -Seconds 2
+    }
+    if ([string]$Status.status -ne "ready") {
+        throw "Driver archive preparation timed out"
+    }
+
+    $Credentials = Invoke-IronDeploymentApi -DeploymentState $DeploymentState `
+        -RelativePath "/api/deploy/$DeploymentId/smb-credentials"
+    $SecurePassword = ConvertTo-SecureString ([string]$Credentials.password) `
+        -AsPlainText -Force
+    $Credential = New-Object System.Management.Automation.PSCredential(
+        [string]$Credentials.username, $SecurePassword
+    )
+    $DriveName = "IRD$PID"
+    $LocalTar = Join-Path $LogDir "driver-pass-$PassNumber.tar"
+    Remove-Item -LiteralPath $LocalTar -Force -ErrorAction SilentlyContinue
+    try {
+        New-PSDrive -Name $DriveName -PSProvider FileSystem `
+            -Root ([string]$Credentials.share_path) -Credential $Credential `
+            -Scope Script -ErrorAction Stop | Out-Null
+        $DriversRoot = Join-Path "$($DriveName):\" "Drivers"
+        $RemoteTar = Join-Path $DriversRoot ([string]$Status.archiveRelativePath)
+        Copy-Item -LiteralPath $RemoteTar -Destination $LocalTar `
+            -Force -ErrorAction Stop
+    } finally {
+        Remove-PSDrive -Name $DriveName -Scope Script -Force -ErrorAction SilentlyContinue
+    }
+    $ActualSize = (Get-Item -LiteralPath $LocalTar -ErrorAction Stop).Length
+    $ExpectedSize = [long]$Status.archiveSize
+    if ($ActualSize -ne $ExpectedSize) {
+        throw "Downloaded driver archive size mismatch (expected $ExpectedSize, got $ActualSize)"
+    }
+    $ActualHash = (Get-FileHash -LiteralPath $LocalTar -Algorithm SHA256).Hash
+    if ($ActualHash -ine [string]$Status.archiveSha256) {
+        throw "Downloaded driver archive SHA-256 mismatch"
+    }
+    return $LocalTar
+}
+
+function Install-IronDriverArchive {
+    param(
+        [Parameter(Mandatory = $true)][string]$ArchivePath,
+        [Parameter(Mandatory = $true)][int]$PassNumber
+    )
+    $Root = Join-Path $LogDir "DriverReconciliation"
+    $Partial = Join-Path $Root "pass-$PassNumber.partial"
+    $Destination = Join-Path $Root "pass-$PassNumber"
+    New-Item -ItemType Directory -Path $Root -Force | Out-Null
+    Remove-Item -LiteralPath $Partial -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $Destination -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Path $Partial -Force | Out-Null
+    & "$env:SystemRoot\System32\tar.exe" -xf $ArchivePath -C $Partial
+    if ($LASTEXITCODE -ne 0) {
+        throw "tar.exe failed with exit code $LASTEXITCODE"
+    }
+    if (@(Get-ChildItem -LiteralPath $Partial -Recurse -Filter *.inf -File).Count -eq 0) {
+        throw "Driver archive contains no INF files"
+    }
+    Move-Item -LiteralPath $Partial -Destination $Destination
+    $InfPattern = Join-Path $Destination "*.inf"
+    & pnputil.exe /add-driver $InfPattern /subdirs /install 2>&1 | Write-Host
+    $ExitCode = $LASTEXITCODE
+    if ($ExitCode -notin @(0, 3010)) {
+        throw "pnputil /add-driver failed with exit code $ExitCode"
+    }
+    & pnputil.exe /scan-devices 2>&1 | Write-Host
+    if ($LASTEXITCODE -ne 0) {
+        throw "pnputil /scan-devices failed with exit code $LASTEXITCODE"
+    }
+    Start-Sleep -Seconds 2
+    $RebootRequired = $ExitCode -eq 3010
+    Remove-Item -LiteralPath $Destination -Recurse -Force -ErrorAction SilentlyContinue
+    return $RebootRequired
+}
+
+function Invoke-IronDriverReconciliation {
+    param([AllowNull()][object]$DeploymentState)
+    $Result = [pscustomobject]@{ RebootRequired = $false; Warnings = @() }
+    if ($null -eq $DeploymentState) {
+        Write-Host "Installed-Windows driver reconciliation skipped."
+        return $Result
+    }
+    $DeploymentId = [long]$DeploymentState.deployment_id
+    $DriverMode = [string]$DeploymentState.driver_mode
+    if ([string]::IsNullOrWhiteSpace($DriverMode)) {
+        try {
+            $Configuration = Invoke-IronDeploymentApi `
+                -DeploymentState $DeploymentState `
+                -RelativePath "/api/deploy/$DeploymentId/drivers/reconcile"
+            $DriverMode = [string]$Configuration.driverMode
+        } catch {
+            $Result.Warnings += "Driver reconciliation config failed: $($_.Exception.Message)"
+            Write-Host $Result.Warnings[-1] -ForegroundColor Yellow
+            return $Result
+        }
+    }
+    if ($DriverMode -notin @("AUTO_LOCAL", "AUTO_LOCAL_WSUS")) {
+        Write-Host "Installed-Windows driver reconciliation skipped for mode $DriverMode."
+        return $Result
+    }
+    $PolicyState = $null
+    try {
+        $PolicyState = Suspend-IronWindowsUpdateDrivers
+        & pnputil.exe /scan-devices 2>&1 | Write-Host
+        if ($LASTEXITCODE -ne 0) {
+            $Result.Warnings += "Initial device scan failed with exit code $LASTEXITCODE"
+        }
+        Start-Sleep -Seconds 2
+        for ($Pass = 1; $Pass -le 3; $Pass++) {
+            Write-Host "Local driver reconciliation pass $Pass/3"
+            $Snapshot = Get-IronInstalledDriverInventory
+            $Body = @{
+                pass_number = $Pass
+                inventory = $Snapshot.inventory
+                os_version = $Snapshot.os_version
+                product_type = $Snapshot.product_type
+            }
+            $Response = Invoke-IronDeploymentApi -DeploymentState $DeploymentState `
+                -RelativePath "/api/deploy/$DeploymentId/drivers/reconcile" `
+                -Method Post -Body $Body
+            if ([string]$Response.status -eq "no_new_drivers") {
+                Write-Host "No new local driver packages found; reconciliation complete."
+                break
+            }
+            $Archive = $null
+            try {
+                $Archive = Receive-IronDriverArchive `
+                    -DeploymentState $DeploymentState -PassNumber $Pass
+                if (Install-IronDriverArchive -ArchivePath $Archive -PassNumber $Pass) {
+                    $Result.RebootRequired = $true
+                }
+            } finally {
+                if ($null -ne $Archive) {
+                    Remove-Item -LiteralPath $Archive -Force -ErrorAction SilentlyContinue
+                }
+                try {
+                    Invoke-IronDeploymentApi -DeploymentState $DeploymentState `
+                        -RelativePath "/api/deploy/$DeploymentId/drivers/reconcile/archive-complete" `
+                        -Method Post | Out-Null
+                } catch {
+                    $Result.Warnings += "Server archive cleanup failed: $($_.Exception.Message)"
+                }
+            }
+        }
+    } catch {
+        $Message = "Driver reconciliation failed: $($_.Exception.Message)"
+        $Result.Warnings += $Message
+        Write-Host $Message -ForegroundColor Red
+    } finally {
+        if ($null -ne $PolicyState) {
+            try { Resume-IronWindowsUpdateDrivers -State $PolicyState }
+            catch {
+                $Result.Warnings += "Windows Update policy restore failed: $($_.Exception.Message)"
+                Write-Host $Result.Warnings[-1] -ForegroundColor Red
+            }
+        }
+    }
+    try {
+        $Final = Get-IronInstalledDriverInventory
+        Invoke-IronDeploymentApi -DeploymentState $DeploymentState `
+            -RelativePath "/api/deploy/$DeploymentId/drivers/reconcile/final" `
+            -Method Post -Body @{
+                inventory = $Final.inventory
+                os_version = $Final.os_version
+                product_type = $Final.product_type
+                reboot_required = [bool]$Result.RebootRequired
+                warnings = @($Result.Warnings)
+            } | Out-Null
+    } catch {
+        Write-Host "Final driver report failed: $($_.Exception.Message)" `
+            -ForegroundColor Yellow
+    }
+    return $Result
+}
+
 New-Item -ItemType Directory -Force $LogDir | Out-Null
+Remove-Item -LiteralPath $MarkerFile -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath "$LogDir\postinstall-reboot-required.txt" `
+    -Force -ErrorAction SilentlyContinue
 
 Start-Transcript -Path $LogFile -Append
 
@@ -860,6 +1151,9 @@ if ($cs.PartOfDomain) {
     Write-Host "No domain detected; Group Policy processing is not expected."
 }
 
+$DriverReconciliation = Invoke-IronDriverReconciliation `
+    -DeploymentState $DeploymentState
+
 try {
     Invoke-LocalAdminPolicy
 } catch {
@@ -884,6 +1178,13 @@ Invoke-IronPostPowerShellPhase `
     -DeploymentState $DeploymentState
 
 "OK: postinstall completed at $(Get-Date)" | Out-File $MarkerFile -Encoding UTF8
+if (
+    [bool]$DriverReconciliation.RebootRequired -or
+    @($ProgramResults | Where-Object { $_.exit_code -eq 3010 }).Count -gt 0
+) {
+    "Post-install processing requested a reboot." |
+        Out-File "$LogDir\postinstall-reboot-required.txt" -Encoding UTF8 -Force
+}
 
 if (!(Test-Path $DeploymentStateFile -PathType Leaf)) {
     "Deployment state file not found: $DeploymentStateFile" |

@@ -206,6 +206,17 @@ from app.winpe_auth import (
 
 from app.driver_index.service import get_indexer, shutdown_indexer
 from app.driver_manifest import resolve_manifest
+from app.driver_reconciliation import (
+    DriverReconciliationFinalRequest,
+    DriverReconciliationRequest,
+    archive_package,
+    build_device_report,
+    candidate_summary,
+    delivered_package_ids,
+    pass_summary,
+    resolve_installed_inventory,
+    save_reconciliation,
+)
 
 
 @asynccontextmanager
@@ -1774,12 +1785,19 @@ def deployment_driver_archive_status(
     session: Session = Depends(get_session),
 ) -> JSONResponse:
     expire_stale_deployments(session)
-    deployment, _ = require_owned_deployment(
-        deployment_id, request, session, "winpe"
+    deployment, token = require_owned_deployment(
+        deployment_id, request, session, "winpe", "postinstall"
     )
     if deployment.status != DEPLOYMENT_BEGIN:
         raise HTTPException(status_code=409, detail="Deployment is not active")
-    if deployment.driver_apply_mode != "staged":
+    reconciliation = (deployment.driver_resolution or {}).get("reconciliation") or {}
+    if not (
+        (token.phase == "winpe" and deployment.driver_apply_mode == "staged")
+        or (
+            token.phase == "postinstall"
+            and reconciliation.get("status") == "running"
+        )
+    ):
         raise HTTPException(
             status_code=409,
             detail="Driver archive transport is not active for this deployment.",
@@ -1797,6 +1815,7 @@ def deployment_driver_archive_status(
             "status": archive.get("status"),
             "archiveRelativePath": archive.get("archiveRelativePath"),
             "archiveSize": archive.get("archiveSize"),
+            "archiveSha256": archive.get("archiveSha256"),
             "sourceSize": archive.get("sourceSize"),
             "sourceFileCount": archive.get("sourceFileCount"),
             "sourceInfCount": archive.get("sourceInfCount"),
@@ -2047,6 +2066,7 @@ def deployment_smb_credentials(
         request,
         session,
         require_domain_join=False,
+        allowed_phases=("winpe", "postinstall"),
     )
     settings = get_settings()
     if not settings.smb_share_path or not settings.smb_user or not settings.smb_password:
@@ -2457,7 +2477,7 @@ def get_domain_join_deployment(
     allowed_phases: tuple[str, ...] = ("winpe",),
 ) -> Deployment:
     expire_stale_deployments(session)
-    deployment, _ = require_owned_deployment(
+    deployment, token = require_owned_deployment(
         deployment_id,
         request,
         session,
@@ -2468,7 +2488,13 @@ def get_domain_join_deployment(
             status_code=409,
             detail="Domain join is disabled for this deployment",
         )
-    if request.client is None or request.client.host != deployment.ip_address:
+    # The installed OS may receive a new DHCP lease after WinPE reboots. Its
+    # phase-scoped bearer token is the ownership proof during postinstall;
+    # retain address pinning while the token is still in the WinPE phase.
+    if (
+        token.phase == "winpe"
+        and (request.client is None or request.client.host != deployment.ip_address)
+    ):
         raise HTTPException(
             status_code=403,
             detail="Deployment belongs to another client",
@@ -2682,6 +2708,144 @@ def deploy_enter_postinstall(
     if token.phase == "winpe":
         set_deployment_token_phase(session, token, "postinstall")
     return {"status": "postinstall"}
+
+
+@app.get("/api/deploy/{deployment_id}/drivers/reconcile")
+def deploy_reconcile_drivers_config(
+    deployment_id: int,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> dict:
+    deployment, _ = require_owned_deployment(
+        deployment_id, request, session, "postinstall"
+    )
+    if deployment.status != DEPLOYMENT_BEGIN:
+        raise HTTPException(status_code=409, detail="Deployment is not active")
+    return {
+        "enabled": deployment.driver_mode in {"AUTO_LOCAL", "AUTO_LOCAL_WSUS"},
+        "driverMode": deployment.driver_mode,
+        "maxPasses": 3,
+    }
+
+
+@app.post("/api/deploy/{deployment_id}/drivers/reconcile")
+def deploy_reconcile_drivers(
+    deployment_id: int,
+    payload: DriverReconciliationRequest,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> dict:
+    """Resolve newly visible installed-Windows devices against local storage."""
+    deployment, _ = require_owned_deployment(
+        deployment_id, request, session, "postinstall"
+    )
+    if deployment.status != DEPLOYMENT_BEGIN:
+        raise HTTPException(status_code=409, detail="Deployment is not active")
+    if deployment.driver_mode not in {"AUTO_LOCAL", "AUTO_LOCAL_WSUS"}:
+        raise HTTPException(
+            status_code=409,
+            detail="Installed-Windows driver reconciliation is not enabled.",
+        )
+    try:
+        result = resolve_installed_inventory(payload)
+        delivered = delivered_package_ids(
+            deployment.driver_resolution,
+            payload.pass_number,
+        )
+        candidates = [
+            item for item in result.candidate_packages
+            if item.package_id not in delivered
+        ]
+        package = archive_package(candidates)
+        archive = (
+            prepare_driver_archive(deployment_id, package, get_settings())
+            if package is not None
+            else None
+        )
+    except (DriverArchiveError, OSError, ValueError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    current = dict(
+        ((deployment.driver_resolution or {}).get("reconciliation") or {})
+    )
+    passes = [
+        item for item in current.get("passes", [])
+        if int(item.get("passNumber", 0)) != payload.pass_number
+    ]
+    passes.append(pass_summary(payload, result, candidates))
+    passes.sort(key=lambda item: int(item["passNumber"]))
+    current.update({
+        "status": "running",
+        "maxPasses": 3,
+        "passes": passes,
+        "deviceReport": build_device_report(payload.inventory, result),
+    })
+    deployment.driver_resolution = save_reconciliation(
+        deployment.driver_resolution,
+        current,
+    )
+    session.commit()
+    return {
+        "status": "drivers_ready" if package is not None else "no_new_drivers",
+        "passNumber": payload.pass_number,
+        "newPackageIds": [item.package_id for item in candidates],
+        "candidatePackages": [candidate_summary(item) for item in candidates],
+        "archiveStatus": archive.get("status") if archive else None,
+        "archiveStatusUrl": f"/api/deploy/{deployment_id}/driver-archive" if archive else None,
+    }
+
+
+@app.post("/api/deploy/{deployment_id}/drivers/reconcile/archive-complete")
+def deploy_reconcile_archive_complete(
+    deployment_id: int,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> dict[str, str]:
+    deployment, _ = require_owned_deployment(
+        deployment_id, request, session, "postinstall"
+    )
+    if deployment.status != DEPLOYMENT_BEGIN:
+        raise HTTPException(status_code=409, detail="Deployment is not active")
+    cleanup_driver_archive(deployment_id)
+    return {"status": "deleted"}
+
+
+@app.post("/api/deploy/{deployment_id}/drivers/reconcile/final")
+def deploy_reconcile_drivers_final(
+    deployment_id: int,
+    payload: DriverReconciliationFinalRequest,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> dict:
+    deployment, _ = require_owned_deployment(
+        deployment_id, request, session, "postinstall"
+    )
+    if deployment.status != DEPLOYMENT_BEGIN:
+        raise HTTPException(status_code=409, detail="Deployment is not active")
+    try:
+        result = resolve_installed_inventory(payload)
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    current = dict(
+        ((deployment.driver_resolution or {}).get("reconciliation") or {})
+    )
+    current.update({
+        "status": "completed",
+        "maxPasses": 3,
+        "rebootRequired": payload.reboot_required,
+        "warnings": [value[:1000] for value in payload.warnings if value.strip()],
+        "deviceReport": build_device_report(payload.inventory, result),
+    })
+    deployment.driver_resolution = save_reconciliation(
+        deployment.driver_resolution,
+        current,
+    )
+    session.commit()
+    return {
+        "status": "completed",
+        "devices": len(current["deviceReport"]),
+        "rebootRequired": payload.reboot_required,
+    }
 
 
 @app.post("/api/deploy/{deployment_id}/post-powershell/{position}/report")

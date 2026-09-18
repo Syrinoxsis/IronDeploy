@@ -13,6 +13,7 @@ function Get-IronDriverInventory {
                 hardware_ids = @($_.HardwareID | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
                 compatible_ids = @($_.CompatibleID | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
                 device_class = [string]$_.PNPClass
+                device_name = [string]$_.Name
                 status = [string]$_.Status
                 problem_code = if ($null -ne $_.ConfigManagerErrorCode) { [int]$_.ConfigManagerErrorCode } else { $null }
             }

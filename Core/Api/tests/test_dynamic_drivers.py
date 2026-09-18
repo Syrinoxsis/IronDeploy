@@ -1,6 +1,7 @@
 """Resolver/index/transport tests use disposable repositories, never host DISM."""
 import asyncio
 import json
+import sqlite3
 import tempfile
 import tarfile
 import subprocess
@@ -49,7 +50,8 @@ class DynamicDriverTests(unittest.TestCase):
             '[Version]\nSignature="$Windows NT$"\nProvider=%Maker%\nClass=Net\n'
             f'CatalogFile={cat}\nDriverVer=01/02/2026,1.2.3.4\n'
             f'[Manufacturer]\n%Maker%=Models,{decoration}\n[Models.{decoration}]\n'
-            f'%Device%=Install,{ids}\n[SourceDisksFiles]\n{name}.sys=1\n'
+            f'%Device%=Install,{ids}\n[Install]\nCopyFiles={name}.CopyFiles\n'
+            f'[{name}.CopyFiles]\n{name}.sys\n[SourceDisksFiles]\n{name}.sys=1\n'
             '[Strings]\nMaker="Vendor"\nDevice="Device"\n' + extra, encoding='utf-16')
         if publish:
             self.indexer.submit(package).result(10)
@@ -156,10 +158,71 @@ class DynamicDriverTests(unittest.TestCase):
         self.db.publish('Dell\\Model', bundles, errors)
         self.assertEqual(self.resolve().matched_devices, 1)
 
+    def test_index_status_tracks_queue_progress_and_completion(self):
+        self.db.queue('Dell\\Model')
+        queued = self.db.imports()[0]
+        self.assertEqual((queued['status'], queued['progress']), ('queued', 0))
+
+        self.db.start('Dell\\Model')
+        self.db.set_progress('Dell\\Model', 47)
+        indexing = self.db.imports()[0]
+        self.assertEqual(
+            (indexing['status'], indexing['progress']),
+            ('indexing', 47),
+        )
+
+        path = self.add(publish=False)
+        updates = []
+        bundles, errors = parse_import(
+            path,
+            'Dell\\Model',
+            lambda completed, total: updates.append((completed, total)),
+        )
+        self.db.publish('Dell\\Model', bundles, errors)
+        ready = self.db.imports()[0]
+        self.assertEqual((ready['status'], ready['progress']), ('ready', 100))
+        self.assertEqual(updates, [(0, 1), (1, 1)])
+
+    def test_existing_index_database_adds_progress_column(self):
+        legacy_path = self.root.parent / 'legacy.sqlite'
+        connection = sqlite3.connect(legacy_path)
+        try:
+            connection.execute(
+                'CREATE TABLE imports ('
+                'path TEXT PRIMARY KEY COLLATE NOCASE, status TEXT NOT NULL, '
+                'error TEXT, updated REAL NOT NULL)'
+            )
+            connection.execute(
+                "INSERT INTO imports VALUES ('Dell\\Model', 'queued', NULL, 1)"
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        legacy = DriverIndexDB(legacy_path)
+        legacy.initialize()
+
+        row = legacy.imports()[0]
+        self.assertEqual(row['progress'], 0)
+
     def test_existing_generation_visible_during_reindex(self):
         self.add()
         self.db.start('Dell\\Model')
         self.assertEqual(self.resolve().matched_devices, 1)
+
+    def test_index_format_change_schedules_automatic_rebuild(self):
+        self.add()
+        with self.db.connect() as connection, connection:
+            connection.execute(
+                "UPDATE index_metadata SET value='old' WHERE key='format_version'"
+            )
+        self.db.initialize()
+        self.assertEqual(self.db.imports()[0]['status'], 'stale')
+        self.assertEqual(self.resolve().matched_devices, 0)
+        jobs = self.indexer.scan()
+        self.assertEqual(len(jobs), 1)
+        jobs[0].result(10)
+        self.assertEqual(self.db.imports()[0]['status'], 'ready')
 
     def test_failed_new_index_not_ready(self):
         path = self.root / 'Bad' / 'Model'
@@ -367,6 +430,21 @@ Get-IronDriverInventory | ConvertTo-Json -Depth 12 -Compress
         self.assertEqual(self.resolve().matched_devices, 1)
         self.assertTrue(any(f['path'].endswith('payload/base.sys') for f in self.resolve().candidate_packages[0].files))
 
+    def test_declared_subdirectory_wins_over_same_named_root_file(self):
+        path = self.add(publish=False)
+        (path / 'payload').mkdir()
+        (path / 'payload/base.sys').write_bytes(b'decorated payload')
+        inf = path / 'base.inf'
+        text = inf.read_text(encoding='utf-16')
+        text += '\n[SourceDisksNames]\n1=%Disk%,,,.\\payload\n[Strings]\nDisk="Disk"\n'
+        inf.write_text(text, encoding='utf-16')
+        self.indexer.submit('Dell\\Model').result(10)
+
+        files = self.resolve().candidate_packages[0].files
+
+        self.assertTrue(any(f['path'].endswith('payload/base.sys') for f in files))
+        self.assertFalse(any(f['path'].endswith('Model/base.sys') for f in files))
+
     def test_damaged_bundle_does_not_remove_other_candidates(self):
         damaged = self.add()
         self.add(package='HP\\Healthy')
@@ -375,6 +453,39 @@ Get-IronDriverInventory | ConvertTo-Json -Depth 12 -Compress
         self.assertEqual(len(result.candidate_packages), 1)
         self.assertEqual(result.candidate_packages[0].import_path, 'HP\\Healthy')
         self.assertTrue(result.warnings)
+
+    def test_missing_declared_source_is_indexed_but_excluded_from_resolution(self):
+        path = self.add(publish=False)
+        inf = path / 'base.inf'
+        text = inf.read_text(encoding='utf-16')
+        text = text.replace(
+            '[SourceDisksFiles]\nbase.sys=1',
+            '[SourceDisksFiles]\nbase.sys=1\nunused.dll=1',
+        )
+        inf.write_text(text, encoding='utf-16')
+        self.indexer.submit('Dell\\Model').result(10)
+
+        result = self.resolve()
+
+        self.assertEqual(result.matched_devices, 0)
+        self.assertFalse(result.candidate_packages)
+        self.assertTrue(any('unused.dll' in warning for warning in result.warnings))
+
+    def test_reachable_copyfiles_payload_remains_required(self):
+        path = self.add(publish=False)
+        inf = path / 'base.inf'
+        text = inf.read_text(encoding='utf-16')
+        text = text.replace(
+            '%Device%=Install,PCI\\VEN_1234&DEV_5678',
+            '%Device%=Install,PCI\\VEN_1234&DEV_5678\n'
+            '[Install]\nCopyFiles=Payload.Copy\n'
+            '[Payload.Copy]\nmissing.dll',
+        )
+        inf.write_text(text, encoding='utf-16')
+        self.indexer.submit('Dell\\Model').result(10)
+
+        self.assertEqual(self.resolve().matched_devices, 0)
+        self.assertIn('Missing source file', self.db.imports()[0]['error'])
 
 
 if __name__ == '__main__':

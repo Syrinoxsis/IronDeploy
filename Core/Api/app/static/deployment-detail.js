@@ -70,12 +70,36 @@ const detailElements = {
     networkStageList: document.querySelector("#network-stage-list"),
     networkErrors: document.querySelector("#network-errors"),
     networkErrorList: document.querySelector("#network-error-list"),
+    driverCount: document.querySelector("#driver-count"),
+    driverFilterMenu: document.querySelector("#driver-filter-menu"),
+    driverFilterCount: document.querySelector("#driver-filter-count"),
+    driverFilterClear: document.querySelector("#driver-filter-clear"),
+    driverFilterInputs: [...document.querySelectorAll("[data-driver-filter]")],
+    driverSortButtons: [...document.querySelectorAll("[data-driver-sort]")],
+    driverTableWrap: document.querySelector("#driver-table-wrap"),
+    driverTableBody: document.querySelector("#driver-table-body"),
+    driverEmpty: document.querySelector("#driver-empty"),
 };
 
 const detailState = {
     startedAt: null,
     completedAt: null,
     status: null,
+};
+
+const driverTableState = {
+    report: [],
+    filters: {
+        device: "",
+        class: "",
+        repository: "",
+        matched: "",
+        inf: "",
+        provider: "",
+        version: "",
+    },
+    sortKey: null,
+    sortDirection: null,
 };
 
 const deploymentId = Number.parseInt(
@@ -686,6 +710,202 @@ function renderPowerShell(scripts) {
     }
 }
 
+function legacyDriverReport(resolution) {
+    if (!resolution) return [];
+    const packages = new Map(
+        (resolution.candidate_packages || []).map((item) => [item.package_id, item]),
+    );
+    const rows = new Map();
+    for (const device of resolution.unresolved_devices || []) {
+        rows.set(device.instance_id, {
+            instanceId: device.instance_id,
+            deviceName: device.device_name,
+            deviceClass: device.device_class,
+            status: "not_found",
+            matchedIds: [],
+            infPaths: [],
+            installedInf: device.driver_inf_name,
+            installedProvider: device.driver_provider,
+            installedVersion: device.driver_version,
+        });
+    }
+    for (const match of resolution.matches || []) {
+        const row = rows.get(match.instance_id) || {
+            instanceId: match.instance_id,
+            deviceName: null,
+            deviceClass: null,
+            status: "found_local",
+            matchedIds: [],
+            infPaths: [],
+            installedInf: null,
+            installedProvider: null,
+            installedVersion: null,
+        };
+        row.status = "found_local";
+        row.matchedIds.push(match.matched_id);
+        row.infPaths.push(...(packages.get(match.package_id)?.inf_paths || []));
+        rows.set(match.instance_id, row);
+    }
+    return [...rows.values()];
+}
+
+function appendDriverCell(row, primary, secondary = "") {
+    const cell = document.createElement("td");
+    const value = document.createElement("strong");
+    value.textContent = primary || "-";
+    cell.append(value);
+    if (secondary) {
+        const note = document.createElement("span");
+        note.textContent = secondary;
+        cell.append(note);
+    }
+    row.append(cell);
+}
+
+function driverColumnText(device, key) {
+    if (key === "device") {
+        return [device.deviceName, device.instanceId].filter(Boolean).join(" ");
+    }
+    if (key === "class") return device.deviceClass || "";
+    if (key === "repository") {
+        const state = device.status === "found_local" ? "Found" : "Not found";
+        return [detailText(state), state, ...(device.infPaths || [])].join(" ");
+    }
+    if (key === "matched") return (device.matchedIds || []).join(" ");
+    if (key === "inf") return device.installedInf || "";
+    if (key === "provider") return device.installedProvider || "";
+    if (key === "version") return device.installedVersion || "";
+    return "";
+}
+
+function normalizedDriverText(value) {
+    return String(value || "").normalize("NFKC").toLocaleLowerCase(
+        window.IronI18n?.language === "ru" ? "ru-RU" : "en-US",
+    );
+}
+
+function visibleDriverReport() {
+    const filtered = driverTableState.report
+        .map((device, originalIndex) => ({ device, originalIndex }))
+        .filter(({ device }) => Object.entries(driverTableState.filters).every(
+            ([key, query]) => !query || normalizedDriverText(
+                driverColumnText(device, key),
+            ).includes(normalizedDriverText(query)),
+        ));
+    if (!driverTableState.sortKey || !driverTableState.sortDirection) return filtered;
+    const collator = new Intl.Collator(
+        window.IronI18n?.language === "ru" ? "ru" : "en",
+        { numeric: true, sensitivity: "base" },
+    );
+    const direction = driverTableState.sortDirection === "ascending" ? 1 : -1;
+    return filtered.sort((left, right) => {
+        const compared = collator.compare(
+            driverColumnText(left.device, driverTableState.sortKey),
+            driverColumnText(right.device, driverTableState.sortKey),
+        );
+        return compared ? compared * direction : left.originalIndex - right.originalIndex;
+    });
+}
+
+function updateDriverControls(visibleCount) {
+    const activeFilterCount = Object.values(driverTableState.filters)
+        .filter(Boolean).length;
+    const totalCount = driverTableState.report.length;
+    detailElements.driverCount.textContent = activeFilterCount
+        ? `${visibleCount} / ${totalCount} ${detailText("devices")}`
+        : `${totalCount} ${detailText("devices")}`;
+    detailElements.driverFilterCount.textContent = String(activeFilterCount);
+    detailElements.driverFilterCount.hidden = activeFilterCount === 0;
+    detailElements.driverFilterMenu.classList.toggle(
+        "has-active-filters",
+        activeFilterCount > 0,
+    );
+    detailElements.driverFilterClear.disabled = activeFilterCount === 0;
+    detailElements.driverFilterMenu.hidden = totalCount === 0;
+
+    for (const button of detailElements.driverSortButtons) {
+        const active = button.dataset.driverSort === driverTableState.sortKey;
+        const direction = active ? driverTableState.sortDirection : null;
+        const heading = button.closest("th");
+        const indicator = button.querySelector(".driver-sort-indicator");
+        heading.setAttribute("aria-sort", direction || "none");
+        indicator.textContent = direction === "ascending"
+            ? "A–Z"
+            : direction === "descending" ? "Z–A" : "↕";
+        const label = detailText(button.dataset.driverLabel);
+        const state = direction === "ascending"
+            ? "Sort descending"
+            : direction === "descending" ? "Remove sorting" : "Sort ascending";
+        button.setAttribute("aria-label", `${label}: ${detailText(state)}`);
+        button.title = `${label}: ${detailText(state)}`;
+    }
+}
+
+function renderDriverTable() {
+    const visible = visibleDriverReport();
+    detailElements.driverTableBody.replaceChildren();
+    updateDriverControls(visible.length);
+    detailElements.driverEmpty.textContent = driverTableState.report.length
+        ? detailText("No devices match the current filters.")
+        : detailText("No driver resolution data was reported.");
+    detailElements.driverEmpty.hidden = visible.length > 0;
+    detailElements.driverTableWrap.hidden = visible.length === 0;
+    for (const { device } of visible) {
+        const row = document.createElement("tr");
+        const localFound = device.status === "found_local";
+        appendDriverCell(
+            row,
+            device.deviceName || device.instanceId,
+            device.deviceName ? device.instanceId : "",
+        );
+        appendDriverCell(row, device.deviceClass || "-");
+        const state = document.createElement("td");
+        const badge = document.createElement("span");
+        badge.className = `driver-state ${localFound ? "is-found" : "is-missing"}`;
+        badge.textContent = detailText(localFound ? "Found" : "Not found");
+        state.append(badge);
+        const infs = [...new Set(device.infPaths || [])];
+        if (infs.length) {
+            const note = document.createElement("span");
+            note.textContent = infs.join(", ");
+            state.append(note);
+        }
+        row.append(state);
+        appendDriverCell(row, [...new Set(device.matchedIds || [])].join(", ") || "-");
+        appendDriverCell(row, device.installedInf || "-");
+        appendDriverCell(row, device.installedProvider || "-");
+        appendDriverCell(row, device.installedVersion || "-");
+        detailElements.driverTableBody.append(row);
+    }
+}
+
+function renderDrivers(resolution) {
+    driverTableState.report = resolution?.reconciliation?.deviceReport ||
+        legacyDriverReport(resolution);
+    renderDriverTable();
+}
+
+function cycleDriverSort(key) {
+    if (driverTableState.sortKey !== key || !driverTableState.sortDirection) {
+        driverTableState.sortKey = key;
+        driverTableState.sortDirection = "ascending";
+    } else if (driverTableState.sortDirection === "ascending") {
+        driverTableState.sortDirection = "descending";
+    } else {
+        driverTableState.sortKey = null;
+        driverTableState.sortDirection = null;
+    }
+    renderDriverTable();
+}
+
+function clearDriverFilters() {
+    for (const key of Object.keys(driverTableState.filters)) {
+        driverTableState.filters[key] = "";
+    }
+    for (const input of detailElements.driverFilterInputs) input.value = "";
+    renderDriverTable();
+}
+
 function renderDeployment(deployment) {
     detailState.startedAt = deployment.started_at;
     detailState.completedAt = deployment.completed_at;
@@ -730,6 +950,7 @@ function renderDeployment(deployment) {
     renderPrograms(deployment.programs || []);
     renderPowerShell(deployment.post_powershell || []);
     renderNetworkDiagnostics(deployment.network_diagnostics);
+    renderDrivers(deployment.driverResolution);
 
     detailElements.loading.hidden = true;
     detailElements.content.hidden = false;
@@ -782,7 +1003,35 @@ async function loadDeployment() {
 document.addEventListener("click", (event) => {
     const value = event.target.closest("[data-copy-value]")?.dataset.copyValue;
     if (value) copyDetailValue(value);
+    if (
+        detailElements.driverFilterMenu.open &&
+        !detailElements.driverFilterMenu.contains(event.target)
+    ) {
+        detailElements.driverFilterMenu.open = false;
+    }
 });
+for (const input of detailElements.driverFilterInputs) {
+    input.addEventListener("input", () => {
+        driverTableState.filters[input.dataset.driverFilter] = input.value.trim();
+        renderDriverTable();
+    });
+    input.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+            event.stopPropagation();
+            if (input.value) {
+                input.value = "";
+                driverTableState.filters[input.dataset.driverFilter] = "";
+                renderDriverTable();
+            } else {
+                detailElements.driverFilterMenu.open = false;
+            }
+        }
+    });
+}
+for (const button of detailElements.driverSortButtons) {
+    button.addEventListener("click", () => cycleDriverSort(button.dataset.driverSort));
+}
+detailElements.driverFilterClear.addEventListener("click", clearDriverFilters);
 detailElements.refreshButton.addEventListener("click", loadDeployment);
 window.setInterval(loadDeployment, DETAIL_REFRESH_MS);
 window.setInterval(() => {

@@ -27,6 +27,7 @@ let currentListing = { vendors: [], packages: [] };
 let activeVendorName = null;
 let activeUpload = null;
 let messageTimer = null;
+let indexPollTimer = null;
 
 function translate(value) {
     return window.IronI18n?.t(value) || value;
@@ -107,6 +108,112 @@ function packageUrl(vendor, model, suffix = "") {
     return `/api/drivers/packages/${encodeURIComponent(vendor)}/${encodeURIComponent(model)}${suffix}`;
 }
 
+function indexKey(value) {
+    return String(value || "").toLowerCase();
+}
+
+function mergeIndexStatus(payload) {
+    const imports = new Map(
+        (payload?.imports || []).map((item) => [
+            indexKey(item.path),
+            item,
+        ])
+    );
+    for (const driverPackage of currentListing.packages || []) {
+        driverPackage.index = imports.get(indexKey(driverPackage.relativePath)) || null;
+    }
+}
+
+function indexPresentation(driverPackage) {
+    const status = driverPackage.index?.status || "missing";
+    const progress = Math.max(
+        0,
+        Math.min(100, Number(driverPackage.index?.progress) || 0)
+    );
+    if (status === "ready") {
+        return { status, progress: 100, label: translate("Ready to use") };
+    }
+    if (status === "indexing") {
+        return {
+            status,
+            progress,
+            label: `${translate("Indexing")} ${progress}%`,
+        };
+    }
+    if (status === "error") {
+        return { status, progress, label: translate("Indexing failed") };
+    }
+    return {
+        status: "queued",
+        progress: 0,
+        label: translate("Waiting for indexing"),
+    };
+}
+
+function renderIndexStatus(driverPackage) {
+    const presentation = indexPresentation(driverPackage);
+    const wrapper = document.createElement("div");
+    wrapper.className = `package-index-status is-${presentation.status}`;
+    if (presentation.status === "error" && driverPackage.index?.error) {
+        wrapper.title = driverPackage.index.error;
+    }
+
+    const label = document.createElement("span");
+    label.className = "package-index-label";
+    label.textContent = presentation.label;
+    const progress = document.createElement("span");
+    progress.className = "package-index-progress";
+    progress.setAttribute("role", "progressbar");
+    progress.setAttribute("aria-label", translate("Driver package indexing"));
+    progress.setAttribute("aria-valuemin", "0");
+    progress.setAttribute("aria-valuemax", "100");
+    progress.setAttribute("aria-valuenow", String(presentation.progress));
+    const fill = document.createElement("span");
+    fill.style.width = `${presentation.progress}%`;
+    progress.append(fill);
+    wrapper.append(label, progress);
+    return wrapper;
+}
+
+function updateRenderedIndexStatuses() {
+    const packages = new Map(
+        (currentListing.packages || []).map((driverPackage) => [
+            indexKey(driverPackage.relativePath),
+            driverPackage,
+        ])
+    );
+    for (const card of elements.packageList.querySelectorAll(".package-card")) {
+        const driverPackage = packages.get(card.dataset.packagePath);
+        const current = card.querySelector(".package-index-status");
+        if (driverPackage && current) {
+            current.replaceWith(renderIndexStatus(driverPackage));
+        }
+    }
+}
+
+function scheduleIndexPoll() {
+    if (indexPollTimer) window.clearTimeout(indexPollTimer);
+    indexPollTimer = null;
+    const shouldPoll = (currentListing.packages || []).some((driverPackage) =>
+        ["queued", "indexing", "stale"].includes(driverPackage.index?.status)
+    );
+    if (shouldPoll) {
+        indexPollTimer = window.setTimeout(refreshIndexStatus, 750);
+    }
+}
+
+async function refreshIndexStatus() {
+    indexPollTimer = null;
+    try {
+        mergeIndexStatus(await apiFetch("/api/drivers/index"));
+        updateRenderedIndexStatuses();
+    } catch {
+        // The package list remains usable if the status endpoint is briefly busy.
+    } finally {
+        scheduleIndexPoll();
+    }
+}
+
 function renderVendor(vendor) {
     const row = document.createElement("button");
     row.className = `vendor-row${vendor.name === activeVendorName ? " is-active" : ""}`;
@@ -133,6 +240,7 @@ function renderVendor(vendor) {
 function renderPackage(driverPackage) {
     const card = document.createElement("article");
     card.className = `package-card availability-card${driverPackage.enabled ? "" : " is-disabled"}`;
+    card.dataset.packagePath = indexKey(driverPackage.relativePath);
     const top = document.createElement("div");
     top.className = "package-card-top";
     const identity = document.createElement("div");
@@ -203,7 +311,7 @@ function renderPackage(driverPackage) {
     remove.type = "button";
     remove.textContent = translate("Delete");
     actions.append(availability, rename, remove);
-    top.append(identity, actions);
+    top.append(identity, renderIndexStatus(driverPackage), actions);
     card.append(top);
 
     rename.addEventListener("click", () => {
@@ -279,9 +387,17 @@ function renderListing() {
 
 async function refreshDrivers() {
     elements.refreshButton.disabled = true;
+    if (indexPollTimer) window.clearTimeout(indexPollTimer);
+    indexPollTimer = null;
     try {
-        currentListing = await apiFetch("/api/drivers");
+        const [listing, indexStatus] = await Promise.all([
+            apiFetch("/api/drivers"),
+            apiFetch("/api/drivers/index"),
+        ]);
+        currentListing = listing;
+        mergeIndexStatus(indexStatus);
         renderListing();
+        scheduleIndexPoll();
     } catch (error) {
         showMessage(error.message, "error");
     } finally {

@@ -676,6 +676,7 @@ class DeploymentTimeoutTests(unittest.TestCase):
                     f".irondeploy-archives\\{deployment.id}\\drivers.tar"
                 ),
                 "archiveSize": 4096,
+                "archiveSha256": "a" * 64,
                 "sourceSize": 2048,
                 "sourceFileCount": 2,
                 "sourceInfCount": 1,

@@ -7,6 +7,9 @@ from contextlib import contextmanager
 from pathlib import Path
 
 
+INDEX_FORMAT_VERSION = "4"
+
+
 class DriverIndexDB:
     def __init__(self, path: Path):
         self.path = path
@@ -28,12 +31,13 @@ class DriverIndexDB:
     def initialize(self):
         with self.writer:
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            with self.connect() as db:
+            with self.connect() as db, db:
                 db.execute('PRAGMA journal_mode=WAL')
                 db.executescript('''
                     CREATE TABLE IF NOT EXISTS imports (
                         path TEXT PRIMARY KEY COLLATE NOCASE, status TEXT NOT NULL,
-                        error TEXT, updated REAL NOT NULL);
+                        error TEXT, updated REAL NOT NULL,
+                        progress INTEGER NOT NULL DEFAULT 0);
                     CREATE TABLE IF NOT EXISTS packages (
                         id TEXT PRIMARY KEY, import_path TEXT NOT NULL REFERENCES imports(path) ON DELETE CASCADE,
                         status TEXT NOT NULL, payload TEXT NOT NULL);
@@ -46,13 +50,69 @@ class DriverIndexDB:
                     CREATE INDEX IF NOT EXISTS hwid_lookup ON hardware_ids(hardware_id);
                     CREATE INDEX IF NOT EXISTS inf_package ON infs(package_id);
                     CREATE INDEX IF NOT EXISTS package_import ON packages(import_path);
+                    CREATE TABLE IF NOT EXISTS index_metadata (
+                        key TEXT PRIMARY KEY, value TEXT NOT NULL);
                 ''')
+                import_columns = {
+                    row["name"]
+                    for row in db.execute("PRAGMA table_info(imports)")
+                }
+                if "progress" not in import_columns:
+                    db.execute(
+                        "ALTER TABLE imports ADD COLUMN progress "
+                        "INTEGER NOT NULL DEFAULT 0"
+                    )
+                db.execute(
+                    "UPDATE imports SET progress=100 "
+                    "WHERE status='ready' AND progress<>100"
+                )
+                current = db.execute(
+                    "SELECT value FROM index_metadata WHERE key='format_version'"
+                ).fetchone()
+                if current is None or current["value"] != INDEX_FORMAT_VERSION:
+                    # Preserve published package rows while ensuring every
+                    # import is parsed again by the current parser. Failed or
+                    # interrupted rebuilds therefore retain the last usable
+                    # generation on ordinary rebuilds. A format transition is
+                    # different: older parser output may be unsafe, so keep it
+                    # out of lookups until the package is republished.
+                    db.execute(
+                        "UPDATE imports SET status='stale',progress=0 "
+                        "WHERE status='ready'"
+                    )
+                    db.execute("UPDATE packages SET status='stale'")
+                    db.execute(
+                        "INSERT INTO index_metadata(key,value) VALUES('format_version',?) "
+                        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                        (INDEX_FORMAT_VERSION,),
+                    )
+
+    def queue(self, path):
+        with self.writer, self.connect() as db, db:
+            db.execute(
+                'INSERT INTO imports(path,status,error,updated,progress) '
+                'VALUES (?, ?, NULL, ?, 0) ON CONFLICT(path) DO UPDATE SET '
+                'status=excluded.status,error=NULL,updated=excluded.updated,progress=0',
+                (path, 'queued', time.time()),
+            )
 
     def start(self, path):
         with self.writer, self.connect() as db, db:
-            db.execute('INSERT INTO imports VALUES (?, ?, NULL, ?) ON CONFLICT(path) '
-                       'DO UPDATE SET status=excluded.status,error=NULL,updated=excluded.updated',
-                       (path, 'indexing', time.time()))
+            db.execute(
+                'INSERT INTO imports(path,status,error,updated,progress) '
+                'VALUES (?, ?, NULL, ?, 0) ON CONFLICT(path) DO UPDATE SET '
+                'status=excluded.status,error=NULL,updated=excluded.updated,progress=0',
+                (path, 'indexing', time.time()),
+            )
+
+    def set_progress(self, path, progress):
+        value = max(0, min(99, int(progress)))
+        with self.writer, self.connect() as db, db:
+            db.execute(
+                "UPDATE imports SET progress=?,updated=? "
+                "WHERE path=? AND status='indexing'",
+                (value, time.time(), path),
+            )
 
     def publish(self, path, bundles, errors):
         with self.writer, self.connect() as db, db:
@@ -66,14 +126,18 @@ class DriverIndexDB:
                                         (bundle['package_id'], inf['inf'], json.dumps(inf['metadata'])))
                     db.executemany('INSERT INTO hardware_ids VALUES (?,?,?,?)', [
                         (cursor.lastrowid, m['hardware_id'], m['kind'], m['decoration']) for m in inf['mappings']])
-            db.execute('UPDATE imports SET status=?,error=?,updated=? WHERE path=?',
-                       ('ready', '\n'.join(errors) or None, time.time(), path))
+            db.execute(
+                'UPDATE imports SET status=?,error=?,updated=?,progress=? WHERE path=?',
+                ('ready', '\n'.join(errors) or None, time.time(), 100, path),
+            )
 
     def fail(self, path, error):
         # Keep the last committed generation available after a failed rebuild.
         with self.writer, self.connect() as db, db:
-            db.execute('UPDATE imports SET status=?,error=?,updated=? WHERE path=?',
-                       ('error', str(error), time.time(), path))
+            db.execute(
+                'UPDATE imports SET status=?,error=?,updated=? WHERE path=?',
+                ('error', str(error), time.time(), path),
+            )
 
     def imports(self):
         with self.connect(readonly=True) as db:

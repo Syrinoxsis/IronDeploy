@@ -136,6 +136,13 @@ class DeploymentDetailPageTests(unittest.TestCase):
         self.assertIn('id="program-list"', detail_html)
         self.assertIn('id="network-content"', detail_html)
         self.assertIn('id="network-stage-list"', detail_html)
+        self.assertIn('id="driver-table-body"', detail_html)
+        self.assertIn('id="driver-filter-menu"', detail_html)
+        self.assertEqual(detail_html.count('data-driver-filter="'), 7)
+        self.assertEqual(detail_html.count('data-driver-sort="'), 7)
+        self.assertIn('data-driver-sort="inf"', detail_html)
+        self.assertIn('data-driver-sort="provider"', detail_html)
+        self.assertIn('data-driver-sort="version"', detail_html)
         self.assertIn(
             'class="deployment-detail-page" data-page="dashboard"',
             detail_html,
@@ -149,6 +156,15 @@ class DeploymentDetailPageTests(unittest.TestCase):
             "renderNetworkDiagnostics(deployment.network_diagnostics)",
             detail_js,
         )
+        self.assertIn("renderDrivers(deployment.driverResolution)", detail_js)
+        self.assertIn("function visibleDriverReport()", detail_js)
+        self.assertIn("function cycleDriverSort(key)", detail_js)
+        self.assertIn('driverTableState.sortDirection = "ascending"', detail_js)
+        self.assertIn('driverTableState.sortDirection = "descending"', detail_js)
+        self.assertIn("clearDriverFilters", detail_js)
+        self.assertIn('appendDriverCell(row, device.installedInf || "-")', detail_js)
+        self.assertIn('appendDriverCell(row, device.installedProvider || "-")', detail_js)
+        self.assertIn('appendDriverCell(row, device.installedVersion || "-")', detail_js)
         self.assertIn("report.adapters_differ", detail_js)
         self.assertIn(
             'setCopyableField("manufacturer", deployment.manufacturer)',
@@ -171,6 +187,9 @@ class DeploymentDetailPageTests(unittest.TestCase):
         self.assertIn(".detail-loading[hidden]", detail_css)
         self.assertIn("#network-content[hidden]", detail_css)
         self.assertIn("body.deployment-detail-page", detail_css)
+        self.assertIn(".driver-table-wrap", detail_css)
+        self.assertIn(".driver-filter-popover", detail_css)
+        self.assertIn(".driver-sort-button", detail_css)
         self.assertIn("overflow-x: hidden", detail_css)
 
     def test_dashboard_summary_buttons_are_the_status_filter(self) -> None:

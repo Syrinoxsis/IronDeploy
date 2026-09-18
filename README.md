@@ -260,6 +260,7 @@ Detailed implementation and operator notes live outside this README:
 - [WinPE build and deployment runtime](Core/Docs/WINPE.md)
 - [IronAPI configuration and API behaviour](Core/Docs/API.md)
 - [Initial configuration with SetupWeb](Core/Docs/SETUPWEB.md)
+- [Driver lifecycle roadmap](Core/Docs/DRIVERS_ROADMAP.md)
 - [Roadmap](Core/Docs/ROADMAP.md)
 - [Security policy](SECURITY.md)
 - [Contributing and bug reports](CONTRIBUTING.md)

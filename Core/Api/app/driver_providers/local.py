@@ -106,6 +106,20 @@ class LocalDriverProvider:
                 if not enabled.get(data['import_path'].casefold(), True):
                     excluded.add(package_id)
                     continue
+                missing_sources = sorted({
+                    str(name)
+                    for metadata in data.get('metadata', [])
+                    for name in metadata.get('missing_source_files', [])
+                    if str(name).strip()
+                }, key=str.casefold)
+                if missing_sources:
+                    excluded.add(package_id)
+                    warnings.append(
+                        f"Excluded incomplete bundle {data['import_path']} "
+                        f"({package_id}): missing declared source file(s): "
+                        + ', '.join(missing_sources)
+                    )
+                    continue
                 try:
                     selected_snapshot(self.root, data['files'])
                 except (ValueError, OSError) as exc:
@@ -113,5 +127,10 @@ class LocalDriverProvider:
                     warnings.append(f"Excluded changed/unavailable bundle {package_id}: {exc}")
                     continue
                 candidates[package_id] = DriverCandidate(**data)
+                for metadata in candidates[package_id].metadata:
+                    for warning in metadata.get('warnings', []):
+                        warnings.append(
+                            f"{data['import_path']}: {warning}"
+                        )
             candidate = candidates[package_id]
             by_id.setdefault(row['hardware_id'], set()).add(candidate.package_id)

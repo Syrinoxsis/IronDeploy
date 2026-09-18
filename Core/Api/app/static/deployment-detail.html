@@ -249,6 +249,115 @@
                     </details>
                 </div>
             </section>
+
+            <section class="detail-panel driver-panel">
+                <div class="detail-panel-heading">
+                    <div class="driver-heading-copy">
+                        <span class="detail-section-kicker">Driver resolution</span>
+                        <div class="driver-title-row">
+                            <h2>Drivers and devices</h2>
+                            <details class="driver-filter-menu" id="driver-filter-menu">
+                                <summary
+                                    aria-label="Filter drivers and devices"
+                                    title="Filter drivers and devices"
+                                >
+                                    <svg aria-hidden="true" viewBox="0 0 24 24">
+                                        <path d="M4 6h16"></path>
+                                        <path d="M7 12h10"></path>
+                                        <path d="M10 18h4"></path>
+                                    </svg>
+                                    <span>Filter</span>
+                                    <span class="driver-filter-count" id="driver-filter-count" hidden>0</span>
+                                </summary>
+                                <div class="driver-filter-popover">
+                                    <div class="driver-filter-header">
+                                        <strong>Column filters</strong>
+                                        <button id="driver-filter-clear" type="button">Clear</button>
+                                    </div>
+                                    <div class="driver-filter-grid">
+                                        <label>
+                                            <span>Device</span>
+                                            <input type="search" data-driver-filter="device" placeholder="Search device">
+                                        </label>
+                                        <label>
+                                            <span>Class</span>
+                                            <input type="search" data-driver-filter="class" placeholder="Search class">
+                                        </label>
+                                        <label>
+                                            <span>Local repository</span>
+                                            <input type="search" data-driver-filter="repository" placeholder="Search local repository">
+                                        </label>
+                                        <label>
+                                            <span>Matched ID</span>
+                                            <input type="search" data-driver-filter="matched" placeholder="Search matched ID">
+                                        </label>
+                                        <label>
+                                            <span>INF</span>
+                                            <input type="search" data-driver-filter="inf" placeholder="Search INF">
+                                        </label>
+                                        <label>
+                                            <span>Provider</span>
+                                            <input type="search" data-driver-filter="provider" placeholder="Search provider">
+                                        </label>
+                                        <label>
+                                            <span>Version</span>
+                                            <input type="search" data-driver-filter="version" placeholder="Search version">
+                                        </label>
+                                    </div>
+                                </div>
+                            </details>
+                        </div>
+                    </div>
+                    <span class="detail-count" id="driver-count">0 devices</span>
+                </div>
+                <div class="driver-table-wrap" id="driver-table-wrap" hidden>
+                    <table class="driver-table">
+                        <thead>
+                            <tr>
+                                <th aria-sort="none">
+                                    <button class="driver-sort-button" type="button" data-driver-sort="device" data-driver-label="Device">
+                                        <span>Device</span><span class="driver-sort-indicator" aria-hidden="true">↕</span>
+                                    </button>
+                                </th>
+                                <th aria-sort="none">
+                                    <button class="driver-sort-button" type="button" data-driver-sort="class" data-driver-label="Class">
+                                        <span>Class</span><span class="driver-sort-indicator" aria-hidden="true">↕</span>
+                                    </button>
+                                </th>
+                                <th aria-sort="none">
+                                    <button class="driver-sort-button" type="button" data-driver-sort="repository" data-driver-label="Local repository">
+                                        <span>Local repository</span><span class="driver-sort-indicator" aria-hidden="true">↕</span>
+                                    </button>
+                                </th>
+                                <th aria-sort="none">
+                                    <button class="driver-sort-button" type="button" data-driver-sort="matched" data-driver-label="Matched ID">
+                                        <span>Matched ID</span><span class="driver-sort-indicator" aria-hidden="true">↕</span>
+                                    </button>
+                                </th>
+                                <th aria-sort="none">
+                                    <button class="driver-sort-button" type="button" data-driver-sort="inf" data-driver-label="INF">
+                                        <span>INF</span><span class="driver-sort-indicator" aria-hidden="true">↕</span>
+                                    </button>
+                                </th>
+                                <th aria-sort="none">
+                                    <button class="driver-sort-button" type="button" data-driver-sort="provider" data-driver-label="Provider">
+                                        <span>Provider</span><span class="driver-sort-indicator" aria-hidden="true">↕</span>
+                                    </button>
+                                </th>
+                                <th aria-sort="none">
+                                    <button class="driver-sort-button" type="button" data-driver-sort="version" data-driver-label="Version">
+                                        <span>Version</span><span class="driver-sort-indicator" aria-hidden="true">↕</span>
+                                    </button>
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody id="driver-table-body"></tbody>
+                    </table>
+                </div>
+                <p class="detail-empty" id="driver-empty">
+                    No driver resolution data was reported.
+                </p>
+            </section>
         </div>
     </main>
 </body>

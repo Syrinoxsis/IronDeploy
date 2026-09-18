@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import locale
 import os
 import shutil
@@ -391,6 +392,10 @@ def _build_archive(
         if not partial_path.is_file() or partial_path.stat().st_size <= 0:
             raise DriverArchiveError("7-Zip did not create the driver TAR file.")
         archive_size = partial_path.stat().st_size
+        digest = hashlib.sha256()
+        with partial_path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
         with _archive_lock:
             job = _running.get(deployment_id)
             if job is not expected_job or job.cancel.is_set():
@@ -406,6 +411,7 @@ def _build_archive(
                 status="ready",
                 archiveRelativePath=_archive_relative_path(deployment_id),
                 archiveSize=archive_size,
+                archiveSha256=digest.hexdigest(),
                 completedAt=_utc_now(),
                 error=None,
             )

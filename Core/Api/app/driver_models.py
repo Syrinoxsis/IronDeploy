@@ -14,6 +14,10 @@ class DriverDevice(BaseModel):
     device_class: str | None = None
     status: str | None = None
     problem_code: int | None = None
+    device_name: str | None = Field(default=None, max_length=512)
+    driver_inf_name: str | None = Field(default=None, max_length=255)
+    driver_provider: str | None = Field(default=None, max_length=255)
+    driver_version: str | None = Field(default=None, max_length=128)
 
 
 class DriverInventory(BaseModel):

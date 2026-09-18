@@ -3760,6 +3760,7 @@ function Invoke-IronDeployment {
         deployment_id = $script:DeploymentId
         image_apply_mode = $script:ImageApplyMode
         driver_apply_mode = $script:DriverApplyMode
+        driver_mode = [string]$DeploymentPlan.driverMode
         api_base_url = $ApiBaseUrl
         api_deployment_token = $script:DeploymentAccessToken
         driver_package = $DriverPackageRelativePath

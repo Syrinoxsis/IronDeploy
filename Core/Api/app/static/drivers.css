@@ -449,6 +449,55 @@ body[data-page="drivers"] .refresh-button svg {
     font-size: 12px;
 }
 
+.package-index-status {
+    display: grid;
+    flex: 0 1 190px;
+    gap: 5px;
+    min-width: 145px;
+    color: var(--muted);
+    font-size: 11.5px;
+    font-weight: 650;
+}
+
+.package-index-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.package-index-progress {
+    display: block;
+    overflow: hidden;
+    width: 100%;
+    height: 4px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--muted) 22%, transparent);
+}
+
+.package-index-progress > span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--blue);
+    transition: width 180ms ease;
+}
+
+.package-index-status.is-ready {
+    color: var(--green);
+}
+
+.package-index-status.is-ready .package-index-progress > span {
+    background: var(--green);
+}
+
+.package-index-status.is-error {
+    color: var(--red);
+}
+
+.package-index-status.is-error .package-index-progress > span {
+    background: var(--red);
+}
+
 .package-actions .text-button {
     min-height: 30px;
     font-size: 11.5px;
@@ -606,6 +655,11 @@ body[data-page="drivers"] .refresh-button svg {
 
     .package-actions {
         align-self: flex-end;
+    }
+
+    .package-index-status {
+        width: 100%;
+        max-width: 240px;
     }
 
     .progress-row {

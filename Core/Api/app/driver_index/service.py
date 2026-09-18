@@ -25,7 +25,7 @@ class DriverIndexer:
             if path.casefold() in self.jobs and not self.jobs[path.casefold()].done():
                 return self.jobs[path.casefold()]
             self.db.initialize()
-            self.db.start(path)
+            self.db.queue(path)
             future = self.pool.submit(self._index, path)
             self.jobs[path.casefold()] = future
             return future
@@ -34,12 +34,25 @@ class DriverIndexer:
         started = time.monotonic()
         log.info('Driver indexing started package=%s', path)
         try:
+            self.db.start(path)
             package = self.root.joinpath(*path.replace('\\', '/').split('/'))
             package.resolve().relative_to(self.root.resolve())
-            bundles, errors = parse_import(package, path)
+            last_progress = -1
+
+            def report_progress(completed, total):
+                nonlocal last_progress
+                # INF parsing is the expensive part. Reserve the final 5% for
+                # dependency grouping and the atomic SQLite publication.
+                progress = min(95, int(completed * 95 / max(total, 1)))
+                if progress != last_progress:
+                    self.db.set_progress(path, progress)
+                    last_progress = progress
+
+            bundles, errors = parse_import(package, path, report_progress)
             if not bundles:
                 raise ValueError('; '.join(errors) or 'No valid INF packages found')
             parsed = time.monotonic()
+            self.db.set_progress(path, 99)
             self.db.publish(path, bundles, errors)
             mappings = [m for b in bundles for i in b['infs'] for m in i['mappings']]
             log.info('Driver indexing ready package=%s infs=%d hwids=%d compatible_ids=%d parse=%.3fs commit=%.3fs warnings=%s',
