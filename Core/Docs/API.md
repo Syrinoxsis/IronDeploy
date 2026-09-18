@@ -4,7 +4,7 @@ IronAPI is IronDeploy's control plane. It authorizes browser users and WinPE,
 validates deployment selections, integrates with Active Directory, serves
 protected configuration templates, and stores deployment history.
 
-It does not stream large Windows images, driver packages, or installers to
+It does not stream large Windows images, driver packages, or software packages to
 WinPE. Those payloads are read from SMB after IronAPI authorizes the deployment
 and returns the connection details.
 
@@ -82,7 +82,7 @@ IronAPI answers requests from several sources rather than one central catalog:
 | Accounts, permissions, deployments, stages, inventory, and computer-name formats | `Core\Data\irondeploy.db` |
 | Images, indexes, and SHA-256 hashes | `Core\Share\Images` plus server-side image metadata |
 | Driver packages and temporary upload data | `Core\Share\Drivers`; unfinished uploads use numbered slots under `.upload-temp`, while staged TAR files live under `.irondeploy-archives` |
-| Programs, arguments, sizes, and hashes | `Core\Share\Programs` and its metadata file |
+| Software package directories, entrypoints, arguments, sizes, and per-file hashes | `Core\Share\Programs` and its metadata file |
 | Post-PowerShell payloads and profile policy | Private `Core\Library\PostPowerShell` storage plus SQLite profile bindings |
 | SMB access and image/driver apply strategies | server-side `Core\Api\.env` |
 | Unattend and post-install files | `Core\ServerTemplates` |
@@ -96,10 +96,12 @@ server catalog and returns image/index/hash details, `imageApplyMode`,
 `driverApplyMode`, driver-package metadata, selected programs, selected or
 automatic PowerShell scripts, and post-install settings. WinPE
 checks the image size, checks the driver package's total size and INF count,
-and compares selected program installers with their expected SHA-256 after
-copying. In staged mode WinPE also verifies the downloaded image against the
-manifest SHA-256 before invoking DISM. Post-install checks program hashes again
-and refuses to execute a mismatched installer. Driver packages are validated
+and compares every file in each selected software package with its manifest
+size and SHA-256 after copying. In staged mode WinPE also verifies the downloaded
+image against the manifest SHA-256 before invoking DISM. Post-install checks the
+complete package again and refuses to execute an entrypoint if any declared file
+is missing, changed, or unexpected. The entrypoint always runs with its package
+directory as the working directory. Driver packages are validated
 by their server-approved relative path, total size, and INF count rather than
 a content hash.
 
@@ -147,7 +149,8 @@ The IronAPI browser interface provides:
 - browser user and permission management;
 - WinPE authorization policy;
 - WIM/ESD image upload, WIM rename, index selection, and ESD-to-WIM conversion;
-- program upload, rename, arguments, availability, hash metadata, and removal;
+- software-package upload (single installer or directory), entrypoint selection,
+  file management, rename, arguments, availability, hash metadata, and removal;
 - Post-PowerShell upload, arguments, phase, selection mode, timeout, availability,
   and removal;
 - driver vendor/package upload, availability, and cleanup;
@@ -193,7 +196,7 @@ drivers, programs, and image settings. Upload routes validate names and keep
 payloads inside their owning directories. Long-running ESD conversion and
 WinPE build operations expose their current state separately.
 
-Programs, Post-PowerShell scripts, and driver packages each have a server-side
+Software packages, Post-PowerShell scripts, and driver packages each have a server-side
 availability switch. Disabling an item preserves its payload and settings in
 the administration interface but removes it from `GET /api/deploy/catalog`.
 The manifest endpoint builds a fresh catalog, so a disabled item is also

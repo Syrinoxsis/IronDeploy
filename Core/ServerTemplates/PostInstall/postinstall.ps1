@@ -401,17 +401,22 @@ function Install-IronDeployPrograms {
 
     foreach ($Program in $Programs) {
         $ProgramName = [string]$Program.name
+        $ProgramEntrypoint = [string]$Program.entrypoint
         $ProgramArguments = [string]$Program.arguments
-        $ProgramPath = Join-Path $ProgramsDir $ProgramName
+        $PackageRoot = Join-Path $ProgramsDir $ProgramName
+        $ProgramPath = Join-Path $PackageRoot $ProgramEntrypoint
         $Stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
-        if ([string]::IsNullOrWhiteSpace($ProgramName)) {
-            Write-Host "Skipping manifest entry without a program name." `
+        if (
+            [string]::IsNullOrWhiteSpace($ProgramName) -or
+            [string]::IsNullOrWhiteSpace($ProgramEntrypoint)
+        ) {
+            Write-Host "Skipping manifest entry without a package name or entrypoint." `
                 -ForegroundColor Yellow
             continue
         }
-        if (!(Test-Path -LiteralPath $ProgramPath -PathType Leaf)) {
-            Write-Host "Program file not found: $ProgramPath" `
+        if (!(Test-Path -LiteralPath $PackageRoot -PathType Container)) {
+            Write-Host "Program package not found: $PackageRoot" `
                 -ForegroundColor Yellow
             $Stopwatch.Stop()
             $Results += [pscustomobject]@{
@@ -419,30 +424,68 @@ function Install-IronDeployPrograms {
                 status = "failed"
                 exit_code = $null
                 duration_seconds = [int][Math]::Round($Stopwatch.Elapsed.TotalSeconds)
-                error_message = "Program file not found."
+                error_message = "Program package not found."
             }
             continue
         }
 
-        $ExpectedHash = ([string]$Program.sha256).ToLowerInvariant()
-        $ActualHash = ""
+        $IntegrityError = $null
         try {
-            $ActualHash = (
-                Get-FileHash -LiteralPath $ProgramPath -Algorithm SHA256
-            ).Hash.ToLowerInvariant()
+            $PackageRootFull = [IO.Path]::GetFullPath($PackageRoot).TrimEnd("\") + "\"
+            $DeclaredFiles = @($Program.files | ForEach-Object { $_ })
+            if ($DeclaredFiles.Count -ne [int]$Program.fileCount) {
+                throw "Package file count does not match the manifest."
+            }
+            $ActualFiles = @(Get-ChildItem -LiteralPath $PackageRoot -File -Recurse)
+            if ($ActualFiles.Count -ne $DeclaredFiles.Count) {
+                throw "Package contains an unexpected number of files."
+            }
+            foreach ($DeclaredFile in $DeclaredFiles) {
+                $RelativePath = [string]$DeclaredFile.path
+                $DeclaredFilePath = [IO.Path]::GetFullPath(
+                    (Join-Path $PackageRoot $RelativePath)
+                )
+                if (-not $DeclaredFilePath.StartsWith(
+                    $PackageRootFull,
+                    [StringComparison]::OrdinalIgnoreCase
+                )) {
+                    throw "Package manifest contains an invalid file path."
+                }
+                if (!(Test-Path -LiteralPath $DeclaredFilePath -PathType Leaf)) {
+                    throw "Package file not found: $RelativePath"
+                }
+                $DeclaredFileInfo = Get-Item -LiteralPath $DeclaredFilePath
+                if ($DeclaredFileInfo.Length -ne [long]$DeclaredFile.size) {
+                    throw "Package file size mismatch: $RelativePath"
+                }
+                $ActualHash = (
+                    Get-FileHash -LiteralPath $DeclaredFilePath -Algorithm SHA256
+                ).Hash.ToLowerInvariant()
+                if ($ActualHash -ne ([string]$DeclaredFile.sha256).ToLowerInvariant()) {
+                    throw "Package file SHA-256 mismatch: $RelativePath"
+                }
+            }
+            $ProgramPathFull = [IO.Path]::GetFullPath($ProgramPath)
+            if (
+                -not $ProgramPathFull.StartsWith(
+                    $PackageRootFull,
+                    [StringComparison]::OrdinalIgnoreCase
+                ) -or
+                !(Test-Path -LiteralPath $ProgramPathFull -PathType Leaf)
+            ) {
+                throw "Package entrypoint was not found."
+            }
+            $ProgramPath = $ProgramPathFull
         } catch {
-            Write-Host (
-                "{0} SHA-256 calculation failed: {1}" -f `
-                    $ProgramName,
-                    $_.Exception.Message
-            ) -ForegroundColor Red
+            $IntegrityError = [string]$_.Exception.Message
         }
-        if (
-            $ExpectedHash -notmatch "^[0-9a-f]{64}$" -or
-            $ActualHash -ne $ExpectedHash
-        ) {
+        if (-not [string]::IsNullOrWhiteSpace($IntegrityError)) {
             $Stopwatch.Stop()
-            Write-Host ("{0} SHA-256 mismatch; installation blocked." -f $ProgramName) `
+            Write-Host (
+                "{0} package integrity check failed: {1}" -f `
+                    $ProgramName,
+                    $IntegrityError
+            ) `
                 -ForegroundColor Red
             $Results += [pscustomobject]@{
                 name = $ProgramName
@@ -450,14 +493,19 @@ function Install-IronDeployPrograms {
                 reason = "hash_mismatch"
                 exit_code = $null
                 duration_seconds = [int][Math]::Round($Stopwatch.Elapsed.TotalSeconds)
-                error_message = "SHA-256 mismatch. Program was not started."
+                error_message = "$IntegrityError Program was not started."
             }
             continue
         }
 
-        Write-Host ("Installing {0} {1}" -f $ProgramName, $ProgramArguments)
+        Write-Host (
+            "Installing {0} from {1} {2}" -f `
+                $ProgramName,
+                $ProgramEntrypoint,
+                $ProgramArguments
+        )
         try {
-            if ($ProgramName -match "\.msi$") {
+            if ($ProgramEntrypoint -match "\.msi$") {
                 $MsiArguments = "/i `"$ProgramPath`""
                 if (![string]::IsNullOrWhiteSpace($ProgramArguments)) {
                     $MsiArguments += " $ProgramArguments"
@@ -465,14 +513,19 @@ function Install-IronDeployPrograms {
                 $Process = Start-Process `
                     -FilePath msiexec.exe `
                     -ArgumentList $MsiArguments `
+                    -WorkingDirectory $PackageRoot `
                     -PassThru
             } elseif (![string]::IsNullOrWhiteSpace($ProgramArguments)) {
                 $Process = Start-Process `
                     -FilePath $ProgramPath `
                     -ArgumentList $ProgramArguments `
+                    -WorkingDirectory $PackageRoot `
                     -PassThru
             } else {
-                $Process = Start-Process -FilePath $ProgramPath -PassThru
+                $Process = Start-Process `
+                    -FilePath $ProgramPath `
+                    -WorkingDirectory $PackageRoot `
+                    -PassThru
             }
 
             $Exited = $Process.WaitForExit($ProgramInstallTimeoutSeconds * 1000)

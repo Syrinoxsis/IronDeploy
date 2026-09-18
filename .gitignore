@@ -21,7 +21,7 @@ show_cmd_5sec.cmd
 /Core/Share/Drivers/*
 !/Core/Share/Drivers/DRIVERS AND DRIVERS FOLDERS HERE.txt
 /Core/Share/Programs/*
-!/Core/Share/Programs/EXE_AND_MSI_PROGRAMS_HERE.txt
+!/Core/Share/Programs/SOFTWARE_PACKAGES_HERE.txt
 /Core/Library/PostPowerShell/*
 !/Core/Library/PostPowerShell/PS1_SCRIPTS_HERE.txt
 /Core/Share/Unattend/unattend-win11-template.xml

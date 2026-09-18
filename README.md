@@ -212,9 +212,12 @@ default deployment edition, and can convert imported ESD images to WIM.
 
 ### Managing post-install programs
 
-The post-install software page lets administrators upload installers, configure
-their unattended launch arguments, and maintain the programs offered to WinPE
-operators during deployment.
+The post-install software page manages directory-based software packages. An
+administrator can upload one EXE/MSI (IronDeploy creates its package directory)
+or an entire folder containing the installer, configuration, transforms, and
+other supporting files. Each package has one EXE/MSI entrypoint and unattended
+launch arguments; the entrypoint runs with the package root as its working
+directory. Files can be added to or removed from an existing package in the UI.
 
 ![IronDeploy post-install software management page](Core/Docs/screenshots/post-installProgram.png)
 
@@ -235,7 +238,7 @@ environment:
 - prefer HTTPS for IronAPI and enable certificate validation, because the API
   carries deployment tokens and the configured SMB account details;
 - never commit `.env`, databases, ODJ blobs, WIM/ESD images, generated
-  WIM/ISO files, driver packages, or program installers;
+  WIM/ISO files, driver packages, or software package payloads;
 - verify the target machine and the selected disk's number, model, and size
   before confirming the permanent erase.
 

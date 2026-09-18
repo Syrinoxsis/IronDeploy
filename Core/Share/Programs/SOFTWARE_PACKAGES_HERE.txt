@@ -1,0 +1,9 @@
+Software packages live here as one directory per package.
+
+Use the IronAPI Post-install software page to upload a single EXE/MSI or a
+complete folder. Single installers are wrapped in a package directory
+automatically. Package entrypoints, arguments, and per-file hashes are stored
+in .irondeploy-programs.json next to the package directories.
+
+Legacy EXE/MSI files copied directly into this directory are migrated into
+package directories when IronAPI next reads the program catalog.

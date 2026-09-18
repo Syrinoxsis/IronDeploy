@@ -156,13 +156,20 @@ from app.deployment_images import (
     start_esd_conversion,
 )
 from app.programs import (
+    add_program_file,
+    cancel_program_upload,
+    delete_program_file,
+    finalize_program_upload,
     ProgramError,
     delete_program,
     list_programs,
     rename_program,
+    save_program_upload_file,
     save_uploaded_program,
     set_program_arguments,
     set_program_enabled,
+    set_program_entrypoint,
+    start_program_upload,
 )
 from app.post_powershell import (
     MAX_OUTPUT_SIZE_BYTES,
@@ -707,6 +714,68 @@ async def upload_program(request: Request) -> JSONResponse:
     return JSONResponse(result, status_code=201)
 
 
+@app.post("/api/programs/uploads")
+async def begin_program_package_upload(request: Request) -> JSONResponse:
+    require_image_config_write(request)
+    try:
+        payload = await request.json()
+        result = start_program_upload(
+            payload.get("name", ""),
+            payload.get("entrypoint", ""),
+            payload.get("files", []),
+            arguments=payload.get("arguments", ""),
+        )
+    except (AttributeError, TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Invalid package upload manifest.")
+    except ProgramError as exc:
+        status_code = 409 if "already exists" in str(exc) else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+    return JSONResponse(result, status_code=201)
+
+
+@app.post("/api/programs/uploads/{upload_id}/files")
+async def upload_program_package_file(
+    upload_id: str, request: Request
+) -> JSONResponse:
+    require_image_config_write(request)
+    encoded_path = request.headers.get("x-irondeploy-relative-path", "")
+    try:
+        result = await save_program_upload_file(
+            upload_id,
+            unquote(encoded_path),
+            request.stream(),
+        )
+    except ProgramError as exc:
+        status_code = 409 if "already uploaded" in str(exc) else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+    return JSONResponse(result, status_code=201)
+
+
+@app.post("/api/programs/uploads/{upload_id}/finalize")
+def publish_program_package_upload(
+    upload_id: str, request: Request
+) -> JSONResponse:
+    require_image_config_write(request)
+    try:
+        result = finalize_program_upload(upload_id)
+    except ProgramError as exc:
+        status_code = 409 if "already exists" in str(exc) else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+    return JSONResponse(result, status_code=201)
+
+
+@app.delete("/api/programs/uploads/{upload_id}")
+def discard_program_package_upload(
+    upload_id: str, request: Request
+) -> JSONResponse:
+    require_image_config_write(request)
+    try:
+        result = cancel_program_upload(upload_id)
+    except (OSError, ProgramError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return JSONResponse(result)
+
+
 @app.post("/api/programs/{name}/arguments")
 async def update_program_arguments(name: str, request: Request) -> JSONResponse:
     require_image_config_write(request)
@@ -736,6 +805,53 @@ async def rename_uploaded_program(name: str, request: Request) -> JSONResponse:
         )
     except ProgramError as exc:
         status_code = 409 if "already exists" in str(exc) else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+    return JSONResponse(result)
+
+
+@app.post("/api/programs/{name}/entrypoint")
+async def update_program_entrypoint(name: str, request: Request) -> JSONResponse:
+    require_image_config_write(request)
+    try:
+        payload = await request.json()
+        entrypoint = payload.get("entrypoint", "")
+        if not isinstance(entrypoint, str):
+            raise ProgramError("entrypoint must be a string.")
+        result = set_program_entrypoint(name, entrypoint)
+    except (AttributeError, TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="entrypoint must be a string.")
+    except ProgramError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return JSONResponse(result)
+
+
+@app.post("/api/programs/{name}/files")
+async def upload_file_to_program_package(
+    name: str, request: Request
+) -> JSONResponse:
+    require_image_config_write(request)
+    encoded_path = request.headers.get("x-irondeploy-relative-path", "")
+    try:
+        result = await add_program_file(
+            name,
+            unquote(encoded_path),
+            request.stream(),
+        )
+    except ProgramError as exc:
+        status_code = 409 if "already exists" in str(exc) else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+    return JSONResponse(result, status_code=201)
+
+
+@app.delete("/api/programs/{name}/files")
+def remove_file_from_program_package(
+    name: str, path: str, request: Request
+) -> JSONResponse:
+    require_image_config_write(request)
+    try:
+        result = delete_program_file(name, path)
+    except ProgramError as exc:
+        status_code = 404 if "not found" in str(exc) else 400
         raise HTTPException(status_code=status_code, detail=str(exc)) from exc
     return JSONResponse(result)
 
@@ -1542,9 +1658,28 @@ def _deployment_catalog(session: Session | None = None, include_drivers: bool = 
             {
                 "name": program["name"],
                 "size": program["size"],
+                "fileCount": program.get("fileCount", 1),
                 "type": program["type"],
+                "entrypoint": program.get("entrypoint", program["name"]),
                 "arguments": program["arguments"],
                 "sha256": program["sha256"],
+                "files": [
+                    {
+                        "path": item["path"],
+                        "size": item["size"],
+                        "sha256": item["sha256"],
+                    }
+                    for item in program.get(
+                        "files",
+                        [
+                            {
+                                "path": program["name"],
+                                "size": program["size"],
+                                "sha256": program["sha256"],
+                            }
+                        ],
+                    )
+                ],
             }
             for program in program_listing["programs"]
             if program["enabled"]

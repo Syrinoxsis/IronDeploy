@@ -231,10 +231,10 @@ Only then does the destructive phase begin:
 6. WinPE writes deployment state into `C:\IronDeploy`.
 7. WinPE downloads and applies the authorized unattend file.
 8. Optional ODJ data is provisioned by IronAPI and applied to offline Windows.
-9. SetupComplete, post-install configuration, and selected installers are
-   copied into the offline system.
-10. WinPE compares each copied installer's SHA-256 with the value in the
-    server-approved manifest.
+9. SetupComplete, post-install configuration, and selected software package
+   directories are copied into the offline system.
+10. WinPE compares every copied package file's size and SHA-256 with the values
+    in the server-approved manifest.
 11. Selected and profile-automatic post-PowerShell scripts are downloaded over
     the configured IronAPI HTTP(S) transport, checked against their manifest
     size and SHA-256, and staged with a per-deployment execution manifest.
@@ -264,7 +264,8 @@ in [API.md](API.md).
 Windows Setup runs `Core\ServerTemplates\PostInstall\SetupComplete.cmd`, which
 starts `postinstall.ps1` in the installed system. The script:
 
-- installs the selected EXE/MSI programs and records their results;
+- verifies every file in each selected software package, runs its configured
+  EXE/MSI entrypoint from the package root, and records the result;
 - runs profile-approved PowerShell scripts before or after software with their
   configured raw arguments and timeout of up to three hours;
 - verifies every `.ps1` SHA-256 again, retains at most 20 MiB of combined UTF-8
