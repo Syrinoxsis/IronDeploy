@@ -138,6 +138,25 @@ class DeploymentDetailPageTests(unittest.TestCase):
         self.assertIn('id="network-stage-list"', detail_html)
         self.assertIn('id="driver-table-body"', detail_html)
         self.assertIn('id="driver-filter-menu"', detail_html)
+        self.assertEqual(detail_html.count('data-detail-tab="'), 7)
+        self.assertEqual(detail_html.count('data-detail-panel="'), 7)
+        self.assertIn('data-detail-tab="overview"', detail_html)
+        self.assertIn('data-detail-panel="overview"', detail_html)
+        self.assertIn('class="detail-category-list" role="tablist"', detail_html)
+        self.assertIn('aria-selected="true"', detail_html)
+        self.assertIn('class="detail-overview-content"', detail_html)
+        self.assertIn('class="detail-timing-heading"', detail_html)
+        self.assertIn(
+            'class="detail-panel detail-tab-panel network-panel"',
+            detail_html,
+        )
+        self.assertIn("function selectDetailCategory(category", detail_js)
+        self.assertIn("function moveDetailCategoryFocus(", detail_js)
+        self.assertIn('selectDetailCategory("overview")', detail_js)
+        self.assertIn(
+            '.detail-category-list button[aria-selected="true"]',
+            detail_css,
+        )
         self.assertEqual(detail_html.count('data-driver-filter="'), 7)
         self.assertEqual(detail_html.count('data-driver-sort="'), 7)
         self.assertIn('data-driver-sort="inf"', detail_html)

@@ -28,7 +28,9 @@ const detailElements = {
     totalDuration: document.querySelector("#total-duration"),
     startedAt: document.querySelector("#started-at"),
     completedAt: document.querySelector("#completed-at"),
-    deploymentError: document.querySelector("#deployment-error"),
+    categoryTabs: [...document.querySelectorAll("[data-detail-tab]")],
+    categoryPanels: [...document.querySelectorAll("[data-detail-panel]")],
+    deploymentErrorTab: document.querySelector("#detail-tab-error"),
     deploymentErrorMessage: document.querySelector("#deployment-error-message"),
     stageList: document.querySelector("#stage-list"),
     stageEmpty: document.querySelector("#stage-empty"),
@@ -85,6 +87,7 @@ const detailState = {
     startedAt: null,
     completedAt: null,
     status: null,
+    category: "overview",
 };
 
 const driverTableState = {
@@ -106,6 +109,31 @@ const deploymentId = Number.parseInt(
     window.location.pathname.split("/").filter(Boolean).at(-1),
     10,
 );
+
+function selectDetailCategory(category, { focus = false } = {}) {
+    const tab = detailElements.categoryTabs.find(
+        (item) => item.dataset.detailTab === category && !item.hidden,
+    );
+    if (!tab) return;
+    detailState.category = category;
+    for (const item of detailElements.categoryTabs) {
+        const selected = item === tab;
+        item.setAttribute("aria-selected", String(selected));
+        item.tabIndex = selected ? 0 : -1;
+    }
+    for (const panel of detailElements.categoryPanels) {
+        panel.hidden = panel.dataset.detailPanel !== category;
+    }
+    if (focus) tab.focus();
+}
+
+function moveDetailCategoryFocus(currentTab, direction) {
+    const tabs = detailElements.categoryTabs.filter((tab) => !tab.hidden);
+    const currentIndex = tabs.indexOf(currentTab);
+    if (currentIndex < 0) return;
+    const nextIndex = (currentIndex + direction + tabs.length) % tabs.length;
+    selectDetailCategory(tabs[nextIndex].dataset.detailTab, { focus: true });
+}
 
 function detailText(value) {
     return window.IronI18n?.t(value) || value;
@@ -943,7 +971,11 @@ function renderDeployment(deployment) {
     detailElements.startedAt.textContent = detailFormatDate(deployment.started_at);
     detailElements.completedAt.textContent = detailFormatDate(deployment.completed_at);
 
-    detailElements.deploymentError.hidden = !deployment.last_error_message;
+    const hasDeploymentError = Boolean(deployment.last_error_message);
+    detailElements.deploymentErrorTab.hidden = !hasDeploymentError;
+    if (!hasDeploymentError && detailState.category === "error") {
+        selectDetailCategory("overview");
+    }
     detailElements.deploymentErrorMessage.textContent =
         deployment.last_error_message || "";
     renderStages(deployment.stages || []);
@@ -1031,8 +1063,26 @@ for (const input of detailElements.driverFilterInputs) {
 for (const button of detailElements.driverSortButtons) {
     button.addEventListener("click", () => cycleDriverSort(button.dataset.driverSort));
 }
+for (const tab of detailElements.categoryTabs) {
+    tab.addEventListener("click", () => selectDetailCategory(tab.dataset.detailTab));
+    tab.addEventListener("keydown", (event) => {
+        if (["ArrowDown", "ArrowRight"].includes(event.key)) {
+            event.preventDefault();
+            moveDetailCategoryFocus(tab, 1);
+        } else if (["ArrowUp", "ArrowLeft"].includes(event.key)) {
+            event.preventDefault();
+            moveDetailCategoryFocus(tab, -1);
+        } else if (event.key === "Home" || event.key === "End") {
+            event.preventDefault();
+            const tabs = detailElements.categoryTabs.filter((item) => !item.hidden);
+            const target = event.key === "Home" ? tabs[0] : tabs.at(-1);
+            selectDetailCategory(target.dataset.detailTab, { focus: true });
+        }
+    });
+}
 detailElements.driverFilterClear.addEventListener("click", clearDriverFilters);
 detailElements.refreshButton.addEventListener("click", loadDeployment);
+selectDetailCategory("overview");
 window.setInterval(loadDeployment, DETAIL_REFRESH_MS);
 window.setInterval(() => {
     if (
