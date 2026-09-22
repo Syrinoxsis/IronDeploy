@@ -26,6 +26,11 @@ class DriverReconciliationFinalRequest(BaseModel):
     warnings: list[str] = Field(default_factory=list, max_length=100)
 
 
+class DriverArchiveCompletionRequest(BaseModel):
+    pass_number: int = Field(ge=1, le=3)
+    installed: bool = False
+
+
 def resolve_installed_inventory(payload: DriverReconciliationRequest | DriverReconciliationFinalRequest):
     indexer = get_indexer()
     target = DriverTarget(
@@ -41,14 +46,10 @@ def resolve_installed_inventory(payload: DriverReconciliationRequest | DriverRec
 
 def delivered_package_ids(driver_resolution: dict[str, Any] | None, before_pass: int) -> set[str]:
     resolution = driver_resolution or {}
-    delivered = {
-        str(package.get("package_id"))
-        for package in resolution.get("candidate_packages", [])
-        if package.get("package_id")
-    }
+    delivered = set(resolution.get("appliedPackageIds", []))
     reconciliation = resolution.get("reconciliation") or {}
     for item in reconciliation.get("passes", []):
-        if int(item.get("passNumber", 0)) < before_pass:
+        if int(item.get("passNumber", 0)) < before_pass and item.get("installed") is True:
             delivered.update(str(value) for value in item.get("newPackageIds", []))
     return delivered
 

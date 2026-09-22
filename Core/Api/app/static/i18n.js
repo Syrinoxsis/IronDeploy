@@ -1,6 +1,8 @@
 (() => {
     const STORAGE_KEY = "irondeploy-language";
     const ru = {
+        "No .exe or .msi found. This package cannot be selected for installation.": "Нет .exe или .msi. Этот пакет нельзя выбрать для установки.",
+        "This file already exists in the folder or is being uploaded. Rename your file.": "Этот файл уже есть в папке или загружается. Переименуйте свой файл.",
         "Enabled": "Включено",
         "Disabled": "Выключено",
         "Waiting for indexing": "\u041e\u0436\u0438\u0434\u0430\u0435\u0442 \u0438\u043d\u0434\u0435\u043a\u0441\u0430\u0446\u0438\u0438",

@@ -280,6 +280,17 @@ starts `postinstall.ps1` in the installed system. The script:
 At that point WinPE is no longer running. IronAPI owns the deployment record
 and final result.
 
+Software packages without an EXE/MSI remain visible with a warning in IronAPI
+and WinPE, but cannot be selected for deployment. Removing the active installer
+is allowed; another EXE/MSI is selected when available, otherwise the package
+remains unavailable until an installer is added.
+
+Automatic driver reconciliation excludes only packages explicitly confirmed as
+added successfully: the WinPE `driver_injection` completion event acknowledges
+the initial packages, and each post-install pass reports its installation result.
+Archive preparation or cleanup alone is not confirmation. This bookkeeping adds
+no driver-file scan and leaves unconfirmed packages eligible for a later pass.
+
 ## Mount-state recovery
 
 Inspect DISM state before recovery:

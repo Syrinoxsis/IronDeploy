@@ -39,6 +39,11 @@ _RESERVED_WINDOWS_NAMES = {"CON", "PRN", "AUX", "NUL"} | {
     for number in range(1, 10)
 }
 _metadata_lock = RLock()
+_pending_files: set[str] = set()
+
+
+def _file_conflict() -> ProgramError:
+    return ProgramError("This file already exists in the folder or is being uploaded. Rename your file.")
 
 
 class ProgramError(RuntimeError):
@@ -317,11 +322,7 @@ def _scan_package(
         if PureWindowsPath(item["path"]).suffix.lower() in ALLOWED_SUFFIXES
     }
     if not isinstance(entrypoint, str) or entrypoint.casefold() not in entrypoint_names:
-        if not entrypoint_names:
-            raise ProgramError(
-                f"Package '{package_dir.name}' has no EXE or MSI entrypoint."
-            )
-        entrypoint = entrypoint_names[sorted(entrypoint_names)[0]]
+        entrypoint = entrypoint_names[sorted(entrypoint_names)[0]] if entrypoint_names else ""
         record["entrypoint"] = entrypoint
         changed = True
     else:
@@ -347,6 +348,8 @@ def _scan_package(
         {
             "name": package_dir.name,
             "entrypoint": entrypoint,
+            "ready": bool(entrypoint),
+            "warning": "" if entrypoint else "No .exe or .msi found. This package cannot be selected for installation.",
             "type": PureWindowsPath(entrypoint).suffix[1:].upper(),
             "size": total_size,
             "fileCount": len(files),
@@ -873,14 +876,16 @@ async def add_program_file(
             raise ProgramError(f"Packages are limited to {MAX_PROGRAM_FILES} files.")
         package_dir = programs_dir / program["name"]
         destination = _native_path(package_dir, safe_relative)
-        if destination.exists():
-            raise ProgramError(f"Package file '{safe_relative}' already exists.")
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    staging_dir = _uploads_dir(programs_dir)
-    staging_dir.mkdir(parents=True, exist_ok=True)
-    temporary = staging_dir / f"file-{uuid4().hex}.tmp"
+        reservation = str(destination.absolute()).casefold()
+        if destination.exists() or reservation in _pending_files:
+            raise _file_conflict()
+        _pending_files.add(reservation)
+    temporary = _uploads_dir(programs_dir) / f"file-{uuid4().hex}.tmp"
     size = 0
+    published = False
     try:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        temporary.parent.mkdir(parents=True, exist_ok=True)
         with temporary.open("xb") as handle:
             async for chunk in chunks:
                 if chunk:
@@ -888,17 +893,31 @@ async def add_program_file(
                     if program["size"] + size > MAX_PROGRAM_SIZE_BYTES:
                         raise ProgramError("Program packages are limited to 5 GiB.")
                     handle.write(chunk)
-        os.replace(temporary, destination)
         with _metadata_lock:
+            if destination.exists():
+                raise _file_conflict()
+            # A hard link publishes atomically without overwriting a file that
+            # appeared during the upload (including from another process).
+            try:
+                os.link(temporary, destination)
+            except FileExistsError:
+                raise _file_conflict() from None
+            published = True
             updated, metadata = _program_record(
                 program["name"], programs_dir, metadata_path
             )
             metadata["version"] = 4
             _write_metadata(metadata, metadata_path)
-    except Exception:
-        temporary.unlink(missing_ok=True)
-        destination.unlink(missing_ok=True)
+    except BaseException:
+        if published:
+            destination.unlink(missing_ok=True)
         raise
+    finally:
+        try:
+            temporary.unlink(missing_ok=True)
+        finally:
+            with _metadata_lock:
+                _pending_files.discard(reservation)
     return {
         "uploaded": True,
         "path": safe_relative,
@@ -926,8 +945,6 @@ def delete_program_file(
         )
         if actual is None:
             raise ProgramError("Package file not found.")
-        if actual.casefold() == program["entrypoint"].casefold():
-            raise ProgramError("The active package entrypoint cannot be deleted.")
         target = _native_path(programs_dir / program["name"], actual)
         target.unlink()
         parent = target.parent

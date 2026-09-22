@@ -268,10 +268,75 @@ class ProgramManagementTests(unittest.TestCase):
             "Company Agent", "bin\\setup.exe", self.programs_dir, self.metadata_path
         )
         self.assertTrue(deleted["deleted"])
-        with self.assertRaisesRegex(ProgramError, "entrypoint cannot be deleted"):
-            delete_program_file(
-                "Company Agent", "tools\\repair.exe", self.programs_dir, self.metadata_path
-            )
+        delete_program_file(
+            "Company Agent", "tools\\repair.exe", self.programs_dir, self.metadata_path
+        )
+        program = list_programs(self.programs_dir, self.metadata_path)["programs"][0]
+        self.assertFalse(program["ready"])
+        self.assertEqual(program["entrypoint"], "")
+        self.assertIn("No .exe or .msi", program["warning"])
+        asyncio.run(add_program_file(
+            "Company Agent", "new.msi", _chunks(b"installer"),
+            self.programs_dir, self.metadata_path,
+        ))
+        program = list_programs(self.programs_dir, self.metadata_path)["programs"][0]
+        self.assertTrue(program["ready"])
+        self.assertEqual(program["entrypoint"], "new.msi")
+
+    def test_empty_folder_does_not_block_valid_packages(self):
+        self.upload_package()
+        (self.programs_dir / "Empty").mkdir()
+        packages = list_programs(self.programs_dir, self.metadata_path)["programs"]
+        self.assertEqual(len(packages), 2)
+        self.assertTrue(packages[0]["ready"])
+        self.assertFalse(packages[1]["ready"])
+        self.assertTrue(delete_program("Empty", self.programs_dir, self.metadata_path)["deleted"])
+
+    def test_duplicate_upload_is_rejected_without_overwriting_first(self):
+        self.upload_package()
+
+        async def exercise():
+            entered, release = asyncio.Event(), asyncio.Event()
+
+            async def first_chunks():
+                entered.set()
+                await release.wait()
+                yield b"first"
+
+            task = asyncio.create_task(add_program_file(
+                "Company Agent", "shared.dat", first_chunks(),
+                self.programs_dir, self.metadata_path,
+            ))
+            await entered.wait()
+            try:
+                with self.assertRaisesRegex(ProgramError, "Rename your file"):
+                    await add_program_file(
+                        "Company Agent", "SHARED.DAT", _chunks(b"second"),
+                        self.programs_dir, self.metadata_path,
+                    )
+            finally:
+                release.set()
+                await task
+            with self.assertRaisesRegex(ProgramError, "Rename your file"):
+                await add_program_file(
+                    "Company Agent", "shared.dat", _chunks(b"third"),
+                    self.programs_dir, self.metadata_path,
+                )
+
+        asyncio.run(exercise())
+        self.assertEqual((self.programs_dir / "Company Agent/shared.dat").read_bytes(), b"first")
+
+    def test_failed_add_releases_filename_for_retry(self):
+        self.upload_package()
+        with self.assertRaises(RuntimeError):
+            asyncio.run(add_program_file(
+                "Company Agent", "retry.dat", _broken_chunks(),
+                self.programs_dir, self.metadata_path,
+            ))
+        asyncio.run(add_program_file(
+            "Company Agent", "retry.dat", _chunks(b"retry"),
+            self.programs_dir, self.metadata_path,
+        ))
 
     def test_rename_rolls_back_directory_when_metadata_write_fails(self) -> None:
         self.upload_package("Before")

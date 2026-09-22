@@ -214,6 +214,7 @@ from app.winpe_auth import (
 from app.driver_index.service import get_indexer, shutdown_indexer
 from app.driver_manifest import resolve_manifest
 from app.driver_reconciliation import (
+    DriverArchiveCompletionRequest,
     DriverReconciliationFinalRequest,
     DriverReconciliationRequest,
     archive_package,
@@ -1661,6 +1662,8 @@ def _deployment_catalog(session: Session | None = None, include_drivers: bool = 
                 "fileCount": program.get("fileCount", 1),
                 "type": program["type"],
                 "entrypoint": program.get("entrypoint", program["name"]),
+                "ready": program.get("ready", True),
+                "warning": program.get("warning", ""),
                 "arguments": program["arguments"],
                 "sha256": program["sha256"],
                 "files": [
@@ -1772,7 +1775,7 @@ def deploy_manifest(
     selected_programs = []
     for name in payload.program_names:
         program = programs_by_name.get(name.casefold())
-        if program is None:
+        if program is None or not program.get("ready", True):
             raise HTTPException(
                 status_code=400,
                 detail=f"Selected program is unavailable: {name}",
@@ -2822,6 +2825,13 @@ def deploy_stage_event(
         }[event]
         stage_record.completed_at = now
 
+    if stage == "driver_injection" and deployment.driver_resolution is not None:
+        resolution = dict(deployment.driver_resolution)
+        resolution["appliedPackageIds"] = [
+            item["package_id"] for item in resolution.get("candidate_packages", [])
+            if item.get("package_id")
+        ] if event == "complete" and stage_record.status == STAGE_COMPLETED else []
+        deployment.driver_resolution = resolution
     session.commit()
     if stage == "driver_download" and event in {"complete", "fail", "skip"}:
         cleanup_driver_archive(deployment_id)
@@ -2935,12 +2945,23 @@ def deploy_reconcile_archive_complete(
     deployment_id: int,
     request: Request,
     session: Session = Depends(get_session),
+    payload: DriverArchiveCompletionRequest | None = None,
 ) -> dict[str, str]:
     deployment, _ = require_owned_deployment(
         deployment_id, request, session, "postinstall"
     )
     if deployment.status != DEPLOYMENT_BEGIN:
         raise HTTPException(status_code=409, detail="Deployment is not active")
+    if payload is not None:
+        resolution = dict(deployment.driver_resolution or {})
+        reconciliation = dict(resolution.get("reconciliation") or {})
+        passes = [dict(item) for item in reconciliation.get("passes", [])]
+        for item in passes:
+            if item.get("passNumber") == payload.pass_number:
+                item["installed"] = payload.installed
+        reconciliation["passes"] = passes
+        deployment.driver_resolution = save_reconciliation(resolution, reconciliation)
+        session.commit()
     cleanup_driver_archive(deployment_id)
     return {"status": "deleted"}
 

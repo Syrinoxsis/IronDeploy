@@ -368,6 +368,22 @@
     border-bottom: 0;
 }
 
+.package-card.is-unavailable,
+.package-card.is-unavailable:hover {
+    border-left: 3px solid #d97706;
+    background: rgba(217, 119, 6, .09);
+}
+
+.package-identity .package-warning,
+.notice.warning {
+    color: #fbbf24;
+}
+
+.notice.warning {
+    background: rgba(217, 119, 6, .09);
+    border: 1px solid #d97706;
+}
+
 .package-card:hover {
     background: rgba(255, 255, 255, .012);
 }

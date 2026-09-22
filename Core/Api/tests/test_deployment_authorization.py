@@ -24,12 +24,14 @@ from app.deployments import (
     DeploymentBeginRequest,
 )
 from app.driver_models import DriverCandidate, DriverDevice, DriverInventory, DriverMatch, DriverResolution
-from app.driver_reconciliation import DriverReconciliationRequest
+from app.driver_reconciliation import DriverReconciliationRequest, DriverArchiveCompletionRequest, delivered_package_ids
 from app.main import (
     deploy_begin,
     deploy_enter_postinstall,
     deploy_reconcile_drivers,
     deploy_reconcile_drivers_config,
+    deploy_stage_event,
+    deploy_reconcile_archive_complete,
     deployment_postinstall_script,
     deployment_setup_complete,
     deployment_smb_credentials,
@@ -38,6 +40,51 @@ from app.main import (
 
 
 class DeploymentAuthorizationTests(unittest.TestCase):
+    def test_only_explicit_driver_completion_marks_packages_applied(self):
+        with Session(self.engine) as session:
+            deployment = self.deployment()
+            deployment.driver_resolution = {"candidate_packages": [{"package_id": "initial"}]}
+            session.add(deployment)
+            session.commit()
+            token = self.create_bound_token(session, deployment)
+            request = self.request(token.id)
+            deploy_stage_event(deployment.id, "driver_injection", "start", request, session)
+            self.assertEqual(delivered_package_ids(deployment.driver_resolution, 1), set())
+            deploy_stage_event(deployment.id, "driver_injection", "complete", request, session)
+            session.refresh(deployment)
+            self.assertEqual(delivered_package_ids(deployment.driver_resolution, 1), {"initial"})
+
+    def test_skipped_drivers_are_not_marked_applied(self):
+        with Session(self.engine) as session:
+            deployment = self.deployment()
+            deployment.driver_resolution = {"candidate_packages": [{"package_id": "initial"}]}
+            session.add(deployment)
+            session.commit()
+            token = self.create_bound_token(session, deployment)
+            deploy_stage_event(deployment.id, "driver_injection", "skip", self.request(token.id), session)
+            self.assertEqual(delivered_package_ids(deployment.driver_resolution, 1), set())
+
+    def test_reconciliation_cleanup_requires_installation_confirmation(self):
+        with Session(self.engine) as session:
+            deployment = self.deployment()
+            deployment.driver_resolution = {"reconciliation": {"passes": [
+                {"passNumber": 1, "newPackageIds": ["new"]}
+            ]}}
+            session.add(deployment)
+            session.commit()
+            token = self.create_bound_token(session, deployment)
+            token.phase = "postinstall"
+            session.commit()
+            with patch("app.main.cleanup_driver_archive"):
+                deploy_reconcile_archive_complete(deployment.id, self.request(token.id), session)
+                self.assertEqual(delivered_package_ids(deployment.driver_resolution, 2), set())
+                deploy_reconcile_archive_complete(
+                    deployment.id, self.request(token.id), session,
+                    DriverArchiveCompletionRequest(pass_number=1, installed=True),
+                )
+            session.refresh(deployment)
+            self.assertEqual(delivered_package_ids(deployment.driver_resolution, 2), {"new"})
+
     def setUp(self) -> None:
         self.engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(self.engine)

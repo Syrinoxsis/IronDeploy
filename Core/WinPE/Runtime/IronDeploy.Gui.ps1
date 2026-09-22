@@ -872,6 +872,7 @@ function Start-IronDeployGui {
             Enabled = "Enabled"
             Disabled = "Disabled"
             ProgramsLabel = "POST-INSTALL SOFTWARE"
+            ProgramMissingInstaller = "No .exe or .msi found — cannot select this package."
             ProgramsCount = "POST-INSTALL SOFTWARE ({0})"
             NoProgramsText = "No post-install software is available."
             PostPowerShellLabel = "POST-POWERSHELL SCRIPTS"
@@ -957,6 +958,7 @@ function Start-IronDeployGui {
             Enabled = "Включено"
             Disabled = "Отключено"
             ProgramsLabel = "ПРОГРАММЫ ПОСЛЕ УСТАНОВКИ"
+            ProgramMissingInstaller = "Нет .exe или .msi — этот пакет нельзя выбрать."
             ProgramsCount = "ПРОГРАММЫ ПОСЛЕ УСТАНОВКИ ({0})"
             NoProgramsText = "Нет доступных программ для установки."
             PostPowerShellLabel = "POST-POWERSHELL СКРИПТЫ"
@@ -1898,6 +1900,11 @@ try {
                 $programCheck.Content = $programText
                 $programCheck.Tag = [string]$program.Name
                 $programCheck.Foreground = $script:IronGuiBrushes["info"]
+                if ($program.Ready -eq $false) {
+                    $programCheck.IsEnabled = $false
+                    $programText.Text += "`n" + (& $script:IronGuiGetText "ProgramMissingInstaller")
+                    $programText.Foreground = [System.Windows.Media.Brushes]::DarkOrange
+                }
                 $programCheck.Margin = New-Object System.Windows.Thickness(0, 3, 0, 3)
                 [void]$script:IronGuiUi.ProgramsPanel.Children.Add($programCheck)
                 $script:IronGuiProgramChecks += $programCheck

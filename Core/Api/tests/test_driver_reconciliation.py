@@ -39,8 +39,9 @@ class DriverReconciliationTests(unittest.TestCase):
     def test_delivered_packages_include_initial_and_earlier_passes(self):
         resolution = {
             "candidate_packages": [{"package_id": "initial"}],
+            "appliedPackageIds": ["initial"],
             "reconciliation": {"passes": [
-                {"passNumber": 1, "newPackageIds": ["pass-one"]},
+                {"passNumber": 1, "newPackageIds": ["pass-one"], "installed": True},
                 {"passNumber": 2, "newPackageIds": ["current"]},
             ]},
         }
@@ -48,6 +49,17 @@ class DriverReconciliationTests(unittest.TestCase):
             delivered_package_ids(resolution, 2),
             {"initial", "pass-one"},
         )
+
+    def test_selected_but_unapplied_drivers_are_available_for_retry(self):
+        resolution = {
+            "candidate_packages": [{"package_id": "initial"}],
+            "warnings": ["AUTO archive unavailable"],
+            "reconciliation": {"passes": [
+                {"passNumber": 1, "newPackageIds": ["failed"], "installed": False},
+                {"passNumber": 2, "newPackageIds": ["unconfirmed"]},
+            ]},
+        }
+        self.assertEqual(delivered_package_ids(resolution, 3), set())
 
     def test_device_report_keeps_local_match_separate_from_installed_inf(self):
         device = DriverDevice(

@@ -3033,6 +3033,7 @@ function Get-IronDeployProgramList {
                 FileCount = [int]$_.fileCount
                 Type = [string]$_.type
                 Entrypoint = [string]$_.entrypoint
+                Ready = ($_.ready -ne $false)
                 Arguments = $Arguments
                 Sha256 = [string]$_.sha256
                 Display = $Display

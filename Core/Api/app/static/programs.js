@@ -38,7 +38,7 @@ function showMessage(text, type = "success") {
     if (messageTimer) window.clearTimeout(messageTimer);
     elements.message.hidden = false;
     elements.message.className = `notice ${type}`;
-    elements.message.textContent = text;
+    elements.message.textContent = window.IronI18n?.t(text) || text;
     if (type === "success") messageTimer = window.setTimeout(clearMessage, 4500);
 }
 
@@ -478,6 +478,15 @@ async function addFiles(program, files, button) {
     if (!additions.length) return;
     button.disabled = true;
     try {
+        const occupied = new Set(program.files.map(file => normalizeRelativePath(file.path).toLowerCase()));
+        for (const file of additions) {
+            const key = normalizeRelativePath(file.webkitRelativePath || file.name).toLowerCase();
+            if (occupied.has(key)) {
+                showMessage("This file already exists in the folder or is being uploaded. Rename your file.", "warning");
+                return;
+            }
+            occupied.add(key);
+        }
         for (const file of additions) {
             const relativePath = normalizeRelativePath(file.webkitRelativePath || file.name);
             await uploadBinary(
@@ -515,6 +524,7 @@ async function deletePackageFile(program, file, button) {
 function createPackageCard(program) {
     const card = document.createElement("article");
     card.className = "package-card";
+    card.classList.toggle("is-unavailable", program.ready === false);
 
     const overview = document.createElement("div");
     overview.className = "package-overview";
@@ -541,6 +551,12 @@ function createPackageCard(program) {
     const metadata = document.createElement("p");
     metadata.textContent = `${formatBytes(program.size)} · ${program.fileCount.toLocaleString()} file${program.fileCount === 1 ? "" : "s"} · Updated ${formatDate(program.modifiedAt)}`;
     identity.append(titleLine, metadata);
+    if (program.ready === false) {
+        const warning = document.createElement("p");
+        warning.className = "package-warning";
+        warning.textContent = program.warning || "No .exe or .msi found. This package cannot be selected for installation.";
+        identity.append(warning);
+    }
 
     const facts = document.createElement("div");
     facts.className = "package-facts";
@@ -574,6 +590,7 @@ function createPackageCard(program) {
     entrypointLabel.innerHTML = "<span>Installer to run</span>";
     const entrypointSelect = document.createElement("select");
     const candidates = program.files.filter(file => /\.(exe|msi)$/i.test(file.path));
+    entrypointSelect.disabled = candidates.length === 0;
     entrypointSelect.replaceChildren(...candidates.map(file => {
         const option = document.createElement("option");
         option.value = file.path;
@@ -653,10 +670,8 @@ function createPackageCard(program) {
         const updated = document.createElement("span");
         updated.textContent = formatDate(file.modifiedAt);
         const fileActions = document.createElement("span");
-        if (file.path.toLocaleLowerCase() !== program.entrypoint.toLocaleLowerCase()) {
-            const deleteFile = makeButton("Remove", "file-remove-button", () => deletePackageFile(program, file, deleteFile));
-            fileActions.append(deleteFile);
-        }
+        const deleteFile = makeButton("Remove", "file-remove-button", () => deletePackageFile(program, file, deleteFile));
+        fileActions.append(deleteFile);
         row.append(path, size, updated, fileActions);
         fileList.append(row);
     }

@@ -70,6 +70,27 @@ DEFAULT_DEPLOYMENT_TIMEOUT = timedelta(minutes=90)
 
 
 class DeploymentTimeoutTests(unittest.TestCase):
+    def test_manifest_rejects_package_without_installer(self):
+        catalog = {
+            "images": [{"name": "os.wim", "ready": True}],
+            "programs": [{"name": "Empty", "ready": False}],
+            "drivers": [],
+        }
+        with Session(self.engine) as session:
+            deployment = self.deployment(datetime.now(timezone.utc))
+            session.add(deployment)
+            session.commit()
+            request = self.deployment_request(session, deployment.id)
+            with patch("app.main._deployment_catalog", return_value=catalog), patch(
+                "app.main.load_image_config", return_value={}
+            ), self.assertRaises(HTTPException) as raised:
+                deploy_manifest(
+                    deployment.id,
+                    DeploymentManifestRequest(image_name="os.wim", program_names=["Empty"]),
+                    request, session,
+                )
+            self.assertEqual(raised.exception.status_code, 400)
+
     def test_auto_manifest_forces_staged_and_persists_resolution(self):
         image = {"name": "os.wim", "size": 123, "ready": True, "defaultIndex": 1,
                  "indexes": [{"index": 1, "architecture": "amd64", "version": "10.0.26100"}]}

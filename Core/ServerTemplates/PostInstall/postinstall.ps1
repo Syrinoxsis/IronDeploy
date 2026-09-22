@@ -1094,12 +1094,14 @@ function Invoke-IronDriverReconciliation {
                 break
             }
             $Archive = $null
+            $ArchiveInstalled = $false
             try {
                 $Archive = Receive-IronDriverArchive `
                     -DeploymentState $DeploymentState -PassNumber $Pass
                 if (Install-IronDriverArchive -ArchivePath $Archive -PassNumber $Pass) {
                     $Result.RebootRequired = $true
                 }
+                $ArchiveInstalled = $true
             } finally {
                 if ($null -ne $Archive) {
                     Remove-Item -LiteralPath $Archive -Force -ErrorAction SilentlyContinue
@@ -1107,7 +1109,10 @@ function Invoke-IronDriverReconciliation {
                 try {
                     Invoke-IronDeploymentApi -DeploymentState $DeploymentState `
                         -RelativePath "/api/deploy/$DeploymentId/drivers/reconcile/archive-complete" `
-                        -Method Post | Out-Null
+                        -Method Post -Body @{
+                            pass_number = $Pass
+                            installed = $ArchiveInstalled
+                        } | Out-Null
                 } catch {
                     $Result.Warnings += "Server archive cleanup failed: $($_.Exception.Message)"
                 }
