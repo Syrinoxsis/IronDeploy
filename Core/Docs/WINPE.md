@@ -24,6 +24,7 @@ an additional guard, not permission to test the destructive script on a host.
 | File | Purpose |
 | --- | --- |
 | `startnet.cmd` | Initializes WinPE and starts PowerShell in STA mode. |
+| `Load-WinPEDrivers.ps1` | Temporary, isolated loader for boot-time drivers uploaded through IronAPI. |
 | `deploy.ps1` | Loads the engine and GUI and handles the final reboot. |
 | `IronDeploy.Engine.ps1` | Performs the deployment and reports progress through callbacks. |
 | `IronDeploy.Gui.ps1` | Collects operator input and renders progress. |
@@ -31,6 +32,12 @@ an additional guard, not permission to test the destructive script on a host.
 | `diskpart-uefi.txt` | Defines the x64 UEFI/GPT layout and contains the validated target-disk placeholder. |
 | `Tools\7-Zip\7za.exe` | Extracts deployment-scoped, uncompressed driver TAR files in staged mode. |
 | `Tools\7-Zip\7-Zip-LICENSE.txt` | Carries the required license information for the bundled 7-Zip binary. |
+
+`Runtime\WinPEDrivers` is a temporary, ignored host-data directory populated
+from **WinPE Settigns -> Load winpe-drivers**. A rebuild copies its directory
+tree into the image, and `Load-WinPEDrivers.ps1` loads every INF before the
+deployment UI starts. All related code uses the `TEMPORARY WINPE DRIVER UPLOAD`
+marker so this stop-gap can be removed independently.
 
 The build pipeline copies those files into the ADK working tree and produces:
 
@@ -103,6 +110,7 @@ After boot, `startnet.cmd` runs:
 
 ```text
 wpeinit
+  -> Load-WinPEDrivers.ps1 (temporary; loads uploaded boot drivers)
   -> powershell.exe -STA
      -> X:\IronDeploy\deploy.ps1
         -> IronDeploy.Engine.ps1
@@ -125,6 +133,13 @@ areas caused by resolution or DPI scaling shrink the complete interface,
 including wizard actions and overlays, without adding main-window scrollbars.
 
 ## Runtime configuration
+
+Dynamic driver modes and the code map are documented in
+[DYNAMIC_DRIVERS.md](DYNAMIC_DRIVERS.md). `AUTO_LOCAL` and `AUTO_LOCAL_WSUS`
+collect structured PnP inventory through `IronDeploy.DriverInventory.ps1` and
+use staged TAR delivery only. The WSUS provider is currently a non-networking
+stub. Existing manual-folder and no-driver branches retain their behavior.
+The inventory helper is copied by both build scripts on the next requested build.
 
 `Core\WinPE\Runtime\deploy.config.ps1` defines:
 
@@ -223,10 +238,10 @@ Only then does the destructive phase begin:
 6. WinPE writes deployment state into `C:\IronDeploy`.
 7. WinPE downloads and applies the authorized unattend file.
 8. Optional ODJ data is provisioned by IronAPI and applied to offline Windows.
-9. SetupComplete, post-install configuration, and selected installers are
-   copied into the offline system.
-10. WinPE compares each copied installer's SHA-256 with the value in the
-    server-approved manifest.
+9. SetupComplete, post-install configuration, and selected software package
+   directories are copied into the offline system.
+10. WinPE compares every copied package file's size and SHA-256 with the values
+    in the server-approved manifest.
 11. Selected and profile-automatic post-PowerShell scripts are downloaded over
     the configured IronAPI HTTP(S) transport, checked against their manifest
     size and SHA-256, and staged with a per-deployment execution manifest.
@@ -256,7 +271,8 @@ in [API.md](API.md).
 Windows Setup runs `Core\ServerTemplates\PostInstall\SetupComplete.cmd`, which
 starts `postinstall.ps1` in the installed system. The script:
 
-- installs the selected EXE/MSI programs and records their results;
+- verifies every file in each selected software package, runs its configured
+  EXE/MSI entrypoint from the package root, and records the result;
 - runs profile-approved PowerShell scripts before or after software with their
   configured raw arguments and timeout of up to three hours;
 - verifies every `.ps1` SHA-256 again, retains at most 20 MiB of combined UTF-8
@@ -270,6 +286,17 @@ starts `postinstall.ps1` in the installed system. The script:
 
 At that point WinPE is no longer running. IronAPI owns the deployment record
 and final result.
+
+Software packages without an EXE/MSI remain visible with a warning in IronAPI
+and WinPE, but cannot be selected for deployment. Removing the active installer
+is allowed; another EXE/MSI is selected when available, otherwise the package
+remains unavailable until an installer is added.
+
+Automatic driver reconciliation excludes only packages explicitly confirmed as
+added successfully: the WinPE `driver_injection` completion event acknowledges
+the initial packages, and each post-install pass reports its installation result.
+Archive preparation or cleanup alone is not confirmation. This bookkeeping adds
+no driver-file scan and leaves unconfirmed packages eligible for a later pass.
 
 ## Mount-state recovery
 

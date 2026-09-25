@@ -12,16 +12,25 @@ from app.programs import (
     MAX_PROGRAM_SIZE_BYTES,
     ProgramError,
     _safe_program_name,
+    _safe_relative_path,
+    add_program_file,
+    cancel_program_upload,
     delete_program,
+    delete_program_file,
+    finalize_program_upload,
     list_programs,
     rename_program,
+    save_program_upload_file,
     save_uploaded_program,
     set_program_arguments,
     set_program_enabled,
+    set_program_entrypoint,
+    start_program_upload,
     validate_program_arguments,
 )
 
 STATIC_ROOT = Path(__file__).resolve().parents[1] / "app" / "static"
+CORE_ROOT = Path(__file__).resolve().parents[2]
 
 
 async def _chunks(*parts: bytes):
@@ -35,34 +44,28 @@ async def _broken_chunks():
 
 
 class ProgramNameTests(unittest.TestCase):
-    def test_exe_and_msi_names_are_accepted(self) -> None:
-        self.assertEqual(_safe_program_name("7zip.exe"), "7zip.exe")
-        self.assertEqual(_safe_program_name("office.MSI"), "office.MSI")
-        self.assertEqual(_safe_program_name("COM10.exe"), "COM10.exe")
-        self.assertEqual(_safe_program_name("LPT10.msi"), "LPT10.msi")
+    def test_package_names_and_relative_paths_are_validated(self) -> None:
+        self.assertEqual(_safe_program_name("7-Zip"), "7-Zip")
+        self.assertEqual(_safe_program_name("Office 365"), "Office 365")
+        self.assertEqual(_safe_relative_path("data/config.xml"), "data\\config.xml")
+        self.assertEqual(
+            _safe_relative_path("bin/setup.EXE", entrypoint=True),
+            "bin\\setup.EXE",
+        )
 
-    def test_other_suffixes_and_traversal_are_rejected(self) -> None:
         for name in (
-            "",
-            "setup.bat",
-            "setup.exe.txt",
-            "../setup.exe",
-            "..\\setup.msi",
-            "dir/setup.exe",
-            " office.MSI ",
-            "bad<name.exe",
-            "badname.exe.",
-            "badname.exe ",
-            "CON.exe",
-            "prn.msi",
-            "COM1.msi",
-            "COM1 .msi",
-            "com9.exe",
-            "LPT1.exe",
-            "lpt9.msi",
+            "", "../setup", "..\\setup", " office ", "bad<name", "CON",
+            ".irondeploy-program-uploads",
         ):
-            with self.assertRaises(ProgramError):
+            with self.subTest(name=name), self.assertRaises(ProgramError):
                 _safe_program_name(name)
+
+        for path in ("", "..\\setup.exe", "C:\\setup.exe", "dir\\", "a\\.\\b"):
+            with self.subTest(path=path), self.assertRaises(ProgramError):
+                _safe_relative_path(path)
+
+        with self.assertRaisesRegex(ProgramError, r"\.exe or \.msi"):
+            _safe_relative_path("setup.cmd", entrypoint=True)
 
 
 class ProgramArgumentTests(unittest.TestCase):
@@ -75,41 +78,19 @@ class ProgramArgumentTests(unittest.TestCase):
         ):
             with self.subTest(arguments=arguments):
                 self.assertEqual(validate_program_arguments(arguments), arguments)
-
-        self.assertEqual(
-            validate_program_arguments("  /qn   /norestart  "),
-            "/qn   /norestart",
-        )
-        self.assertEqual(
-            validate_program_arguments("x" * MAX_ARGUMENTS_LENGTH),
-            "x" * MAX_ARGUMENTS_LENGTH,
-        )
+        self.assertEqual(validate_program_arguments("  /qn   /norestart  "), "/qn   /norestart")
+        self.assertEqual(validate_program_arguments("x" * MAX_ARGUMENTS_LENGTH), "x" * MAX_ARGUMENTS_LENGTH)
         self.assertEqual(validate_program_arguments(""), "")
 
-    def test_legacy_installer_arguments_remain_accepted(self) -> None:
-        for arguments in ("/S", "/qn /norestart", "-silent"):
-            with self.subTest(arguments=arguments):
-                self.assertEqual(validate_program_arguments(arguments), arguments)
-
-    def test_non_string_arguments_are_rejected(self) -> None:
+    def test_invalid_arguments_are_rejected(self) -> None:
         for arguments in (None, 123, ["/S"], {"value": "/S"}):
-            with self.subTest(arguments=arguments):
-                with self.assertRaisesRegex(
-                    ProgramError,
-                    r"^arguments must be a string\.$",
-                ):
-                    validate_program_arguments(arguments)
-
-    def test_control_characters_and_excessive_length_are_rejected(self) -> None:
-        for arguments in (
-            "/S\0ALLUSERS=1",
-            "/S\rALLUSERS=1",
-            "/S\nALLUSERS=1",
-            "x" * (MAX_ARGUMENTS_LENGTH + 1),
-        ):
-            with self.subTest(arguments=repr(arguments)):
-                with self.assertRaises(ProgramError):
-                    validate_program_arguments(arguments)
+            with self.subTest(arguments=arguments), self.assertRaisesRegex(
+                ProgramError, r"^arguments must be a string\.$"
+            ):
+                validate_program_arguments(arguments)
+        for arguments in ("/S\0X", "/S\rX", "/S\nX", "x" * (MAX_ARGUMENTS_LENGTH + 1)):
+            with self.subTest(arguments=repr(arguments)), self.assertRaises(ProgramError):
+                validate_program_arguments(arguments)
 
 
 class ProgramManagementTests(unittest.TestCase):
@@ -120,284 +101,295 @@ class ProgramManagementTests(unittest.TestCase):
         self.programs_dir.mkdir()
         self.metadata_path = self.programs_dir / ".irondeploy-programs.json"
 
-    def test_upload_saves_file_and_arguments(self) -> None:
-        result = asyncio.run(
-            save_uploaded_program(
-                "7zip.exe",
-                _chunks(b"MZ", b"payload"),
-                arguments="/S",
-                programs_dir=self.programs_dir,
-                metadata_path=self.metadata_path,
+    def upload_package(self, name="Company Agent") -> dict:
+        started = start_program_upload(
+            name,
+            "bin\\setup.exe",
+            [
+                {"path": "bin\\setup.exe", "size": 9},
+                {"path": "config\\agent.json", "size": 2},
+            ],
+            arguments="/S",
+            programs_dir=self.programs_dir,
+        )
+        asyncio.run(
+            save_program_upload_file(
+                started["uploadId"],
+                "bin/setup.exe",
+                _chunks(b"installer"),
+                self.programs_dir,
             )
         )
+        asyncio.run(
+            save_program_upload_file(
+                started["uploadId"],
+                "config/agent.json",
+                _chunks(b"{}"),
+                self.programs_dir,
+            )
+        )
+        return finalize_program_upload(
+            started["uploadId"], self.programs_dir, self.metadata_path
+        )
+
+    def test_multi_file_upload_publishes_directory_and_hashes_every_file(self) -> None:
+        result = self.upload_package()
 
         self.assertTrue(result["uploaded"])
-        self.assertEqual(result["arguments"], "/S")
+        self.assertEqual(result["name"], "Company Agent")
+        self.assertEqual(result["entrypoint"], "bin\\setup.exe")
+        self.assertEqual(result["fileCount"], 2)
+        self.assertEqual(result["size"], 11)
         self.assertEqual(
-            result["sha256"], hashlib.sha256(b"MZpayload").hexdigest()
+            (self.programs_dir / "Company Agent" / "config" / "agent.json").read_bytes(),
+            b"{}",
         )
-        self.assertEqual((self.programs_dir / "7zip.exe").read_bytes(), b"MZpayload")
+        self.assertEqual(
+            result["files"][0]["sha256"], hashlib.sha256(b"installer").hexdigest()
+        )
         metadata = json.loads(self.metadata_path.read_text(encoding="utf-8"))
-        self.assertEqual(metadata["programs"]["7zip.exe"]["arguments"], "/S")
-        self.assertTrue(metadata["programs"]["7zip.exe"]["enabled"])
-        self.assertEqual(metadata["programs"]["7zip.exe"]["sha256"], result["sha256"])
+        self.assertEqual(metadata["version"], 4)
+        self.assertEqual(metadata["programs"]["Company Agent"]["arguments"], "/S")
 
-    def test_upload_rejects_files_larger_than_five_gib(self) -> None:
-        self.assertEqual(MAX_PROGRAM_SIZE_BYTES, 5 * 1024**3)
+    def test_incomplete_upload_cannot_be_published_and_can_be_cancelled(self) -> None:
+        started = start_program_upload(
+            "Office",
+            "setup.exe",
+            [{"path": "setup.exe", "size": 2}, {"path": "config.xml", "size": 3}],
+            programs_dir=self.programs_dir,
+        )
+        asyncio.run(
+            save_program_upload_file(
+                started["uploadId"], "setup.exe", _chunks(b"MZ"), self.programs_dir
+            )
+        )
+        with self.assertRaisesRegex(ProgramError, "incomplete"):
+            finalize_program_upload(started["uploadId"], self.programs_dir, self.metadata_path)
+        self.assertTrue(cancel_program_upload(started["uploadId"], self.programs_dir)["deleted"])
+        self.assertFalse((self.programs_dir / "Office").exists())
 
-        with patch("app.programs.MAX_PROGRAM_SIZE_BYTES", 5):
-            with self.assertRaisesRegex(ProgramError, "limited to 5 GiB"):
-                asyncio.run(
-                    save_uploaded_program(
-                        "large.msi",
-                        _chunks(b"1234", b"56"),
-                        programs_dir=self.programs_dir,
-                        metadata_path=self.metadata_path,
-                    )
-                )
+    def test_upload_rejects_traversal_duplicates_and_invalid_sizes(self) -> None:
+        with self.assertRaises(ProgramError):
+            start_program_upload(
+                "Bad", "setup.exe", [{"path": "..\\setup.exe", "size": 1}],
+                programs_dir=self.programs_dir,
+            )
+        with self.assertRaisesRegex(ProgramError, "Duplicate"):
+            start_program_upload(
+                "Bad", "setup.exe",
+                [{"path": "setup.exe", "size": 1}, {"path": "SETUP.EXE", "size": 1}],
+                programs_dir=self.programs_dir,
+            )
+        with patch("app.programs.MAX_PROGRAM_SIZE_BYTES", 5), self.assertRaisesRegex(
+            ProgramError, "limited to 5 GiB"
+        ):
+            start_program_upload(
+                "Large", "setup.msi", [{"path": "setup.msi", "size": 6}],
+                programs_dir=self.programs_dir,
+            )
 
-        self.assertFalse((self.programs_dir / "large.msi").exists())
-        self.assertEqual(list(self.programs_dir.glob("*.upload-*.tmp")), [])
+    def test_single_installer_compatibility_upload_creates_package_folder(self) -> None:
+        result = asyncio.run(
+            save_uploaded_program(
+                "7zip.exe", _chunks(b"MZ", b"payload"), arguments="/S",
+                programs_dir=self.programs_dir, metadata_path=self.metadata_path,
+            )
+        )
+        self.assertEqual(result["name"], "7zip")
+        self.assertEqual(result["entrypoint"], "7zip.exe")
+        self.assertEqual((self.programs_dir / "7zip" / "7zip.exe").read_bytes(), b"MZpayload")
 
-    def test_failed_upload_removes_temporary_file(self) -> None:
+    def test_failed_single_upload_cleans_staging_directory(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "upload interrupted"):
             asyncio.run(
                 save_uploaded_program(
-                    "interrupted.exe",
-                    _broken_chunks(),
-                    programs_dir=self.programs_dir,
+                    "broken.exe", _broken_chunks(), programs_dir=self.programs_dir,
                     metadata_path=self.metadata_path,
                 )
             )
+        uploads = self.programs_dir / ".irondeploy-program-uploads"
+        self.assertEqual(list(uploads.iterdir()) if uploads.exists() else [], [])
 
-        self.assertFalse((self.programs_dir / "interrupted.exe").exists())
-        self.assertEqual(list(self.programs_dir.glob("*.upload-*.tmp")), [])
-
-    def test_upload_rolls_back_file_when_metadata_write_fails(self) -> None:
-        with patch(
-            "app.programs._write_metadata",
-            side_effect=ProgramError("Failed to save program metadata."),
-        ):
-            with self.assertRaisesRegex(ProgramError, "Failed to save program metadata"):
-                asyncio.run(
-                    save_uploaded_program(
-                        "rollback.exe",
-                        _chunks(b"MZpayload"),
-                        programs_dir=self.programs_dir,
-                        metadata_path=self.metadata_path,
-                    )
-                )
-
-        self.assertFalse((self.programs_dir / "rollback.exe").exists())
-        self.assertEqual(list(self.programs_dir.glob("*.upload-*.tmp")), [])
-
-    def test_upload_rejects_duplicates_and_empty_files(self) -> None:
-        (self.programs_dir / "7zip.exe").write_bytes(b"MZ")
-
-        with self.assertRaisesRegex(ProgramError, "already exists"):
-            asyncio.run(
-                save_uploaded_program(
-                    "7zip.exe",
-                    _chunks(b"MZ"),
-                    programs_dir=self.programs_dir,
-                    metadata_path=self.metadata_path,
-                )
-            )
-        with self.assertRaisesRegex(ProgramError, "empty"):
-            asyncio.run(
-                save_uploaded_program(
-                    "other.exe",
-                    _chunks(),
-                    programs_dir=self.programs_dir,
-                    metadata_path=self.metadata_path,
-                )
-            )
-        self.assertEqual(
-            [item.name for item in self.programs_dir.iterdir()], ["7zip.exe"]
-        )
-
-    def test_listing_discovers_manual_files_and_drops_stale_records(self) -> None:
+    def test_legacy_flat_installer_is_migrated_to_package(self) -> None:
         (self.programs_dir / "manual.msi").write_bytes(b"msi")
         self.metadata_path.write_text(
-            json.dumps(
-                {
-                    "version": 1,
-                    "programs": {"removed.exe": {"arguments": "/S"}},
-                }
-            ),
+            json.dumps({"version": 3, "programs": {"manual.msi": {"arguments": "/qn"}}}),
             encoding="utf-8",
         )
 
-        result = list_programs(self.programs_dir, self.metadata_path)
+        program = list_programs(self.programs_dir, self.metadata_path)["programs"][0]
 
-        self.assertEqual(
-            [(item["name"], item["type"], item["arguments"]) for item in result["programs"]],
-            [("manual.msi", "MSI", "")],
-        )
-        self.assertEqual(
-            result["programs"][0]["sha256"], hashlib.sha256(b"msi").hexdigest()
-        )
-        self.assertTrue(result["programs"][0]["enabled"])
-        metadata = json.loads(self.metadata_path.read_text(encoding="utf-8"))
-        self.assertNotIn("removed.exe", metadata["programs"])
-        self.assertIn("manual.msi", metadata["programs"])
+        self.assertEqual(program["name"], "manual")
+        self.assertEqual(program["entrypoint"], "manual.msi")
+        self.assertEqual(program["arguments"], "/qn")
+        self.assertTrue((self.programs_dir / "manual" / "manual.msi").is_file())
+        self.assertFalse((self.programs_dir / "manual.msi").exists())
 
-    def test_listing_refreshes_sha256_when_program_changes(self) -> None:
-        program_path = self.programs_dir / "agent.exe"
-        program_path.write_bytes(b"first")
+    def test_listing_refreshes_package_hash_when_supporting_file_changes(self) -> None:
+        self.upload_package()
         first = list_programs(self.programs_dir, self.metadata_path)["programs"][0]
-
-        program_path.write_bytes(b"second payload")
+        (self.programs_dir / "Company Agent" / "config" / "agent.json").write_bytes(b'{"x":1}')
         second = list_programs(self.programs_dir, self.metadata_path)["programs"][0]
-
         self.assertNotEqual(first["sha256"], second["sha256"])
-        self.assertEqual(
-            second["sha256"], hashlib.sha256(b"second payload").hexdigest()
+        self.assertEqual(second["size"], 16)
+
+    def test_package_settings_rename_and_delete(self) -> None:
+        self.upload_package()
+        updated = set_program_arguments(
+            "Company Agent", " /qn  /norestart ", self.programs_dir, self.metadata_path
         )
-
-    def test_arguments_are_validated_and_persisted(self) -> None:
-        (self.programs_dir / "tool.exe").write_bytes(b"MZ")
-
-        program = set_program_arguments(
-            "tool.exe", " /qn  /norestart ", self.programs_dir, self.metadata_path
-        )
-
-        self.assertEqual(program["arguments"], "/qn  /norestart")
-        metadata = json.loads(self.metadata_path.read_text(encoding="utf-8"))
-        self.assertEqual(metadata["version"], 3)
-        self.assertEqual(
-            metadata["programs"]["tool.exe"]["arguments"], "/qn  /norestart"
-        )
-
-        with self.assertRaisesRegex(ProgramError, "NUL, CR, or LF"):
-            set_program_arguments(
-                "tool.exe", "/S\nALLUSERS=1", self.programs_dir, self.metadata_path
-            )
-        with self.assertRaisesRegex(ProgramError, "not found"):
-            set_program_arguments(
-                "missing.exe", "/S", self.programs_dir, self.metadata_path
-            )
-
-    def test_enabled_state_is_persisted_and_preserved_by_rename(self) -> None:
-        asyncio.run(
-            save_uploaded_program(
-                "tool.exe",
-                _chunks(b"MZ"),
-                programs_dir=self.programs_dir,
-                metadata_path=self.metadata_path,
-            )
-        )
-
-        disabled = set_program_enabled(
-            "tool.exe", False, self.programs_dir, self.metadata_path
-        )
-        self.assertFalse(disabled["enabled"])
+        self.assertEqual(updated["arguments"], "/qn  /norestart")
         self.assertFalse(
-            list_programs(self.programs_dir, self.metadata_path)["programs"][0][
-                "enabled"
-            ]
-        )
-
-        rename_program(
-            "tool.exe", "Renamed Tool.exe", self.programs_dir, self.metadata_path
-        )
-        renamed = list_programs(self.programs_dir, self.metadata_path)["programs"][0]
-        self.assertEqual(renamed["name"], "Renamed Tool.exe")
-        self.assertFalse(renamed["enabled"])
-
-        with self.assertRaisesRegex(ProgramError, "boolean"):
             set_program_enabled(
-                "Renamed Tool.exe", 1, self.programs_dir, self.metadata_path
-            )
+                "Company Agent", False, self.programs_dir, self.metadata_path
+            )["enabled"]
+        )
+        renamed = rename_program(
+            "Company Agent", "Corporate Agent", self.programs_dir, self.metadata_path
+        )
+        self.assertEqual(renamed["name"], "Corporate Agent")
+        self.assertTrue((self.programs_dir / "Corporate Agent" / "bin" / "setup.exe").is_file())
+        self.assertTrue(delete_program("Corporate Agent", self.programs_dir, self.metadata_path)["deleted"])
+        self.assertFalse((self.programs_dir / "Corporate Agent").exists())
 
-    def test_delete_removes_file_and_metadata(self) -> None:
+    def test_add_file_change_entrypoint_and_remove_file(self) -> None:
+        self.upload_package()
         asyncio.run(
-            save_uploaded_program(
-                "tool.exe",
-                _chunks(b"MZ"),
-                arguments="/S",
-                programs_dir=self.programs_dir,
-                metadata_path=self.metadata_path,
+            add_program_file(
+                "Company Agent", "tools\\repair.exe", _chunks(b"repair"),
+                self.programs_dir, self.metadata_path,
             )
         )
-
-        result = delete_program("tool.exe", self.programs_dir, self.metadata_path)
-
-        self.assertTrue(result["deleted"])
-        self.assertFalse((self.programs_dir / "tool.exe").exists())
-        metadata = json.loads(self.metadata_path.read_text(encoding="utf-8"))
-        self.assertEqual(metadata["programs"], {})
-
-        with self.assertRaisesRegex(ProgramError, "not found"):
-            delete_program("tool.exe", self.programs_dir, self.metadata_path)
-
-    def test_rename_preserves_program_and_arguments(self) -> None:
-        asyncio.run(
-            save_uploaded_program(
-                "tool.exe",
-                _chunks(b"MZpayload"),
-                arguments="/S",
-                programs_dir=self.programs_dir,
-                metadata_path=self.metadata_path,
-            )
+        changed = set_program_entrypoint(
+            "Company Agent", "tools/repair.exe", self.programs_dir, self.metadata_path
         )
-
-        result = rename_program(
-            "tool.exe", "Company Tool.exe", self.programs_dir, self.metadata_path
+        self.assertEqual(changed["entrypoint"], "tools\\repair.exe")
+        deleted = delete_program_file(
+            "Company Agent", "bin\\setup.exe", self.programs_dir, self.metadata_path
         )
-
-        self.assertEqual(result["name"], "Company Tool.exe")
-        self.assertEqual(result["arguments"], "/S")
-        self.assertFalse((self.programs_dir / "tool.exe").exists())
-        self.assertEqual(
-            (self.programs_dir / "Company Tool.exe").read_bytes(), b"MZpayload"
+        self.assertTrue(deleted["deleted"])
+        delete_program_file(
+            "Company Agent", "tools\\repair.exe", self.programs_dir, self.metadata_path
         )
-        metadata = json.loads(self.metadata_path.read_text(encoding="utf-8"))
-        self.assertNotIn("tool.exe", metadata["programs"])
-        self.assertEqual(metadata["programs"]["Company Tool.exe"]["arguments"], "/S")
+        program = list_programs(self.programs_dir, self.metadata_path)["programs"][0]
+        self.assertFalse(program["ready"])
+        self.assertEqual(program["entrypoint"], "")
+        self.assertIn("No .exe or .msi", program["warning"])
+        asyncio.run(add_program_file(
+            "Company Agent", "new.msi", _chunks(b"installer"),
+            self.programs_dir, self.metadata_path,
+        ))
+        program = list_programs(self.programs_dir, self.metadata_path)["programs"][0]
+        self.assertTrue(program["ready"])
+        self.assertEqual(program["entrypoint"], "new.msi")
 
-    def test_rename_rejects_conflicts_and_extension_changes(self) -> None:
-        (self.programs_dir / "first.exe").write_bytes(b"first")
-        (self.programs_dir / "second.exe").write_bytes(b"second")
+    def test_empty_folder_does_not_block_valid_packages(self):
+        self.upload_package()
+        (self.programs_dir / "Empty").mkdir()
+        packages = list_programs(self.programs_dir, self.metadata_path)["programs"]
+        self.assertEqual(len(packages), 2)
+        self.assertTrue(packages[0]["ready"])
+        self.assertFalse(packages[1]["ready"])
+        self.assertTrue(delete_program("Empty", self.programs_dir, self.metadata_path)["deleted"])
 
-        with self.assertRaisesRegex(ProgramError, "already exists"):
-            rename_program(
-                "first.exe", "second.exe", self.programs_dir, self.metadata_path
-            )
-        with self.assertRaisesRegex(ProgramError, "extension cannot be changed"):
-            rename_program(
-                "first.exe", "first.msi", self.programs_dir, self.metadata_path
-            )
+    def test_duplicate_upload_is_rejected_without_overwriting_first(self):
+        self.upload_package()
 
-    def test_rename_rolls_back_file_when_metadata_write_fails(self) -> None:
-        (self.programs_dir / "before.msi").write_bytes(b"msi")
+        async def exercise():
+            entered, release = asyncio.Event(), asyncio.Event()
 
+            async def first_chunks():
+                entered.set()
+                await release.wait()
+                yield b"first"
+
+            task = asyncio.create_task(add_program_file(
+                "Company Agent", "shared.dat", first_chunks(),
+                self.programs_dir, self.metadata_path,
+            ))
+            await entered.wait()
+            try:
+                with self.assertRaisesRegex(ProgramError, "Rename your file"):
+                    await add_program_file(
+                        "Company Agent", "SHARED.DAT", _chunks(b"second"),
+                        self.programs_dir, self.metadata_path,
+                    )
+            finally:
+                release.set()
+                await task
+            with self.assertRaisesRegex(ProgramError, "Rename your file"):
+                await add_program_file(
+                    "Company Agent", "shared.dat", _chunks(b"third"),
+                    self.programs_dir, self.metadata_path,
+                )
+
+        asyncio.run(exercise())
+        self.assertEqual((self.programs_dir / "Company Agent/shared.dat").read_bytes(), b"first")
+
+    def test_failed_add_releases_filename_for_retry(self):
+        self.upload_package()
+        with self.assertRaises(RuntimeError):
+            asyncio.run(add_program_file(
+                "Company Agent", "retry.dat", _broken_chunks(),
+                self.programs_dir, self.metadata_path,
+            ))
+        asyncio.run(add_program_file(
+            "Company Agent", "retry.dat", _chunks(b"retry"),
+            self.programs_dir, self.metadata_path,
+        ))
+
+    def test_rename_rolls_back_directory_when_metadata_write_fails(self) -> None:
+        self.upload_package("Before")
         with patch(
             "app.programs._write_metadata",
             side_effect=ProgramError("Failed to save program metadata."),
-        ):
-            with self.assertRaisesRegex(ProgramError, "Failed to save program metadata"):
-                rename_program(
-                    "before.msi", "after.msi", self.programs_dir, self.metadata_path
-                )
+        ), self.assertRaisesRegex(ProgramError, "Failed to save program metadata"):
+            rename_program("Before", "After", self.programs_dir, self.metadata_path)
+        self.assertTrue((self.programs_dir / "Before").is_dir())
+        self.assertFalse((self.programs_dir / "After").exists())
 
-        self.assertTrue((self.programs_dir / "before.msi").is_file())
-        self.assertFalse((self.programs_dir / "after.msi").exists())
+    def test_entrypoint_and_package_limits_are_enforced(self) -> None:
+        self.assertEqual(MAX_PROGRAM_SIZE_BYTES, 5 * 1024**3)
+        with self.assertRaisesRegex(ProgramError, "entrypoint"):
+            start_program_upload(
+                "Missing", "setup.exe", [{"path": "readme.txt", "size": 1}],
+                programs_dir=self.programs_dir,
+            )
 
 
 class ProgramPageTests(unittest.TestCase):
-    def test_programs_page_matches_images_width_and_uses_compact_note(self) -> None:
+    def test_programs_page_exposes_package_upload_and_file_management(self) -> None:
         page = (STATIC_ROOT / "programs.html").read_text(encoding="utf-8")
+        script = (STATIC_ROOT / "programs.js").read_text(encoding="utf-8")
         styles = (STATIC_ROOT / "programs.css").read_text(encoding="utf-8")
 
-        self.assertIn(
-            'class="images-page programs-page" data-page="programs"',
-            page,
-        )
-        self.assertIn('<details class="program-upload-note">', page)
-        self.assertIn("<summary>Note</summary>", page)
-        self.assertNotIn("Upload <code>.exe</code>", page)
-        self.assertIn("width: min(100% - 32px, 1280px)", styles)
+        self.assertIn('id="installer-input"', page)
+        self.assertIn('id="folder-input"', page)
+        self.assertIn("The installer always runs from the package root", page)
+        self.assertIn("/api/programs/uploads", script)
+        self.assertIn("+ Add files", script)
+        self.assertIn("width: min(100% - 32px, 1440px)", styles)
+
+
+class ProgramRuntimeIntegrationTests(unittest.TestCase):
+    def test_winpe_stages_complete_packages_and_writes_file_manifest(self) -> None:
+        engine = (
+            CORE_ROOT / "WinPE" / "Runtime" / "IronDeploy.Engine.ps1"
+        ).read_text(encoding="utf-8")
+        self.assertIn("-Recurse", engine)
+        self.assertIn("$SelectedProgram.files", engine)
+        self.assertIn("Program package file SHA-256 mismatch", engine)
+        self.assertIn("entrypoint = [string]$SelectedProgram.entrypoint", engine)
+        self.assertIn("ConvertTo-Json -InputObject @($ProgramManifest) -Depth 6", engine)
+
+    def test_postinstall_verifies_package_and_runs_from_package_root(self) -> None:
+        postinstall = (
+            CORE_ROOT / "ServerTemplates" / "PostInstall" / "postinstall.ps1"
+        ).read_text(encoding="utf-8")
+        self.assertIn("$ProgramEntrypoint = [string]$Program.entrypoint", postinstall)
+        self.assertIn("$ActualFiles.Count -ne $DeclaredFiles.Count", postinstall)
+        self.assertIn("Get-FileHash -LiteralPath $DeclaredFilePath", postinstall)
+        self.assertIn("-WorkingDirectory $PackageRoot", postinstall)
 
 
 if __name__ == "__main__":

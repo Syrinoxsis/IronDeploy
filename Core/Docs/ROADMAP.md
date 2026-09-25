@@ -23,6 +23,13 @@ model, and size. IronAPI records that snapshot with the deployment.
   rather than from claims.
 - Validate the generated ISO with Ventoy, which is currently untested.
 
+## Driver lifecycle
+
+Move hardware-aware driver handling from a single WinPE inventory pass to a
+local-first lifecycle with automatic package validation, bounded first-boot
+reconciliation, controlled Windows Update fallback, and per-device provenance.
+See [Driver lifecycle roadmap](DRIVERS_ROADMAP.md).
+
 ## Active Directory
 
 - Encrypt Offline Domain Join blobs at rest. They currently rely on NTFS

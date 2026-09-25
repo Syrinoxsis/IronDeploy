@@ -200,6 +200,8 @@ def _upgrade_deployment_constraints(connection: Connection) -> None:
 
 
 def _backfill_computer_inventory(connection: Connection) -> None:
+    # Legacy table reconstruction predates the current ORM's nullable diagnostics.
+    _migration_driver_resolution(connection)
     with Session(connection) as session:
         deployments = session.scalars(
             text(
@@ -898,6 +900,16 @@ MIGRATIONS = (
         _migration_add_post_powershell_enabled,
     ),
 )
+
+
+def _migration_driver_resolution(connection: Connection) -> None:
+    columns = {column["name"] for column in inspect(connection).get_columns("deployments")}
+    for name, sql_type in (("driver_mode", "VARCHAR(32)"), ("driver_resolution", "JSON")):
+        if name not in columns:
+            connection.exec_driver_sql(f"ALTER TABLE deployments ADD COLUMN {name} {sql_type}")
+
+
+MIGRATIONS = (*MIGRATIONS, Migration(12, "add dynamic driver resolution", _migration_driver_resolution))
 
 
 def _validate_migration_definitions() -> None:

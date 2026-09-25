@@ -1,5 +1,8 @@
 # IronDeploy architecture
 
+For hardware-aware AUTO driver selection, import-time indexing, provider contracts,
+and the WinPE/TAR flow, start with [DYNAMIC_DRIVERS.md](DYNAMIC_DRIVERS.md).
+
 IronDeploy has four main components. Each one owns a distinct part of the
 deployment process:
 
@@ -11,7 +14,7 @@ deployment process:
 | Post-install | Finishes the deployment inside the newly installed Windows system. |
 
 WDS/PXE or bootable media only deliver WinPE. SMB carries large payloads such
-as Windows images, drivers, and installers. IronAPI is the control plane.
+as Windows images, drivers, and software packages. IronAPI is the control plane.
 
 ## System flow
 
@@ -46,7 +49,7 @@ SMB share -- payloads-+
 
 WinPE asks IronAPI what may be deployed and reports progress. IronAPI returns
 the authorized catalog, validated manifest, SMB connection details, answer file,
-and optional Offline Domain Join data. Drivers and installers are read from
+and optional Offline Domain Join data. Drivers and software packages are read from
 SMB. Profile-approved post-PowerShell scripts use authenticated IronAPI
 HTTP(S) routes and are verified twice with the manifest SHA-256.
 The manifest also carries the server-owned image- and driver-apply strategies:
@@ -69,7 +72,7 @@ SQLite summary with completed measurements and its final adapter values.
 | `Core\WinPE\Runtime\deploy.config.ps1` | WinPE | API address, payload paths, certificate trust, and WinPE UI behavior. |
 | `Core\Data\irondeploy.db` | IronAPI | Accounts, permissions, deployment profiles, deployments, stages, and inventory. |
 | `Core\ODJ\pending` | IronAPI | Short-lived Offline Domain Join blobs. |
-| `Core\Share` | IronAPI / SMB data plane | Windows images, driver packages, bounded temporary driver TAR files, and installers managed by IronAPI and read by WinPE through SMB. |
+| `Core\Share` | IronAPI / SMB data plane | Windows images, driver packages, bounded temporary driver TAR files, and directory-based software packages managed by IronAPI and read by WinPE through SMB. |
 | `Core\Library\PostPowerShell` | IronAPI | Private managed `.ps1` library delivered only through authenticated HTTP(S). |
 | `Core\Logs\PostPowerShell` | IronAPI | Bounded raw stdout/stderr captured for deployment details. |
 | `Core\ServerTemplates` | IronAPI | Authorized unattend and post-install templates. |

@@ -156,13 +156,20 @@ from app.deployment_images import (
     start_esd_conversion,
 )
 from app.programs import (
+    add_program_file,
+    cancel_program_upload,
+    delete_program_file,
+    finalize_program_upload,
     ProgramError,
     delete_program,
     list_programs,
     rename_program,
+    save_program_upload_file,
     save_uploaded_program,
     set_program_arguments,
     set_program_enabled,
+    set_program_entrypoint,
+    start_program_upload,
 )
 from app.post_powershell import (
     MAX_OUTPUT_SIZE_BYTES,
@@ -181,6 +188,16 @@ from app.winpe_build import (
     get_winpe_build_state,
     start_winpe_build,
 )
+# TEMPORARY WINPE DRIVER UPLOAD: isolated imports for the removable stop-gap.
+from app.winpe_driver_upload import (
+    WinPEDriverUploadError,
+    begin_winpe_driver_upload,
+    cancel_winpe_driver_upload,
+    delete_winpe_drivers,
+    finalize_winpe_driver_upload,
+    get_winpe_drivers,
+    save_winpe_driver_file,
+)
 from app.winpe_auth import (
     WINPE_AUTH_ACCOUNT,
     WINPE_SYSTEM_USERNAME,
@@ -194,15 +211,36 @@ from app.winpe_auth import (
 )
 
 
+from app.driver_index.service import get_indexer, shutdown_indexer
+from app.driver_manifest import resolve_manifest
+from app.driver_reconciliation import (
+    DriverArchiveCompletionRequest,
+    DriverReconciliationFinalRequest,
+    DriverReconciliationRequest,
+    archive_package,
+    build_device_report,
+    candidate_summary,
+    delivered_package_ids,
+    pass_summary,
+    resolve_installed_inventory,
+    save_reconciliation,
+)
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     initialize_database()
     with SessionLocal() as session:
         bootstrap_superadmin(session)
     try:
+        get_indexer().scan()
+    except Exception:
+        logging.getLogger(__name__).exception("Driver initial indexing unavailable")
+    try:
         yield
     finally:
         shutdown_driver_archive_workers()
+        shutdown_indexer()
 
 
 app = FastAPI(title="IronAPI", version="0.0.1-alpha.1", lifespan=lifespan)
@@ -677,6 +715,68 @@ async def upload_program(request: Request) -> JSONResponse:
     return JSONResponse(result, status_code=201)
 
 
+@app.post("/api/programs/uploads")
+async def begin_program_package_upload(request: Request) -> JSONResponse:
+    require_image_config_write(request)
+    try:
+        payload = await request.json()
+        result = start_program_upload(
+            payload.get("name", ""),
+            payload.get("entrypoint", ""),
+            payload.get("files", []),
+            arguments=payload.get("arguments", ""),
+        )
+    except (AttributeError, TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Invalid package upload manifest.")
+    except ProgramError as exc:
+        status_code = 409 if "already exists" in str(exc) else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+    return JSONResponse(result, status_code=201)
+
+
+@app.post("/api/programs/uploads/{upload_id}/files")
+async def upload_program_package_file(
+    upload_id: str, request: Request
+) -> JSONResponse:
+    require_image_config_write(request)
+    encoded_path = request.headers.get("x-irondeploy-relative-path", "")
+    try:
+        result = await save_program_upload_file(
+            upload_id,
+            unquote(encoded_path),
+            request.stream(),
+        )
+    except ProgramError as exc:
+        status_code = 409 if "already uploaded" in str(exc) else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+    return JSONResponse(result, status_code=201)
+
+
+@app.post("/api/programs/uploads/{upload_id}/finalize")
+def publish_program_package_upload(
+    upload_id: str, request: Request
+) -> JSONResponse:
+    require_image_config_write(request)
+    try:
+        result = finalize_program_upload(upload_id)
+    except ProgramError as exc:
+        status_code = 409 if "already exists" in str(exc) else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+    return JSONResponse(result, status_code=201)
+
+
+@app.delete("/api/programs/uploads/{upload_id}")
+def discard_program_package_upload(
+    upload_id: str, request: Request
+) -> JSONResponse:
+    require_image_config_write(request)
+    try:
+        result = cancel_program_upload(upload_id)
+    except (OSError, ProgramError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return JSONResponse(result)
+
+
 @app.post("/api/programs/{name}/arguments")
 async def update_program_arguments(name: str, request: Request) -> JSONResponse:
     require_image_config_write(request)
@@ -706,6 +806,53 @@ async def rename_uploaded_program(name: str, request: Request) -> JSONResponse:
         )
     except ProgramError as exc:
         status_code = 409 if "already exists" in str(exc) else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+    return JSONResponse(result)
+
+
+@app.post("/api/programs/{name}/entrypoint")
+async def update_program_entrypoint(name: str, request: Request) -> JSONResponse:
+    require_image_config_write(request)
+    try:
+        payload = await request.json()
+        entrypoint = payload.get("entrypoint", "")
+        if not isinstance(entrypoint, str):
+            raise ProgramError("entrypoint must be a string.")
+        result = set_program_entrypoint(name, entrypoint)
+    except (AttributeError, TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="entrypoint must be a string.")
+    except ProgramError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return JSONResponse(result)
+
+
+@app.post("/api/programs/{name}/files")
+async def upload_file_to_program_package(
+    name: str, request: Request
+) -> JSONResponse:
+    require_image_config_write(request)
+    encoded_path = request.headers.get("x-irondeploy-relative-path", "")
+    try:
+        result = await add_program_file(
+            name,
+            unquote(encoded_path),
+            request.stream(),
+        )
+    except ProgramError as exc:
+        status_code = 409 if "already exists" in str(exc) else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+    return JSONResponse(result, status_code=201)
+
+
+@app.delete("/api/programs/{name}/files")
+def remove_file_from_program_package(
+    name: str, path: str, request: Request
+) -> JSONResponse:
+    require_image_config_write(request)
+    try:
+        result = delete_program_file(name, path)
+    except ProgramError as exc:
+        status_code = 404 if "not found" in str(exc) else 400
         raise HTTPException(status_code=status_code, detail=str(exc)) from exc
     return JSONResponse(result)
 
@@ -841,6 +988,24 @@ def get_drivers() -> dict:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+@app.get("/api/drivers/index")
+def driver_index_status() -> dict:
+    try:
+        return {"imports": get_indexer().db.imports()}
+    except Exception as exc:
+        return {"imports": [], "error": str(exc)}
+
+
+@app.post("/api/drivers/index/rebuild")
+def rebuild_driver_index(request: Request) -> dict:
+    require_image_config_write(request)
+    try:
+        jobs = get_indexer().scan(rebuild=True)
+        return {"queued": len(jobs)}
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
 def _driver_upload_limits() -> DriverUploadLimits:
     settings = get_settings()
     return DriverUploadLimits(
@@ -851,6 +1016,80 @@ def _driver_upload_limits() -> DriverUploadLimits:
         max_active_uploads=settings.driver_max_active_uploads,
         min_free_space_gib=settings.driver_min_free_space_gib,
     )
+
+
+# TEMPORARY WINPE DRIVER UPLOAD: remove this route block with the stop-gap.
+@app.get("/api/image-config/winpe-drivers")
+def get_uploaded_winpe_drivers() -> dict:
+    try:
+        return get_winpe_drivers()
+    except WinPEDriverUploadError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.delete("/api/image-config/winpe-drivers")
+def remove_uploaded_winpe_drivers(request: Request) -> JSONResponse:
+    require_image_config_write(request)
+    try:
+        return JSONResponse(delete_winpe_drivers())
+    except WinPEDriverUploadError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/image-config/winpe-driver-uploads")
+def begin_uploaded_winpe_drivers(request: Request) -> JSONResponse:
+    require_image_config_write(request)
+    try:
+        return JSONResponse(
+            begin_winpe_driver_upload(_driver_upload_limits()),
+            status_code=201,
+        )
+    except WinPEDriverUploadError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.put("/api/image-config/winpe-driver-uploads/{upload_id}/files")
+async def upload_winpe_driver_file(
+    upload_id: str,
+    request: Request,
+) -> JSONResponse:
+    require_image_config_write(request)
+    try:
+        result = await save_winpe_driver_file(
+            upload_id,
+            unquote(request.headers.get("x-irondeploy-relative-path", "")),
+            request.stream(),
+            _driver_upload_limits(),
+        )
+        return JSONResponse(result, status_code=201)
+    except WinPEDriverUploadError as exc:
+        status_code = 404 if "not found" in str(exc).lower() else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+
+@app.post("/api/image-config/winpe-driver-uploads/{upload_id}/finalize")
+def finalize_uploaded_winpe_drivers(
+    upload_id: str,
+    request: Request,
+) -> JSONResponse:
+    require_image_config_write(request)
+    try:
+        return JSONResponse(finalize_winpe_driver_upload(upload_id), status_code=201)
+    except WinPEDriverUploadError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.delete("/api/image-config/winpe-driver-uploads/{upload_id}")
+def cancel_uploaded_winpe_drivers(
+    upload_id: str,
+    request: Request,
+) -> JSONResponse:
+    require_image_config_write(request)
+    try:
+        return JSONResponse(cancel_winpe_driver_upload(upload_id))
+    except WinPEDriverUploadError as exc:
+        status_code = 404 if "not found" in str(exc).lower() else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
 
 @app.get("/api/info/driver-uploads")
@@ -1396,13 +1635,13 @@ def deploy_suggest_name(
     )
 
 
-def _deployment_catalog(session: Session | None = None) -> dict:
+def _deployment_catalog(session: Session | None = None, include_drivers: bool = True) -> dict:
     image_listing = list_deployment_images()
     program_listing = list_programs()
     post_powershell_listing = (
         list_scripts(session) if session is not None else {"scripts": []}
     )
-    driver_listing = list_driver_packages()
+    driver_listing = list_driver_packages() if include_drivers else {"packages": []}
     return {
         "images": [
             {
@@ -1420,9 +1659,30 @@ def _deployment_catalog(session: Session | None = None) -> dict:
             {
                 "name": program["name"],
                 "size": program["size"],
+                "fileCount": program.get("fileCount", 1),
                 "type": program["type"],
+                "entrypoint": program.get("entrypoint", program["name"]),
+                "ready": program.get("ready", True),
+                "warning": program.get("warning", ""),
                 "arguments": program["arguments"],
                 "sha256": program["sha256"],
+                "files": [
+                    {
+                        "path": item["path"],
+                        "size": item["size"],
+                        "sha256": item["sha256"],
+                    }
+                    for item in program.get(
+                        "files",
+                        [
+                            {
+                                "path": program["name"],
+                                "size": program["size"],
+                                "sha256": program["sha256"],
+                            }
+                        ],
+                    )
+                ],
             }
             for program in program_listing["programs"]
             if program["enabled"]
@@ -1482,7 +1742,8 @@ def deploy_manifest(
         raise HTTPException(status_code=409, detail="Deployment is not active")
 
     try:
-        catalog = _deployment_catalog(session)
+        catalog = _deployment_catalog(session, include_drivers=False) if payload.driver_mode in (
+            "AUTO_LOCAL", "AUTO_LOCAL_WSUS") else _deployment_catalog(session)
         image_config = load_image_config()
         deployment_profile = load_default_profile(session)
     except (
@@ -1514,7 +1775,7 @@ def deploy_manifest(
     selected_programs = []
     for name in payload.program_names:
         program = programs_by_name.get(name.casefold())
-        if program is None:
+        if program is None or not program.get("ready", True):
             raise HTTPException(
                 status_code=400,
                 detail=f"Selected program is unavailable: {name}",
@@ -1528,7 +1789,7 @@ def deploy_manifest(
     except PostPowerShellError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    selected_driver = None
+    driver_mode, driver_resolution, selected_driver = resolve_manifest(payload, image, deployment.id)
     if payload.driver_package is not None:
         selected_driver = next(
             (
@@ -1561,7 +1822,11 @@ def deploy_manifest(
     driver_apply_mode = image_config.get("driverApplyMode", "direct")
     if driver_apply_mode not in {"direct", "staged"}:
         driver_apply_mode = "direct"
+    if driver_mode in ("AUTO_LOCAL", "AUTO_LOCAL_WSUS"):
+        driver_apply_mode = "staged"
     deployment.driver_apply_mode = driver_apply_mode
+    deployment.driver_mode = driver_mode
+    deployment.driver_resolution = driver_resolution
     session.execute(
         delete(DeploymentPowerShellResult).where(
             DeploymentPowerShellResult.deployment_id == deployment.id
@@ -1617,11 +1882,17 @@ def deploy_manifest(
             prepare_driver_archive(deployment.id, selected_driver, settings)
         except DriverArchiveError as exc:
             cleanup_driver_archive(deployment.id)
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
-        driver_archive = {
-            "statusUrl": f"/api/deploy/{deployment.id}/driver-archive",
-            "waitTimeoutSeconds": settings.driver_archive_wait_timeout_minutes * 60,
-        }
+            if driver_resolution is None:
+                raise HTTPException(status_code=503, detail=str(exc)) from exc
+            driver_resolution["warnings"].append(f"AUTO archive unavailable: {exc}")
+            selected_driver = None
+            deployment.driver_resolution = dict(driver_resolution)
+            session.commit()
+        if selected_driver is not None:
+            driver_archive = {
+                "statusUrl": f"/api/deploy/{deployment.id}/driver-archive",
+                "waitTimeoutSeconds": settings.driver_archive_wait_timeout_minutes * 60,
+            }
     else:
         cleanup_driver_archive(deployment.id)
     return {
@@ -1632,6 +1903,8 @@ def deploy_manifest(
         "programs": selected_programs,
         "postPowerShell": post_powershell_plan,
         "driverPackage": selected_driver,
+        "driverMode": driver_mode,
+        "driverResolution": driver_resolution,
         "driverArchive": driver_archive,
         "postinstall": {
             "localAdminName": deployment_profile["localAdminName"],
@@ -1650,12 +1923,19 @@ def deployment_driver_archive_status(
     session: Session = Depends(get_session),
 ) -> JSONResponse:
     expire_stale_deployments(session)
-    deployment, _ = require_owned_deployment(
-        deployment_id, request, session, "winpe"
+    deployment, token = require_owned_deployment(
+        deployment_id, request, session, "winpe", "postinstall"
     )
     if deployment.status != DEPLOYMENT_BEGIN:
         raise HTTPException(status_code=409, detail="Deployment is not active")
-    if deployment.driver_apply_mode != "staged":
+    reconciliation = (deployment.driver_resolution or {}).get("reconciliation") or {}
+    if not (
+        (token.phase == "winpe" and deployment.driver_apply_mode == "staged")
+        or (
+            token.phase == "postinstall"
+            and reconciliation.get("status") == "running"
+        )
+    ):
         raise HTTPException(
             status_code=409,
             detail="Driver archive transport is not active for this deployment.",
@@ -1673,6 +1953,7 @@ def deployment_driver_archive_status(
             "status": archive.get("status"),
             "archiveRelativePath": archive.get("archiveRelativePath"),
             "archiveSize": archive.get("archiveSize"),
+            "archiveSha256": archive.get("archiveSha256"),
             "sourceSize": archive.get("sourceSize"),
             "sourceFileCount": archive.get("sourceFileCount"),
             "sourceInfCount": archive.get("sourceInfCount"),
@@ -1923,6 +2204,7 @@ def deployment_smb_credentials(
         request,
         session,
         require_domain_join=False,
+        allowed_phases=("winpe", "postinstall"),
     )
     settings = get_settings()
     if not settings.smb_share_path or not settings.smb_user or not settings.smb_password:
@@ -2333,7 +2615,7 @@ def get_domain_join_deployment(
     allowed_phases: tuple[str, ...] = ("winpe",),
 ) -> Deployment:
     expire_stale_deployments(session)
-    deployment, _ = require_owned_deployment(
+    deployment, token = require_owned_deployment(
         deployment_id,
         request,
         session,
@@ -2344,7 +2626,13 @@ def get_domain_join_deployment(
             status_code=409,
             detail="Domain join is disabled for this deployment",
         )
-    if request.client is None or request.client.host != deployment.ip_address:
+    # The installed OS may receive a new DHCP lease after WinPE reboots. Its
+    # phase-scoped bearer token is the ownership proof during postinstall;
+    # retain address pinning while the token is still in the WinPE phase.
+    if (
+        token.phase == "winpe"
+        and (request.client is None or request.client.host != deployment.ip_address)
+    ):
         raise HTTPException(
             status_code=403,
             detail="Deployment belongs to another client",
@@ -2537,6 +2825,13 @@ def deploy_stage_event(
         }[event]
         stage_record.completed_at = now
 
+    if stage == "driver_injection" and deployment.driver_resolution is not None:
+        resolution = dict(deployment.driver_resolution)
+        resolution["appliedPackageIds"] = [
+            item["package_id"] for item in resolution.get("candidate_packages", [])
+            if item.get("package_id")
+        ] if event == "complete" and stage_record.status == STAGE_COMPLETED else []
+        deployment.driver_resolution = resolution
     session.commit()
     if stage == "driver_download" and event in {"complete", "fail", "skip"}:
         cleanup_driver_archive(deployment_id)
@@ -2558,6 +2853,155 @@ def deploy_enter_postinstall(
     if token.phase == "winpe":
         set_deployment_token_phase(session, token, "postinstall")
     return {"status": "postinstall"}
+
+
+@app.get("/api/deploy/{deployment_id}/drivers/reconcile")
+def deploy_reconcile_drivers_config(
+    deployment_id: int,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> dict:
+    deployment, _ = require_owned_deployment(
+        deployment_id, request, session, "postinstall"
+    )
+    if deployment.status != DEPLOYMENT_BEGIN:
+        raise HTTPException(status_code=409, detail="Deployment is not active")
+    return {
+        "enabled": deployment.driver_mode in {"AUTO_LOCAL", "AUTO_LOCAL_WSUS"},
+        "driverMode": deployment.driver_mode,
+        "maxPasses": 3,
+    }
+
+
+@app.post("/api/deploy/{deployment_id}/drivers/reconcile")
+def deploy_reconcile_drivers(
+    deployment_id: int,
+    payload: DriverReconciliationRequest,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> dict:
+    """Resolve newly visible installed-Windows devices against local storage."""
+    deployment, _ = require_owned_deployment(
+        deployment_id, request, session, "postinstall"
+    )
+    if deployment.status != DEPLOYMENT_BEGIN:
+        raise HTTPException(status_code=409, detail="Deployment is not active")
+    if deployment.driver_mode not in {"AUTO_LOCAL", "AUTO_LOCAL_WSUS"}:
+        raise HTTPException(
+            status_code=409,
+            detail="Installed-Windows driver reconciliation is not enabled.",
+        )
+    try:
+        result = resolve_installed_inventory(payload)
+        delivered = delivered_package_ids(
+            deployment.driver_resolution,
+            payload.pass_number,
+        )
+        candidates = [
+            item for item in result.candidate_packages
+            if item.package_id not in delivered
+        ]
+        package = archive_package(candidates)
+        archive = (
+            prepare_driver_archive(deployment_id, package, get_settings())
+            if package is not None
+            else None
+        )
+    except (DriverArchiveError, OSError, ValueError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    current = dict(
+        ((deployment.driver_resolution or {}).get("reconciliation") or {})
+    )
+    passes = [
+        item for item in current.get("passes", [])
+        if int(item.get("passNumber", 0)) != payload.pass_number
+    ]
+    passes.append(pass_summary(payload, result, candidates))
+    passes.sort(key=lambda item: int(item["passNumber"]))
+    current.update({
+        "status": "running",
+        "maxPasses": 3,
+        "passes": passes,
+        "deviceReport": build_device_report(payload.inventory, result),
+    })
+    deployment.driver_resolution = save_reconciliation(
+        deployment.driver_resolution,
+        current,
+    )
+    session.commit()
+    return {
+        "status": "drivers_ready" if package is not None else "no_new_drivers",
+        "passNumber": payload.pass_number,
+        "newPackageIds": [item.package_id for item in candidates],
+        "candidatePackages": [candidate_summary(item) for item in candidates],
+        "archiveStatus": archive.get("status") if archive else None,
+        "archiveStatusUrl": f"/api/deploy/{deployment_id}/driver-archive" if archive else None,
+    }
+
+
+@app.post("/api/deploy/{deployment_id}/drivers/reconcile/archive-complete")
+def deploy_reconcile_archive_complete(
+    deployment_id: int,
+    request: Request,
+    session: Session = Depends(get_session),
+    payload: DriverArchiveCompletionRequest | None = None,
+) -> dict[str, str]:
+    deployment, _ = require_owned_deployment(
+        deployment_id, request, session, "postinstall"
+    )
+    if deployment.status != DEPLOYMENT_BEGIN:
+        raise HTTPException(status_code=409, detail="Deployment is not active")
+    if payload is not None:
+        resolution = dict(deployment.driver_resolution or {})
+        reconciliation = dict(resolution.get("reconciliation") or {})
+        passes = [dict(item) for item in reconciliation.get("passes", [])]
+        for item in passes:
+            if item.get("passNumber") == payload.pass_number:
+                item["installed"] = payload.installed
+        reconciliation["passes"] = passes
+        deployment.driver_resolution = save_reconciliation(resolution, reconciliation)
+        session.commit()
+    cleanup_driver_archive(deployment_id)
+    return {"status": "deleted"}
+
+
+@app.post("/api/deploy/{deployment_id}/drivers/reconcile/final")
+def deploy_reconcile_drivers_final(
+    deployment_id: int,
+    payload: DriverReconciliationFinalRequest,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> dict:
+    deployment, _ = require_owned_deployment(
+        deployment_id, request, session, "postinstall"
+    )
+    if deployment.status != DEPLOYMENT_BEGIN:
+        raise HTTPException(status_code=409, detail="Deployment is not active")
+    try:
+        result = resolve_installed_inventory(payload)
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    current = dict(
+        ((deployment.driver_resolution or {}).get("reconciliation") or {})
+    )
+    current.update({
+        "status": "completed",
+        "maxPasses": 3,
+        "rebootRequired": payload.reboot_required,
+        "warnings": [value[:1000] for value in payload.warnings if value.strip()],
+        "deviceReport": build_device_report(payload.inventory, result),
+    })
+    deployment.driver_resolution = save_reconciliation(
+        deployment.driver_resolution,
+        current,
+    )
+    session.commit()
+    return {
+        "status": "completed",
+        "devices": len(current["deviceReport"]),
+        "rebootRequired": payload.reboot_required,
+    }
 
 
 @app.post("/api/deploy/{deployment_id}/post-powershell/{position}/report")

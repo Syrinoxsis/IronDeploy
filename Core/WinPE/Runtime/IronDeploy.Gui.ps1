@@ -872,13 +872,16 @@ function Start-IronDeployGui {
             Enabled = "Enabled"
             Disabled = "Disabled"
             ProgramsLabel = "POST-INSTALL SOFTWARE"
+            ProgramMissingInstaller = "No .exe or .msi found — cannot select this package."
             ProgramsCount = "POST-INSTALL SOFTWARE ({0})"
             NoProgramsText = "No post-install software is available."
             PostPowerShellLabel = "POST-POWERSHELL SCRIPTS"
             PostPowerShellCount = "POST-POWERSHELL SCRIPTS ({0})"
             NoPostPowerShellText = "No post-PowerShell scripts are available."
             DriversLabel = "DRIVER PACKAGE"
-            DriversHint = "Select one package, or continue without drivers."
+            DriversHint = "Choose automatic matching, one manual package, or no drivers."
+            AutoLocalOption = "AUTO: match local drivers"
+            AutoWsusOption = "AUTO: local + WSUS (WSUS not available yet)"
             NoDriversOption = "Do not install drivers"
             WipeWarningText = "I understand this will PERMANENTLY ERASE disk {0}."
             WipeWarningNoDisk = "Select a target disk before confirming the permanent erase."
@@ -955,13 +958,16 @@ function Start-IronDeployGui {
             Enabled = "Включено"
             Disabled = "Отключено"
             ProgramsLabel = "ПРОГРАММЫ ПОСЛЕ УСТАНОВКИ"
+            ProgramMissingInstaller = "Нет .exe или .msi — этот пакет нельзя выбрать."
             ProgramsCount = "ПРОГРАММЫ ПОСЛЕ УСТАНОВКИ ({0})"
             NoProgramsText = "Нет доступных программ для установки."
             PostPowerShellLabel = "POST-POWERSHELL СКРИПТЫ"
             PostPowerShellCount = "POST-POWERSHELL СКРИПТЫ ({0})"
             NoPostPowerShellText = "Нет доступных PowerShell-скриптов."
             DriversLabel = "ПАКЕТ ДРАЙВЕРОВ"
-            DriversHint = "Выберите один пакет либо продолжите без установки драйверов."
+            DriversHint = "Автоподбор, один пакет вручную или установка без драйверов."
+            AutoLocalOption = "АВТО: подобрать локальные драйверы"
+            AutoWsusOption = "АВТО: локальные + WSUS (WSUS пока недоступен)"
             NoDriversOption = "Не устанавливать драйверы"
             WipeWarningText = "Я понимаю, что это БЕЗВОЗВРАТНО УДАЛИТ все данные с диска {0}."
             WipeWarningNoDisk = "Выберите целевой диск перед подтверждением безвозвратного удаления."
@@ -1345,6 +1351,13 @@ function Start-IronDeployGui {
 
         $script:IronGuiUi.NoDriversCheck.Content = & $script:IronGuiGetText `
             "NoDriversOption"
+        foreach ($driverCheck in $script:IronGuiDriverChecks) {
+            if ($driverCheck.Tag -eq "AUTO_LOCAL") {
+                $driverCheck.Content = & $script:IronGuiGetText "AutoLocalOption"
+            } elseif ($driverCheck.Tag -eq "AUTO_LOCAL_WSUS") {
+                $driverCheck.Content = & $script:IronGuiGetText "AutoWsusOption"
+            }
+        }
 
         $knownNames = @(
             @($script:IronGuiState.KnownDeployments) | ForEach-Object {
@@ -1887,6 +1900,11 @@ try {
                 $programCheck.Content = $programText
                 $programCheck.Tag = [string]$program.Name
                 $programCheck.Foreground = $script:IronGuiBrushes["info"]
+                if ($program.Ready -eq $false) {
+                    $programCheck.IsEnabled = $false
+                    $programText.Text += "`n" + (& $script:IronGuiGetText "ProgramMissingInstaller")
+                    $programText.Foreground = [System.Windows.Media.Brushes]::DarkOrange
+                }
                 $programCheck.Margin = New-Object System.Windows.Thickness(0, 3, 0, 3)
                 [void]$script:IronGuiUi.ProgramsPanel.Children.Add($programCheck)
                 $script:IronGuiProgramChecks += $programCheck
@@ -1936,6 +1954,19 @@ try {
             try {
                 $script:IronGuiUi.DriverPackagesPanel.Children.Clear()
                 $script:IronGuiDriverChecks = @()
+                foreach ($autoMode in @("AUTO_LOCAL", "AUTO_LOCAL_WSUS")) {
+                    $autoCheck = New-Object System.Windows.Controls.CheckBox
+                    $autoCheck.Content = if ($autoMode -eq "AUTO_LOCAL") {
+                        & $script:IronGuiGetText "AutoLocalOption"
+                    } else { & $script:IronGuiGetText "AutoWsusOption" }
+                    $autoCheck.Tag = $autoMode
+                    $autoCheck.Foreground = $script:IronGuiBrushes["info"]
+                    $autoCheck.Margin = New-Object System.Windows.Thickness(0, 3, 0, 5)
+                    $autoCheck.Add_Checked($script:IronGuiDriverChecked)
+                    $autoCheck.Add_Unchecked($script:IronGuiDriverUnchecked)
+                    $script:IronGuiDriverChecks += $autoCheck
+                    [void]$script:IronGuiUi.DriverPackagesPanel.Children.Add($autoCheck)
+                }
                 $driverGroups = @(
                     @($script:IronGuiState.DriverPackages) |
                         Sort-Object -Property Vendor, Model |

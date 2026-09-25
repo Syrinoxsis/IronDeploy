@@ -52,9 +52,48 @@
                 <span class="detail-status" id="deployment-status">-</span>
             </section>
 
-            <section class="detail-layout" aria-label="Deployment information">
-                <article class="detail-panel detail-overview">
-                    <div class="detail-panel-heading">
+            <div class="detail-workspace">
+                <nav class="detail-category-nav" aria-label="Deployment detail categories">
+                    <div class="detail-category-heading">
+                        <span class="detail-section-kicker">Deployment detail</span>
+                        <strong>Categories</strong>
+                    </div>
+                    <div class="detail-category-list" role="tablist">
+                        <button id="detail-tab-overview" type="button" role="tab" aria-selected="true" aria-controls="detail-panel-overview" data-detail-tab="overview">
+                            <span>Deployment overview</span>
+                            <small>Identity and timing</small>
+                        </button>
+                        <button id="detail-tab-error" type="button" role="tab" aria-selected="false" aria-controls="deployment-error" data-detail-tab="error" tabindex="-1" hidden>
+                            <span>Deployment error</span>
+                            <small>Failure details</small>
+                        </button>
+                        <button id="detail-tab-stages" type="button" role="tab" aria-selected="false" aria-controls="detail-panel-stages" data-detail-tab="stages" tabindex="-1">
+                            <span>Deployment stages</span>
+                            <small>WinPE workflow</small>
+                        </button>
+                        <button id="detail-tab-software" type="button" role="tab" aria-selected="false" aria-controls="detail-panel-software" data-detail-tab="software" tabindex="-1">
+                            <span>Software results</span>
+                            <small>Post-install packages</small>
+                        </button>
+                        <button id="detail-tab-powershell" type="button" role="tab" aria-selected="false" aria-controls="detail-panel-powershell" data-detail-tab="powershell" tabindex="-1">
+                            <span>PowerShell results</span>
+                            <small>Post-install scripts</small>
+                        </button>
+                        <button id="detail-tab-network" type="button" role="tab" aria-selected="false" aria-controls="detail-panel-network" data-detail-tab="network" tabindex="-1">
+                            <span>Network diagnostics</span>
+                            <small>WinPE connectivity</small>
+                        </button>
+                        <button id="detail-tab-drivers" type="button" role="tab" aria-selected="false" aria-controls="detail-panel-drivers" data-detail-tab="drivers" tabindex="-1">
+                            <span>Drivers and devices</span>
+                            <small>Driver resolution</small>
+                        </button>
+                    </div>
+                </nav>
+
+                <div class="detail-tab-content">
+            <section class="detail-panel detail-tab-panel detail-overview" id="detail-panel-overview" role="tabpanel" aria-labelledby="detail-tab-overview" data-detail-panel="overview" tabindex="0">
+                <div class="detail-panel-heading detail-overview-heading">
+                    <div class="detail-overview-heading-copy">
                         <div>
                             <span class="detail-section-kicker">Identity</span>
                             <h2>Deployment overview</h2>
@@ -63,6 +102,12 @@
                             Click a value to copy
                         </span>
                     </div>
+                    <div class="detail-timing-heading">
+                        <span class="detail-section-kicker">Timing</span>
+                        <h2>Run duration</h2>
+                    </div>
+                </div>
+                <div class="detail-overview-content">
                     <dl class="detail-facts">
                         <div><dt>Computer</dt><dd data-field="computer_name">-</dd></div>
                         <div><dt>Manufacturer</dt><dd data-field="manufacturer">-</dd></div>
@@ -78,24 +123,17 @@
                         <div><dt>Domain join</dt><dd data-field="domain_join">-</dd></div>
                         <div><dt>Deployment ID</dt><dd data-field="deployment_id">-</dd></div>
                     </dl>
-                </article>
-
-                <article class="detail-panel detail-timing">
-                    <div class="detail-panel-heading">
-                        <div>
-                            <span class="detail-section-kicker">Timing</span>
-                            <h2>Run duration</h2>
-                        </div>
+                    <div class="detail-timing-content">
+                        <div class="duration-total" id="total-duration">-</div>
+                        <dl class="timing-facts">
+                            <div><dt>Started</dt><dd id="started-at">-</dd></div>
+                            <div><dt>Finished</dt><dd id="completed-at">-</dd></div>
+                        </dl>
                     </div>
-                    <div class="duration-total" id="total-duration">-</div>
-                    <dl class="timing-facts">
-                        <div><dt>Started</dt><dd id="started-at">-</dd></div>
-                        <div><dt>Finished</dt><dd id="completed-at">-</dd></div>
-                    </dl>
-                </article>
+                </div>
             </section>
 
-            <section class="detail-panel detail-error" id="deployment-error" hidden>
+            <section class="detail-panel detail-tab-panel detail-error" id="deployment-error" role="tabpanel" aria-labelledby="detail-tab-error" data-detail-panel="error" tabindex="0" hidden>
                 <div class="detail-panel-heading">
                     <div>
                         <span class="detail-section-kicker">Failure details</span>
@@ -105,7 +143,7 @@
                 <pre id="deployment-error-message"></pre>
             </section>
 
-            <section class="detail-panel">
+            <section class="detail-panel detail-tab-panel" id="detail-panel-stages" role="tabpanel" aria-labelledby="detail-tab-stages" data-detail-panel="stages" tabindex="0" hidden>
                 <div class="detail-panel-heading">
                     <div>
                         <span class="detail-section-kicker">WinPE workflow</span>
@@ -119,7 +157,7 @@
                 </p>
             </section>
 
-            <section class="detail-panel">
+            <section class="detail-panel detail-tab-panel" id="detail-panel-software" role="tabpanel" aria-labelledby="detail-tab-software" data-detail-panel="software" tabindex="0" hidden>
                 <div class="detail-panel-heading">
                     <div>
                         <span class="detail-section-kicker">Post-install</span>
@@ -133,7 +171,7 @@
                 </p>
             </section>
 
-            <section class="detail-panel">
+            <section class="detail-panel detail-tab-panel" id="detail-panel-powershell" role="tabpanel" aria-labelledby="detail-tab-powershell" data-detail-panel="powershell" tabindex="0" hidden>
                 <div class="detail-panel-heading">
                     <div>
                         <span class="detail-section-kicker">Post-install</span>
@@ -147,7 +185,7 @@
                 </p>
             </section>
 
-            <section class="detail-panel network-panel">
+            <section class="detail-panel detail-tab-panel network-panel" id="detail-panel-network" role="tabpanel" aria-labelledby="detail-tab-network" data-detail-panel="network" tabindex="0" hidden>
                 <div class="detail-panel-heading">
                     <div>
                         <span class="detail-section-kicker">WinPE diagnostics</span>
@@ -249,6 +287,119 @@
                     </details>
                 </div>
             </section>
+
+            <section class="detail-panel detail-tab-panel driver-panel" id="detail-panel-drivers" role="tabpanel" aria-labelledby="detail-tab-drivers" data-detail-panel="drivers" tabindex="0" hidden>
+                <div class="detail-panel-heading">
+                    <div class="driver-heading-copy">
+                        <span class="detail-section-kicker">Driver resolution</span>
+                        <div class="driver-title-row">
+                            <h2>Drivers and devices</h2>
+                        </div>
+                    </div>
+                    <span class="detail-count" id="driver-count">0 devices</span>
+                </div>
+                <div class="driver-toolbar">
+                    <details class="driver-filter-menu" id="driver-filter-menu">
+                        <summary
+                            aria-label="Filter drivers and devices"
+                            title="Filter drivers and devices"
+                        >
+                            <svg aria-hidden="true" viewBox="0 0 24 24">
+                                <path d="M4 6h16"></path>
+                                <path d="M7 12h10"></path>
+                                <path d="M10 18h4"></path>
+                            </svg>
+                            <span>Filter</span>
+                            <span class="driver-filter-count" id="driver-filter-count" hidden>0</span>
+                        </summary>
+                        <div class="driver-filter-popover">
+                            <div class="driver-filter-header">
+                                <strong>Column filters</strong>
+                                <button id="driver-filter-clear" type="button">Clear</button>
+                            </div>
+                            <div class="driver-filter-grid">
+                                <label>
+                                    <span>Device</span>
+                                    <input type="search" data-driver-filter="device" placeholder="Search device">
+                                </label>
+                                <label>
+                                    <span>Class</span>
+                                    <input type="search" data-driver-filter="class" placeholder="Search class">
+                                </label>
+                                <label>
+                                    <span>Local repository</span>
+                                    <input type="search" data-driver-filter="repository" placeholder="Search local repository">
+                                </label>
+                                <label>
+                                    <span>Matched ID</span>
+                                    <input type="search" data-driver-filter="matched" placeholder="Search matched ID">
+                                </label>
+                                <label>
+                                    <span>INF</span>
+                                    <input type="search" data-driver-filter="inf" placeholder="Search INF">
+                                </label>
+                                <label>
+                                    <span>Provider</span>
+                                    <input type="search" data-driver-filter="provider" placeholder="Search provider">
+                                </label>
+                                <label>
+                                    <span>Version</span>
+                                    <input type="search" data-driver-filter="version" placeholder="Search version">
+                                </label>
+                            </div>
+                        </div>
+                    </details>
+                </div>
+                <div class="driver-table-wrap" id="driver-table-wrap" hidden>
+                    <table class="driver-table">
+                        <thead>
+                            <tr>
+                                <th aria-sort="none">
+                                    <button class="driver-sort-button" type="button" data-driver-sort="device" data-driver-label="Device">
+                                        <span>Device</span><span class="driver-sort-indicator" aria-hidden="true">↕</span>
+                                    </button>
+                                </th>
+                                <th aria-sort="none">
+                                    <button class="driver-sort-button" type="button" data-driver-sort="class" data-driver-label="Class">
+                                        <span>Class</span><span class="driver-sort-indicator" aria-hidden="true">↕</span>
+                                    </button>
+                                </th>
+                                <th aria-sort="none">
+                                    <button class="driver-sort-button" type="button" data-driver-sort="repository" data-driver-label="Local repository">
+                                        <span>Local repository</span><span class="driver-sort-indicator" aria-hidden="true">↕</span>
+                                    </button>
+                                </th>
+                                <th aria-sort="none">
+                                    <button class="driver-sort-button" type="button" data-driver-sort="matched" data-driver-label="Matched ID">
+                                        <span>Matched ID</span><span class="driver-sort-indicator" aria-hidden="true">↕</span>
+                                    </button>
+                                </th>
+                                <th aria-sort="none">
+                                    <button class="driver-sort-button" type="button" data-driver-sort="inf" data-driver-label="INF">
+                                        <span>INF</span><span class="driver-sort-indicator" aria-hidden="true">↕</span>
+                                    </button>
+                                </th>
+                                <th aria-sort="none">
+                                    <button class="driver-sort-button" type="button" data-driver-sort="provider" data-driver-label="Provider">
+                                        <span>Provider</span><span class="driver-sort-indicator" aria-hidden="true">↕</span>
+                                    </button>
+                                </th>
+                                <th aria-sort="none">
+                                    <button class="driver-sort-button" type="button" data-driver-sort="version" data-driver-label="Version">
+                                        <span>Version</span><span class="driver-sort-indicator" aria-hidden="true">↕</span>
+                                    </button>
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody id="driver-table-body"></tbody>
+                    </table>
+                </div>
+                <p class="detail-empty" id="driver-empty">
+                    No driver resolution data was reported.
+                </p>
+            </section>
+                </div>
+            </div>
         </div>
     </main>
 </body>

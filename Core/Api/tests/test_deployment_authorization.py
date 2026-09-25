@@ -23,9 +23,15 @@ from app.deployments import (
     Deployment,
     DeploymentBeginRequest,
 )
+from app.driver_models import DriverCandidate, DriverDevice, DriverInventory, DriverMatch, DriverResolution
+from app.driver_reconciliation import DriverReconciliationRequest, DriverArchiveCompletionRequest, delivered_package_ids
 from app.main import (
     deploy_begin,
     deploy_enter_postinstall,
+    deploy_reconcile_drivers,
+    deploy_reconcile_drivers_config,
+    deploy_stage_event,
+    deploy_reconcile_archive_complete,
     deployment_postinstall_script,
     deployment_setup_complete,
     deployment_smb_credentials,
@@ -34,6 +40,51 @@ from app.main import (
 
 
 class DeploymentAuthorizationTests(unittest.TestCase):
+    def test_only_explicit_driver_completion_marks_packages_applied(self):
+        with Session(self.engine) as session:
+            deployment = self.deployment()
+            deployment.driver_resolution = {"candidate_packages": [{"package_id": "initial"}]}
+            session.add(deployment)
+            session.commit()
+            token = self.create_bound_token(session, deployment)
+            request = self.request(token.id)
+            deploy_stage_event(deployment.id, "driver_injection", "start", request, session)
+            self.assertEqual(delivered_package_ids(deployment.driver_resolution, 1), set())
+            deploy_stage_event(deployment.id, "driver_injection", "complete", request, session)
+            session.refresh(deployment)
+            self.assertEqual(delivered_package_ids(deployment.driver_resolution, 1), {"initial"})
+
+    def test_skipped_drivers_are_not_marked_applied(self):
+        with Session(self.engine) as session:
+            deployment = self.deployment()
+            deployment.driver_resolution = {"candidate_packages": [{"package_id": "initial"}]}
+            session.add(deployment)
+            session.commit()
+            token = self.create_bound_token(session, deployment)
+            deploy_stage_event(deployment.id, "driver_injection", "skip", self.request(token.id), session)
+            self.assertEqual(delivered_package_ids(deployment.driver_resolution, 1), set())
+
+    def test_reconciliation_cleanup_requires_installation_confirmation(self):
+        with Session(self.engine) as session:
+            deployment = self.deployment()
+            deployment.driver_resolution = {"reconciliation": {"passes": [
+                {"passNumber": 1, "newPackageIds": ["new"]}
+            ]}}
+            session.add(deployment)
+            session.commit()
+            token = self.create_bound_token(session, deployment)
+            token.phase = "postinstall"
+            session.commit()
+            with patch("app.main.cleanup_driver_archive"):
+                deploy_reconcile_archive_complete(deployment.id, self.request(token.id), session)
+                self.assertEqual(delivered_package_ids(deployment.driver_resolution, 2), set())
+                deploy_reconcile_archive_complete(
+                    deployment.id, self.request(token.id), session,
+                    DriverArchiveCompletionRequest(pass_number=1, installed=True),
+                )
+            session.refresh(deployment)
+            self.assertEqual(delivered_package_ids(deployment.driver_resolution, 2), {"new"})
+
     def setUp(self) -> None:
         self.engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(self.engine)
@@ -183,7 +234,7 @@ class DeploymentAuthorizationTests(unittest.TestCase):
                 response = deploy_begin(payload, request, session)
             self.assertGreater(response.deployment_id, 0)
 
-    def test_smb_credentials_require_owner_and_winpe_phase(self) -> None:
+    def test_smb_credentials_require_owner_and_allow_postinstall_phase(self) -> None:
         with Session(self.engine) as session:
             first = self.deployment("pc00042")
             second = self.deployment("pc00043")
@@ -209,9 +260,9 @@ class DeploymentAuthorizationTests(unittest.TestCase):
                 self.assertEqual(wrong_owner.exception.status_code, 403)
 
                 set_deployment_token_phase(session, token, "postinstall")
-                with self.assertRaises(HTTPException) as wrong_phase:
-                    deployment_smb_credentials(first.id, request, session)
-                self.assertEqual(wrong_phase.exception.status_code, 409)
+                request.client.host = "192.0.2.99"
+                response = deployment_smb_credentials(first.id, request, session)
+                self.assertEqual(json.loads(response.body)["username"], settings.smb_user)
 
     def test_postinstall_transition_is_idempotent_without_restoring_winpe_access(
         self,
@@ -230,9 +281,79 @@ class DeploymentAuthorizationTests(unittest.TestCase):
             self.assertEqual(second, {"status": "postinstall"})
             session.refresh(token)
             self.assertEqual(token.phase, "postinstall")
-            with self.assertRaises(HTTPException) as wrong_phase:
+            settings = SimpleNamespace(
+                smb_share_path=r"\\server\IronDeploy",
+                smb_user=r"server\iron_ro",
+                smb_password="server-side-password",
+            )
+            with patch("app.main.get_settings", return_value=settings):
                 deployment_smb_credentials(deployment.id, request, session)
-            self.assertEqual(wrong_phase.exception.status_code, 409)
+
+    def test_postinstall_driver_pass_uses_token_and_persists_summary(self) -> None:
+        with Session(self.engine) as session:
+            deployment = self.deployment()
+            deployment.driver_mode = "AUTO_LOCAL"
+            deployment.driver_resolution = {"candidate_packages": []}
+            session.add(deployment)
+            session.commit()
+            token = self.create_bound_token(session, deployment)
+            set_deployment_token_phase(session, token, "postinstall")
+            config = deploy_reconcile_drivers_config(
+                deployment.id,
+                self.request(token.id),
+                session,
+            )
+            self.assertEqual(config, {
+                "enabled": True,
+                "driverMode": "AUTO_LOCAL",
+                "maxPasses": 3,
+            })
+            device = DriverDevice(
+                instance_id="PCI\\DEVICE",
+                hardware_ids=["PCI\\VEN_1234"],
+                device_name="Adapter",
+            )
+            candidate = DriverCandidate(
+                package_id="package-1",
+                import_path="Hp\\Model",
+                inf_paths=["net.inf"],
+                files=[{"path": "Hp/Model/net.inf", "size": 10, "mtime_ns": 1}],
+            )
+            resolution = DriverResolution(
+                devices_detected=1,
+                matched_devices=1,
+                candidate_packages=[candidate],
+                matches=[DriverMatch(
+                    instance_id=device.instance_id,
+                    matched_id=device.hardware_ids[0],
+                    specificity=0,
+                    id_kind="hardware",
+                    package_id=candidate.package_id,
+                )],
+            )
+            payload = DriverReconciliationRequest(
+                pass_number=1,
+                inventory=DriverInventory(devices=[device]),
+                os_version="10.0.26100",
+            )
+            with patch(
+                "app.main.resolve_installed_inventory",
+                return_value=resolution,
+            ), patch(
+                "app.main.prepare_driver_archive",
+                return_value={"status": "preparing"},
+            ):
+                response = deploy_reconcile_drivers(
+                    deployment.id,
+                    payload,
+                    self.request(token.id),
+                    session,
+                )
+            self.assertEqual(response["status"], "drivers_ready")
+            session.refresh(deployment)
+            reconciliation = deployment.driver_resolution["reconciliation"]
+            self.assertEqual(reconciliation["passes"][0]["newPackageIds"], ["package-1"])
+            self.assertEqual(reconciliation["deviceReport"][0]["deviceName"], "Adapter")
 
     def test_unattend_is_generated_only_for_owned_deployment(self) -> None:
         with tempfile.TemporaryDirectory() as temporary, Session(self.engine) as session:

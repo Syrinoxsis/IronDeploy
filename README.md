@@ -156,9 +156,12 @@ dependencies.
 & ".\3. Start-IronDeploySetupWeb.ps1"
 ```
 
-Starts the local SetupWeb configuration page. Configure IronAPI, Active Directory
-integration, WinPE access, and the first administrator account for the IronAPI
-web interface.
+Starts the local SetupWeb configuration page. Configure IronAPI, the SMB share,
+Active Directory connection settings, WinPE access, and the first
+administrator account for the IronAPI web interface.
+
+After IronAPI is available, configure the allowed computer-name formats under
+`/image-config` in **WinPE Settigns → Computer naming**.
 
 SetupWeb can also publish the prepared deployment-content folder through SMB and
 configure its access with a dedicated action.
@@ -261,8 +264,12 @@ Normal IronDeploy installation and maintenance use the numbered scripts 1
 through 6 and the web interface. Users do not need to run internal PowerShell
 scripts from `Core\Tools`.
 
-See [WinPE build and deployment runtime](Core/Docs/WINPE.md) for details about
-WinPE and the deployment process.
+The post-install software page manages directory-based software packages. An
+administrator can upload one EXE/MSI (IronDeploy creates its package directory)
+or an entire folder containing the installer, configuration, transforms, and
+other supporting files. Each package has one EXE/MSI entrypoint and unattended
+launch arguments; the entrypoint runs with the package root as its working
+directory. Files can be added to or removed from an existing package in the UI.
 
 ## Before the first deployment
 
@@ -283,15 +290,21 @@ IronDeploy handles deployment tokens, SMB credentials, Active Directory
 operations, and destructive disk actions. Before using it outside a test
 environment:
 
-- use SMB 3.x and require **SMB signing**;
-- prefer HTTPS for IronAPI and enable certificate validation;
-- use separate identities for IronAPI and WinPE file access;
-- grant the IronAPI service account local administrator rights only on the
-  deployment server;
-- do not add the IronAPI service account to Domain Admins; delegate only the
-  required permissions in the target OU;
-- never commit `.env`, databases, ODJ blobs, Windows images, generated WIM/ISO
-  files, driver packages, or program installers;
+- use SMB 3.x and require **SMB signing** so files cannot be silently modified
+  in transit. Run the following command in an elevated PowerShell session on
+  the SMB server; it requires signing for all shares hosted by that server:
+
+  ```powershell
+  Set-SmbServerConfiguration -RequireSecuritySignature $true -Force
+  ```
+
+- prefer HTTPS for IronAPI and enable certificate validation, because the API
+  carries deployment tokens and the configured SMB account details;
+- add the dedicated IronAPI service account to the local Administrators group
+  on the deployment server for DISM and WinPE builds; do not grant it Domain
+  Admin membership;
+- never commit `.env`, databases, ODJ blobs, WIM/ESD images, generated
+  WIM/ISO files, driver packages, or software package payloads;
 - verify the target machine and the selected disk's number, model, and size
   before confirming the permanent erase.
 
@@ -323,6 +336,7 @@ security guidance.
 - [WinPE build and deployment runtime](Core/Docs/WINPE.md)
 - [IronAPI configuration and API behaviour](Core/Docs/API.md)
 - [Initial configuration with SetupWeb](Core/Docs/SETUPWEB.md)
+- [Driver lifecycle roadmap](Core/Docs/DRIVERS_ROADMAP.md)
 - [Roadmap](Core/Docs/ROADMAP.md)
 - [Security policy](SECURITY.md)
 - [Contributing and bug reports](CONTRIBUTING.md)

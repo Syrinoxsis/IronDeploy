@@ -8,9 +8,13 @@
     <link rel="stylesheet" href="/static/dashboard.css">
     <link rel="stylesheet" href="/static/navigation.css">
     <link rel="stylesheet" href="/static/image-config.css">
+    <!-- TEMPORARY WINPE DRIVER UPLOAD: remove this asset with the stop-gap feature. -->
+    <link rel="stylesheet" href="/static/winpe-drivers.css">
     <script src="/static/i18n.js"></script>
     <script src="/static/navigation.js"></script>
     <script src="/static/image-config.js" defer></script>
+    <!-- TEMPORARY WINPE DRIVER UPLOAD: remove this asset with the stop-gap feature. -->
+    <script src="/static/winpe-drivers.js" defer></script>
 </head>
 <body class="image-config-page" data-page="image-config">
     <header class="app-header">
@@ -86,7 +90,7 @@
                             <rect x="3" y="4" width="18" height="13" rx="1"></rect>
                             <path d="M8 21h8M12 17v4"></path>
                         </svg>
-                        <span>WinPE interface</span>
+                        <span>WinPE Settigns</span>
                         <span class="settings-chevron" aria-hidden="true"></span>
                     </button>
                     <div class="settings-group-children">
@@ -97,6 +101,11 @@
                         <button class="settings-leaf" type="button"
                                 data-settings-view="technical-settings">
                             Technical settings
+                        </button>
+                        <!-- TEMPORARY WINPE DRIVER UPLOAD: removable navigation hook. -->
+                        <button class="settings-leaf" type="button"
+                                data-settings-view="load-winpe-drivers">
+                            Load winpe-drivers
                         </button>
                     </div>
                 </div>
@@ -312,6 +321,65 @@
                             <span class="switch-track" aria-hidden="true"></span>
                         </span>
                     </label>
+                </section>
+
+                <!-- TEMPORARY WINPE DRIVER UPLOAD: removable, self-contained panel. -->
+                <section class="settings-view-panel"
+                         data-settings-view-panel="load-winpe-drivers" hidden>
+                    <header class="inspector-heading">
+                        <h1>Load winpe-drivers</h1>
+                        <p>Upload drivers that WinPE loads when it starts.</p>
+                    </header>
+                    <section class="winpe-driver-upload-panel"
+                             aria-label="Upload WinPE drivers" data-independent-setting>
+                        <div class="winpe-driver-upload-controls">
+                            <label class="winpe-folder-picker">
+                                <svg aria-hidden="true" viewBox="0 0 24 24">
+                                    <path d="M12 16V4"></path>
+                                    <path d="m6 10 6-6 6 6"></path>
+                                    <path d="M4 20h16"></path>
+                                </svg>
+                                <span>Choose folder</span>
+                                <input id="winpe-driver-folder" type="file"
+                                       webkitdirectory directory multiple>
+                            </label>
+                            <button class="winpe-driver-primary-button"
+                                    id="winpe-driver-upload-button" type="button">
+                                Upload package
+                            </button>
+                        </div>
+                        <div class="winpe-driver-feedback">
+                            <span class="winpe-driver-folder-summary"
+                                  id="winpe-driver-folder-summary" hidden></span>
+                            <div class="winpe-driver-progress-row"
+                                 id="winpe-driver-progress-row" hidden>
+                                <progress id="winpe-driver-progress"
+                                          max="100" value="0"></progress>
+                                <span id="winpe-driver-progress-text">Preparing upload...</span>
+                                <button class="winpe-driver-cancel-button"
+                                        id="winpe-driver-cancel-button" type="button">
+                                    Cancel upload
+                                </button>
+                            </div>
+                        </div>
+                    </section>
+                    <article class="winpe-driver-current" id="winpe-driver-current" hidden>
+                        <div>
+                            <h3>Current WinPE drivers</h3>
+                            <p id="winpe-driver-current-details"></p>
+                            <p class="winpe-driver-directory" id="winpe-driver-directory"></p>
+                        </div>
+                        <button class="winpe-driver-delete-button"
+                                id="winpe-driver-delete-button" type="button" hidden>
+                            Delete
+                        </button>
+                    </article>
+                    <div class="winpe-driver-empty" id="winpe-driver-empty" hidden>
+                        No WinPE drivers were uploaded.
+                    </div>
+                    <p class="inspector-note">
+                        Rebuild the WinPE WIM or ISO after uploading or deleting drivers.
+                    </p>
                 </section>
             </div>
 

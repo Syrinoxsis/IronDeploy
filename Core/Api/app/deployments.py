@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+from app.driver_models import DriverMode, DriverInventory
 from sqlalchemy import (
     BigInteger,
     Boolean,
@@ -93,6 +94,8 @@ class Deployment(Base):
     image_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     image_apply_mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
     driver_apply_mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    driver_mode: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    driver_resolution: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     target_disk_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     target_disk_model: Mapped[str | None] = mapped_column(String(255), nullable=True)
     target_disk_size_bytes: Mapped[int | None] = mapped_column(
@@ -718,6 +721,16 @@ class DeploymentManifestRequest(BaseModel):
     program_names: list[str] = Field(default_factory=list, max_length=500)
     post_powershell_names: list[str] = Field(default_factory=list, max_length=500)
     driver_package: str | None = Field(default=None, min_length=3, max_length=511)
+    driver_mode: DriverMode | None = None
+    hardware_inventory: DriverInventory | None = None
+
+    @model_validator(mode="after")
+    def validate_driver_mode(self):
+        if self.driver_mode == "MANUAL_FOLDER" and not self.driver_package:
+            raise ValueError("MANUAL_FOLDER requires driver_package")
+        if self.driver_mode in ("AUTO_LOCAL", "AUTO_LOCAL_WSUS", "NO_DRIVERS") and self.driver_package:
+            raise ValueError("driver_package is only accepted in MANUAL_FOLDER")
+        return self
 
     @field_validator("program_names", "post_powershell_names")
     @classmethod
@@ -964,6 +977,8 @@ class DeploymentListItem(BaseModel):
     image_name: str | None
     imageApplyMode: Literal["direct", "staged"] | None
     driverApplyMode: Literal["direct", "staged"] | None
+    driverMode: str | None = None
+    driverResolution: dict | None = None
     target_disk_number: int | None
     target_disk_model: str | None
     target_disk_size_bytes: int | None
@@ -1266,6 +1281,8 @@ def to_deployment_list_item(
         image_name=deployment.image_name,
         imageApplyMode=deployment.image_apply_mode,
         driverApplyMode=deployment.driver_apply_mode,
+        driverMode=deployment.driver_mode,
+        driverResolution=deployment.driver_resolution,
         target_disk_number=deployment.target_disk_number,
         target_disk_model=deployment.target_disk_model,
         target_disk_size_bytes=deployment.target_disk_size_bytes,

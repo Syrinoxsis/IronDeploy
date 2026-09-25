@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import locale
 import os
 import shutil
@@ -15,6 +16,7 @@ from typing import Any
 
 from app.config import IRONDEPLOY_ROOT, Settings, get_settings
 from app.drivers import DRIVERS_DIR
+from app.driver_archive_selection import selected_snapshot, write_selected_tar
 
 
 ARCHIVE_DIRECTORY_NAME = ".irondeploy-archives"
@@ -331,7 +333,8 @@ def _build_archive(
     archive_path = directory / ARCHIVE_NAME
     try:
         metadata = _read_metadata(deployment_id)
-        package_path = _resolve_package(str(metadata["sourceRelativePath"]))
+        selection = metadata.get("sourceFiles")
+        package_path = DRIVERS_DIR if selection is not None else _resolve_package(str(metadata["sourceRelativePath"]))
         for attempt in range(1, 3):
             with _archive_lock:
                 job = _running.get(deployment_id)
@@ -341,16 +344,17 @@ def _build_archive(
                     )
                 partial_path.unlink(missing_ok=True)
                 archive_path.unlink(missing_ok=True)
-            before = _snapshot_package(package_path, expected_job.cancel)
+            before = (selected_snapshot(DRIVERS_DIR, selection, expected_job.cancel)
+                      if selection is not None else _snapshot_package(package_path, expected_job.cancel))
             _assert_expected_package(before, metadata)
-            _run_7za(
-                deployment_id,
-                package_path,
-                partial_path,
-                settings.deployment_timeout_minutes * 60,
-                expected_job,
-            )
-            after = _snapshot_package(package_path, expected_job.cancel)
+            if selection is not None:
+                write_selected_tar(DRIVERS_DIR, selection, partial_path, expected_job.cancel,
+                                   settings.deployment_timeout_minutes * 60)
+            else:
+                _run_7za(deployment_id, package_path, partial_path,
+                         settings.deployment_timeout_minutes * 60, expected_job)
+            after = (selected_snapshot(DRIVERS_DIR, selection, expected_job.cancel)
+                     if selection is not None else _snapshot_package(package_path, expected_job.cancel))
             if before["entries"] == after["entries"]:
                 _assert_expected_package(after, metadata)
                 break
@@ -388,6 +392,10 @@ def _build_archive(
         if not partial_path.is_file() or partial_path.stat().st_size <= 0:
             raise DriverArchiveError("7-Zip did not create the driver TAR file.")
         archive_size = partial_path.stat().st_size
+        digest = hashlib.sha256()
+        with partial_path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
         with _archive_lock:
             job = _running.get(deployment_id)
             if job is not expected_job or job.cancel.is_set():
@@ -403,6 +411,7 @@ def _build_archive(
                 status="ready",
                 archiveRelativePath=_archive_relative_path(deployment_id),
                 archiveSize=archive_size,
+                archiveSha256=digest.hexdigest(),
                 completedAt=_utc_now(),
                 error=None,
             )
@@ -447,10 +456,18 @@ def prepare_driver_archive(
         }
     except (TypeError, ValueError) as exc:
         raise DriverArchiveError("Driver package metadata is invalid.") from exc
-    package_path = _resolve_package(relative_path)
-    snapshot = _snapshot_package(package_path)
+    selection = driver_package.get("sourceFiles")
+    if selection is not None:
+        source_metadata["sourceFiles"] = selection
+        try:
+            snapshot = selected_snapshot(DRIVERS_DIR, selection)
+        except (OSError, ValueError) as exc:
+            raise DriverArchiveError(str(exc)) from exc
+    else:
+        package_path = _resolve_package(relative_path)
+        snapshot = _snapshot_package(package_path)
     _assert_expected_package(snapshot, source_metadata)
-    if not SEVEN_ZIP_EXE.is_file():
+    if selection is None and not SEVEN_ZIP_EXE.is_file():
         raise DriverArchiveError(f"Bundled x64 7za.exe is missing: {SEVEN_ZIP_EXE}")
     estimate = _estimate_archive_bytes(snapshot)
     maximum = resolved_settings.driver_archive_max_gib * 1024**3
@@ -463,7 +480,7 @@ def prepare_driver_archive(
         existing = _running.get(deployment_id)
         if existing is not None:
             metadata = _read_metadata(deployment_id)
-            if metadata.get("sourceRelativePath") == relative_path:
+            if metadata.get("sourceRelativePath") == relative_path and metadata.get("sourceFiles") == selection:
                 return metadata
             raise DriverArchiveError(
                 "Another driver archive is already being prepared for this deployment."
@@ -475,6 +492,7 @@ def prepare_driver_archive(
         if (
             existing_metadata is not None
             and existing_metadata.get("sourceRelativePath") == relative_path
+            and existing_metadata.get("sourceFiles") == selection
             and existing_metadata.get("status") == "ready"
             and (_job_directory(deployment_id) / ARCHIVE_NAME).is_file()
         ):
@@ -532,6 +550,8 @@ def get_driver_archive_status(
                 "fileCount": metadata.get("sourceFileCount"),
                 "infCount": metadata.get("sourceInfCount"),
             }
+            if "sourceFiles" in metadata:
+                package["sourceFiles"] = metadata["sourceFiles"]
             shutil.rmtree(_job_directory(deployment_id), ignore_errors=True)
             prepare_driver_archive(deployment_id, package, settings)
             metadata = _read_metadata(deployment_id)

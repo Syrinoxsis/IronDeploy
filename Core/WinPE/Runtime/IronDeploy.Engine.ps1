@@ -3018,9 +3018,11 @@ function Get-IronDeployProgramList {
     $Programs = @(
         $Catalog.programs | ForEach-Object {
             $Arguments = [string]$_.arguments
-            $Display = "{0}   ({1:N1} MB)" -f `
+            $Display = "{0}   ({1:N1} MB, {2} files)   -> {3}" -f `
                 ([string]$_.name),
-                ([long]$_.size / 1MB)
+                ([long]$_.size / 1MB),
+                ([int]$_.fileCount),
+                ([string]$_.entrypoint)
             if (![string]::IsNullOrWhiteSpace($Arguments)) {
                 $Display = "{0}   [{1}]" -f $Display, $Arguments
             }
@@ -3028,7 +3030,10 @@ function Get-IronDeployProgramList {
                 Name = [string]$_.name
                 FullName = "$($ProgramsPath.TrimEnd('\'))\$($_.name)"
                 Length = [long]$_.size
+                FileCount = [int]$_.fileCount
                 Type = [string]$_.type
+                Entrypoint = [string]$_.entrypoint
+                Ready = ($_.ready -ne $false)
                 Arguments = $Arguments
                 Sha256 = [string]$_.sha256
                 Display = $Display
@@ -3288,7 +3293,15 @@ function Invoke-IronDeployment {
         } else {
             $SelectedDriverPackage
         }
-    } | ConvertTo-Json
+    }
+    if ($SelectedDriverPackage -in @("AUTO_LOCAL", "AUTO_LOCAL_WSUS")) {
+        . (Join-Path $PSScriptRoot "IronDeploy.DriverInventory.ps1")
+        $ManifestPayload.driver_package = $null
+        $ManifestPayload.driver_mode = $SelectedDriverPackage
+        $ManifestPayload.hardware_inventory = Get-IronDriverInventory
+        Write-IronLog ("[INFO] AUTO inventory: {0} devices" -f $ManifestPayload.hardware_inventory.devices.Count)
+    }
+    $ManifestPayload = $ManifestPayload | ConvertTo-Json -Depth 12
     try {
         $DeploymentPlan = Invoke-IronApiRestMethod `
             -Uri "$($ApiBaseUrl.TrimEnd('/'))/api/deploy/$script:DeploymentId/manifest" `
@@ -3336,6 +3349,15 @@ function Invoke-IronDeployment {
         $DeploymentPlan.postPowerShell | ForEach-Object { $_ }
     )
     $DriverPackagePlan = $DeploymentPlan.driverPackage
+    foreach ($driverWarning in @($DeploymentPlan.driverResolution.warnings)) {
+        if ($driverWarning) { Write-IronLog ("[WARN] {0}" -f $driverWarning) -Level warn }
+    }
+    if ($null -ne $DeploymentPlan.driverResolution) {
+        Write-IronLog ("[INFO] AUTO drivers: matched {0}/{1}; candidate packages: {2}" -f `
+            $DeploymentPlan.driverResolution.matched_devices, `
+            $DeploymentPlan.driverResolution.devices_detected, `
+            @($DeploymentPlan.driverResolution.candidate_packages).Count)
+    }
     $DriverArchivePlan = $DeploymentPlan.driverArchive
     $DriverArchiveStatusUrl = ""
     $DriverArchiveWaitTimeoutSeconds = 0
@@ -3743,6 +3765,7 @@ function Invoke-IronDeployment {
         deployment_id = $script:DeploymentId
         image_apply_mode = $script:ImageApplyMode
         driver_apply_mode = $script:DriverApplyMode
+        driver_mode = [string]$DeploymentPlan.driverMode
         api_base_url = $ApiBaseUrl
         api_deployment_token = $script:DeploymentAccessToken
         driver_package = $DriverPackageRelativePath
@@ -4014,37 +4037,59 @@ function Invoke-IronDeployment {
             $ProgramName = [string]$SelectedProgram.name
             $ProgramSourcePath = "$($ProgramsPath.TrimEnd('\'))\$ProgramName"
             $ProgramTargetPath = Join-Path $ProgramsTargetDir $ProgramName
-            Copy-Item $ProgramSourcePath $ProgramTargetPath -Force
-            if (!(Test-Path $ProgramTargetPath)) {
-                Fail "Program was not copied: $ProgramName"
+            Copy-Item `
+                -LiteralPath $ProgramSourcePath `
+                -Destination $ProgramsTargetDir `
+                -Recurse `
+                -Force
+            if (!(Test-Path -LiteralPath $ProgramTargetPath -PathType Container)) {
+                Fail "Program package was not copied: $ProgramName"
             }
 
-            $ActualProgramHash = (
-                Get-FileHash -LiteralPath $ProgramTargetPath -Algorithm SHA256
-            ).Hash.ToLowerInvariant()
             $ExpectedProgramHash = ([string]$SelectedProgram.sha256).ToLowerInvariant()
-            if ($ActualProgramHash -ne $ExpectedProgramHash) {
-                Write-IronLog (
-                    "[ERROR] SHA-256 mismatch after copy: {0}" -f $ProgramName
-                ) -Level error
-            } else {
-                Write-IronLog (
-                    "[OK] Program staged and verified: {0} {1}" -f `
-                        $ProgramName,
-                        ([string]$SelectedProgram.arguments)
-                ) -Level ok
+            $CopiedFiles = @($SelectedProgram.files | ForEach-Object { $_ })
+            foreach ($CopiedFile in $CopiedFiles) {
+                $RelativeFilePath = [string]$CopiedFile.path
+                $CopiedFilePath = Join-Path $ProgramTargetPath $RelativeFilePath
+                if (!(Test-Path -LiteralPath $CopiedFilePath -PathType Leaf)) {
+                    Fail "Program package file was not copied: $ProgramName\$RelativeFilePath"
+                }
+                $CopiedFileInfo = Get-Item -LiteralPath $CopiedFilePath
+                if ($CopiedFileInfo.Length -ne [long]$CopiedFile.size) {
+                    Fail "Program package file size mismatch: $ProgramName\$RelativeFilePath"
+                }
+                $ActualFileHash = (
+                    Get-FileHash -LiteralPath $CopiedFilePath -Algorithm SHA256
+                ).Hash.ToLowerInvariant()
+                if ($ActualFileHash -ne ([string]$CopiedFile.sha256).ToLowerInvariant()) {
+                    Fail "Program package file SHA-256 mismatch: $ProgramName\$RelativeFilePath"
+                }
             }
+            Write-IronLog (
+                "[OK] Program package staged and verified: {0} ({1} files)" -f `
+                    $ProgramName,
+                    $CopiedFiles.Count
+            ) -Level ok
             $ProgramManifest += @{
                 name = $ProgramName
                 size = [long]$SelectedProgram.size
+                fileCount = [int]$SelectedProgram.fileCount
                 type = [string]$SelectedProgram.type
+                entrypoint = [string]$SelectedProgram.entrypoint
                 arguments = [string]$SelectedProgram.arguments
                 sha256 = $ExpectedProgramHash
+                files = @($CopiedFiles | ForEach-Object {
+                    @{
+                        path = [string]$_.path
+                        size = [long]$_.size
+                        sha256 = ([string]$_.sha256).ToLowerInvariant()
+                    }
+                })
             }
         }
 
         $ProgramManifestPath = Join-Path $ProgramsTargetDir "programs.json"
-        ConvertTo-Json -InputObject @($ProgramManifest) |
+        ConvertTo-Json -InputObject @($ProgramManifest) -Depth 6 |
             Out-File $ProgramManifestPath -Encoding UTF8 -Force
         if (!(Test-Path $ProgramManifestPath)) {
             Fail "Program manifest was not written: $ProgramManifestPath"

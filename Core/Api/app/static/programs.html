@@ -30,38 +30,93 @@
     </header>
 
     <main class="page-shell">
-        <section class="page-heading">
+        <section class="page-heading software-heading">
             <h1>Post-install software</h1>
+            <p>Build complete software packages for unattended Windows setup.</p>
         </section>
 
         <section class="notice" id="message-area" hidden></section>
 
-        <section class="upload-card" aria-labelledby="upload-title">
-            <div>
-                <h2 id="upload-title">Add a program</h2>
-                <details class="program-upload-note">
-                    <summary>Note</summary>
-                    <ul>
-                        <li><code>.exe</code> and <code>.msi</code>, up to 5 GiB.</li>
-                        <li>The file name and launch arguments are optional.</li>
-                        <li>Arguments are passed exactly as entered.</li>
-                    </ul>
-                </details>
+        <section class="upload-card package-upload-card" aria-labelledby="upload-title">
+            <div class="package-upload-heading">
+                <div>
+                    <h2 id="upload-title">Add software package</h2>
+                    <p>Choose one installer or a folder with its supporting files.</p>
+                </div>
+                <span class="package-limit">Up to 5 GiB · 10,000 files</span>
             </div>
-            <div class="upload-controls program-upload-controls">
-                <input id="program-file" type="file" accept=".exe,.msi">
-                <input id="program-name" type="text"
-                       class="arguments-input program-name-input"
-                       placeholder="File name (optional)" maxlength="255"
-                       spellcheck="false">
-                <input id="program-arguments" type="text" class="arguments-input"
-                       placeholder="Arguments passed to the installer, e.g. /qn /norestart ALLUSERS=1"
-                       maxlength="500" spellcheck="false">
-                <button class="primary-button" id="upload-button" type="button">
-                    Upload program
+
+            <div class="package-source-grid">
+                <button class="source-option is-selected" id="installer-mode" type="button"
+                        aria-pressed="true">
+                    <span class="source-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24"><path d="M6 2.75h8l4 4V21.25H6z"></path><path d="M14 2.75v4h4M9 12h6M9 16h4"></path></svg>
+                    </span>
+                    <span class="source-copy">
+                        <strong>Installer</strong>
+                        <span>One EXE or MSI. A package folder is created automatically.</span>
+                    </span>
+                    <span class="source-action">Choose installer</span>
+                </button>
+
+                <button class="source-option" id="folder-mode" type="button"
+                        aria-pressed="false">
+                    <span class="source-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24"><path d="M3 6.5h7l2 2h9v10.75H3z"></path></svg>
+                    </span>
+                    <span class="source-copy">
+                        <strong>Folder</strong>
+                        <span>Installer, configs and other files. Folder structure is preserved.</span>
+                    </span>
+                    <span class="source-action">Choose folder</span>
+                </button>
+
+                <div class="package-drop-zone" id="package-drop-zone" tabindex="0">
+                    <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5"></path><path d="M5 14v5h14v-5"></path></svg>
+                    <strong>Drop an installer or folder here</strong>
+                    <span>Files stay in their original relative paths.</span>
+                </div>
+            </div>
+
+            <input id="installer-input" type="file" accept=".exe,.msi" hidden>
+            <input id="folder-input" type="file" webkitdirectory directory multiple hidden>
+
+            <div class="package-form-row">
+                <label class="package-field">
+                    <span>Package name</span>
+                    <input id="package-name" type="text" maxlength="255"
+                           placeholder="e.g. Microsoft 365" spellcheck="false">
+                </label>
+                <label class="package-field package-arguments-field">
+                    <span>Launch arguments <small>optional</small></span>
+                    <input id="package-arguments" type="text" maxlength="500"
+                           placeholder="e.g. /qn /norestart" spellcheck="false">
+                </label>
+                <button class="primary-button package-upload-button" id="upload-button"
+                        type="button" disabled>
+                    Upload package
                 </button>
             </div>
-            <div class="progress-row" id="upload-progress-row" hidden>
+            <p class="working-directory-note">
+                The installer always runs from the package root, so relative config paths work.
+            </p>
+
+            <div class="selected-package" id="selected-package" hidden>
+                <div class="selected-package-heading">
+                    <div>
+                        <strong id="selection-title">Selected package</strong>
+                        <span id="selection-summary"></span>
+                    </div>
+                    <label class="entrypoint-field">
+                        <span>Installer to run</span>
+                        <select id="entrypoint-select"></select>
+                    </label>
+                    <button class="quiet-button" id="clear-selection" type="button">Clear</button>
+                </div>
+                <div class="selected-files" id="selected-files"></div>
+            </div>
+
+            <div class="progress-row package-progress" id="upload-progress-row" hidden>
                 <progress id="upload-progress" max="100" value="0"></progress>
                 <span id="upload-progress-text">Preparing upload...</span>
                 <button class="cancel-button" id="cancel-upload-button" type="button">
@@ -70,20 +125,24 @@
             </div>
         </section>
 
-        <section class="images-card">
-            <div class="section-heading">
+        <section class="images-card package-list-card">
+            <div class="section-heading package-list-heading">
                 <div>
-                    <h2>Available programs</h2>
+                    <div class="package-title-line">
+                        <h2>Software packages</h2>
+                        <span class="package-count" id="program-count">0</span>
+                    </div>
                     <p id="programs-directory"></p>
                 </div>
-                <span id="program-count">0 programs</span>
+                <label class="package-search">
+                    <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="m16 16 4 4"></path></svg>
+                    <input id="package-search" type="search" placeholder="Search packages...">
+                </label>
             </div>
             <div class="empty-state" id="empty-state" hidden>
-                No programs were found. Upload one above or copy an
-                <code>.exe</code> / <code>.msi</code> file into
-                <code>Share\Programs</code>, then press Refresh.
+                No software packages yet. Add an installer or a folder above.
             </div>
-            <div class="image-list" id="program-list"></div>
+            <div class="package-list" id="program-list"></div>
         </section>
     </main>
 </body>
