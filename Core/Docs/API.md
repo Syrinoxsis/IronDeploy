@@ -29,10 +29,14 @@ service:
 ```
 
 The installer accepts a dedicated domain account or, for deployments without
-Active Directory, an existing dedicated local account. Built-in identities such
-as `LocalSystem` and administrator accounts are rejected: the installer resolves
-the entered name and refuses well-known SIDs, the `BUILTIN` domain, and any
-account whose RID is 500.
+Active Directory, an existing dedicated local account. It rejects built-in
+service identities such as `LocalSystem`, principals from the `BUILTIN` domain,
+and the built-in Administrator account whose RID is 500.
+
+The service account must be a local administrator on the IronDeploy server so
+IronAPI can use DISM to build WinPE from the web interface. This local role is
+separate from Active Directory permissions and does not require Domain Admin
+membership.
 
 A domain account is required whenever LDAP name checks or Offline Domain Join
 are enabled, because both run as the IronAPI process identity. IronDeploy stores
